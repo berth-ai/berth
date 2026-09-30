@@ -1,0 +1,47 @@
+#!/usr/bin/env bash
+# berth-entrypoint: container init, run by tini as root.
+#   serve       install agents, start enabled frontend modules, supervise them
+#   berth ...   run the berth CLI as root
+#   anything    run as the agent user, as a one-off without supervision
+set -euo pipefail
+export LC_COLLATE=C
+
+BERTH_LIB_DIR=${BERTH_LIB_DIR:-/usr/local/lib/berth}
+# shellcheck source=../lib/berth/lib.sh
+source "$BERTH_LIB_DIR/lib.sh"
+# shellcheck source=../lib/berth/supervisor.sh
+source "$BERTH_LIB_DIR/supervisor.sh"
+
+# setup_identity remaps agent to PUID/PGID and repairs the home volume's
+# ownership. /workspaces is never touched.
+setup_identity() {
+  local puid=${PUID-1000} pgid=${PGID-1000} var value
+  for var in PUID PGID; do
+    value=${!var-1000}
+    [[ $value =~ ^[0-9]+$ ]] && ((10#$value != 0)) || die "$var must be a non-zero number, got '$value'"
+  done
+  if [[ $(id -g agent) != "$pgid" ]]; then
+    log "setting agent's group id to $pgid"
+    groupmod -o -g "$pgid" agent
+  fi
+  if [[ $(id -u agent) != "$puid" ]]; then
+    log "setting agent's user id to $puid"
+    usermod -o -u "$puid" agent
+  fi
+  if [[ $(stat -c '%u:%g' "$BERTH_HOME") != "$puid:$pgid" ]]; then
+    log "repairing ownership of $BERTH_HOME"
+    chown -R "$puid:$pgid" "$BERTH_HOME"
+  fi
+}
+
+main() {
+  setup_identity
+  case ${1:-serve} in
+    serve) ;;
+    berth) exec "$@" ;;
+    *) exec gosu agent "$@" ;;
+  esac
+  die "serve is not implemented yet"
+}
+
+main "$@"
