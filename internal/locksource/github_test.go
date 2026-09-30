@@ -55,7 +55,7 @@ func TestFetch(t *testing.T) {
 	if l.Source != want || l.Hash != Hash([]byte(validLock)) {
 		t.Fatalf("got %+v", l.Source)
 	}
-	if (*seen).Get("Authorization") != "Bearer t0ken" {
+	if seen.Get("Authorization") != "Bearer t0ken" {
 		t.Fatalf("token not sent")
 	}
 }

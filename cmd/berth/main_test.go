@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"os/exec"
 	"path/filepath"
 	"strings"
@@ -21,7 +22,7 @@ func TestBinaryVersionWithLdflags(t *testing.T) {
 	}
 	if err := exec.Command(bin, "nope").Run(); err == nil {
 		t.Fatal("unknown command must fail")
-	} else if ee, ok := err.(*exec.ExitError); !ok || ee.ExitCode() != 2 {
+	} else if ee := (*exec.ExitError)(nil); !errors.As(err, &ee) || ee.ExitCode() != 2 {
 		t.Fatalf("exit %v", err)
 	}
 }
