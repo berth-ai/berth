@@ -52,11 +52,20 @@ ensure_agents() {
   fi
 }
 
-# start_mcp_setup registers MCP servers in the background; never fatal.
+# start_mcp_setup registers MCP servers in the background; never fatal. The
+# agent CLIs it runs never see any module's secrets.
 start_mcp_setup() {
   local timeout=${MCP_SETUP_TIMEOUT:-120}
   [[ $timeout =~ ^[0-9]+$ ]] || die "MCP_SETUP_TIMEOUT must be a number of seconds, got '$timeout'"
-  (timeout "$timeout" gosu agent berth-mcp-setup || warn "MCP setup failed or timed out (non-fatal)") &
+  (
+    load_modules
+    scrub=()
+    for var in "${BERTH_ALL_SECRETS[@]}"; do
+      scrub+=(-u "$var")
+    done
+    env "${scrub[@]}" timeout "$timeout" gosu agent berth-mcp-setup ||
+      warn "MCP setup failed or timed out (non-fatal)"
+  ) &
 }
 
 # start_modules validates every enabled module before starting any of them.

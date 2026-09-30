@@ -144,6 +144,15 @@ class ServeTest(unittest.TestCase):
         proc.terminate()
         self.assertEqual(proc.wait(timeout=15), 143)
 
+    def test_mcp_setup_gets_no_module_secrets(self):
+        self.h.fake("berth-mcp-setup", 'env > "$FAKE_LOG/mcp.env"\n')
+        proc = self.serve(WEB_TERMINAL_CREDENTIAL="me:ttyd-secret", CODE_SERVER_PASSWORD="cs-secret")
+        self.h.wait_for(lambda: self.h.log_path("mcp.env").exists() and "PATH=" in self.h.read_log("mcp.env"))
+        self.h.stop(proc)
+        env = self.h.read_log("mcp.env")
+        self.assertNotIn("ttyd-secret", env)
+        self.assertNotIn("cs-secret", env)
+
     def test_ensure_failure_with_current_continues(self):
         (self.h.agents / "current").mkdir()
         (self.h.agents / "current" / ".complete").write_text("{}")

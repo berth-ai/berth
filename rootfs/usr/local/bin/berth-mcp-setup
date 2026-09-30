@@ -41,8 +41,15 @@ opencode_add() {
   if [[ ! -f $config ]]; then
     printf '{"$schema": "https://opencode.ai/config.json"}\n' >"$config" || return 1
   fi
+  # Edit the real file, so a config symlinked from a dotfiles repo stays a
+  # link, and keep its mode (cp -p) rather than mktemp's 0600.
+  config=$(readlink -f "$config") || return 1
   command=$(jq -n '$ARGS.positional' --args -- "$@") || return 1
   tmp=$(mktemp "$config.XXXXXX") || return 1
+  cp -p "$config" "$tmp" || {
+    rm -f "$tmp"
+    return 1
+  }
   if jq --arg name "$name" --argjson cmd "$command" \
     '.mcp[$name] = {type: "local", command: $cmd, enabled: true}' "$config" >"$tmp" 2>/dev/null; then
     mv "$tmp" "$config"

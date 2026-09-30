@@ -77,5 +77,21 @@ class McpSetupTest(unittest.TestCase):
         self.assertFalse(self.config.exists())
 
 
+    def test_opencode_symlinked_config_keeps_link_and_mode(self):
+        self.agent("opencode")
+        target = self.h.home / "dotfiles" / "opencode.json"
+        target.parent.mkdir()
+        target.write_text('{"theme": "dark"}\n')
+        target.chmod(0o644)
+        self.config.parent.mkdir(parents=True)
+        self.config.symlink_to(target)
+        r = self.run_setup()
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertTrue(self.config.is_symlink(), "config symlink was replaced")
+        self.assertEqual(target.stat().st_mode & 0o777, 0o644)
+        data = json.loads(target.read_text())
+        self.assertEqual(data["theme"], "dark")
+        self.assertEqual(sorted(data["mcp"]), ["context7", "playwright"])
+
 if __name__ == "__main__":
     unittest.main()
