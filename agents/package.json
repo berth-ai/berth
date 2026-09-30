@@ -1,0 +1,12 @@
+{
+  "name": "berth-agents",
+  "private": true,
+  "description": "Agent CLIs and MCP servers installed by berth update. Exact versions only.",
+  "dependencies": {
+    "@anthropic-ai/claude-code": "2.1.285",
+    "@openai/codex": "0.159.2",
+    "@playwright/mcp": "0.0.83",
+    "@upstash/context7-mcp": "4.1.1",
+    "opencode-ai": "1.18.33"
+  }
+}
