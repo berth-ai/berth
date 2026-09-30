@@ -1,6 +1,6 @@
 import unittest
 
-from shellharness import BIN_DIR, Harness, needs_bash
+from shellharness import BIN_DIR, SERVICES_DIR as SERVICES, Harness, needs_bash
 
 ENTRYPOINT = BIN_DIR / "berth-entrypoint"
 
@@ -49,6 +49,39 @@ class IdentityAndRoutingTest(unittest.TestCase):
         self.assertEqual(r.stdout, "hello\n", r.stderr)
         self.assertEqual(self.h.read_log("gosu"), "agent echo hello\n")
         self.assertEqual(self.h.read_log("berth"), "")
+
+
+@needs_bash
+class BootTest(unittest.TestCase):
+    """Boot checks that do not need a working supervisor."""
+
+    def setUp(self):
+        self.h = Harness(self)
+
+    def test_credential_forms(self):
+        for cred, ok in (("me:pw", True), ("me:pa:ss", True), ("me:", False), (":pw", False), ("nocolon", False)):
+            with self.subTest(cred=cred):
+                r = self.h.bash(f'source "{SERVICES}/10-ttyd.sh"; WEB_TERMINAL_CREDENTIAL="{cred}" ttyd_validate')
+                self.assertEqual(r.returncode == 0, ok, r.stderr)
+
+    def test_invalid_config_starts_nothing(self):
+        r = self.h.run(ENTRYPOINT, "serve",
+                       env={"WEB_TERMINAL_CREDENTIAL": "me:", "CODE_SERVER_PASSWORD": "pw"})
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("user:password", r.stderr)
+        self.assertFalse(self.h.log_path("ttyd.argv").exists())
+        self.assertFalse(self.h.log_path("code-server.argv").exists())
+
+    def test_invalid_port_starts_nothing(self):
+        r = self.h.run(ENTRYPOINT, "serve", env={"CODE_SERVER_PASSWORD": "pw", "CODE_SERVER_PORT": "99999"})
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("CODE_SERVER_PORT", r.stderr)
+        self.assertFalse(self.h.log_path("code-server.argv").exists())
+
+    def test_invalid_boot_timeout(self):
+        r = self.h.run(ENTRYPOINT, "serve", env={"AGENTS_BOOT_TIMEOUT": "soon"})
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("AGENTS_BOOT_TIMEOUT", r.stderr)
 
 
 if __name__ == "__main__":

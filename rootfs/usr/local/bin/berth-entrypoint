@@ -7,9 +7,9 @@ set -euo pipefail
 export LC_COLLATE=C
 
 BERTH_LIB_DIR=${BERTH_LIB_DIR:-/usr/local/lib/berth}
-# shellcheck source=../lib/berth/lib.sh
+# shellcheck source-path=SCRIPTDIR source=../lib/berth/lib.sh
 source "$BERTH_LIB_DIR/lib.sh"
-# shellcheck source=../lib/berth/supervisor.sh
+# shellcheck source-path=SCRIPTDIR source=../lib/berth/supervisor.sh
 source "$BERTH_LIB_DIR/supervisor.sh"
 
 # setup_identity remaps agent to PUID/PGID and repairs the home volume's
@@ -18,7 +18,9 @@ setup_identity() {
   local puid=${PUID-1000} pgid=${PGID-1000} var value
   for var in PUID PGID; do
     value=${!var-1000}
-    [[ $value =~ ^[0-9]+$ ]] && ((10#$value != 0)) || die "$var must be a non-zero number, got '$value'"
+    if ! [[ $value =~ ^[0-9]+$ ]] || ((10#$value == 0)); then
+      die "$var must be a non-zero number, got '$value'"
+    fi
   done
   if [[ $(id -g agent) != "$pgid" ]]; then
     log "setting agent's group id to $pgid"
@@ -34,6 +36,62 @@ setup_identity() {
   fi
 }
 
+# ensure_agents installs the image seed when needed. Failure never blocks
+# boot: frontends must stay reachable for diagnosis.
+ensure_agents() {
+  local timeout=${AGENTS_BOOT_TIMEOUT:-600}
+  [[ $timeout =~ ^[0-9]+$ ]] || die "AGENTS_BOOT_TIMEOUT must be a number of seconds, got '$timeout'"
+  if timeout "$timeout" berth ensure; then
+    return 0
+  fi
+  if [[ -e $BERTH_AGENTS_DIR/current/.complete ]]; then
+    warn "berth ensure failed; continuing with the installed agents"
+  else
+    warn "NO AGENTS INSTALLED: berth ensure failed and no agent set is available." \
+      "Frontends start for diagnosis; run 'berth update' and read the log above."
+  fi
+}
+
+# start_mcp_setup registers MCP servers in the background; never fatal.
+start_mcp_setup() {
+  local timeout=${MCP_SETUP_TIMEOUT:-120}
+  [[ $timeout =~ ^[0-9]+$ ]] || die "MCP_SETUP_TIMEOUT must be a number of seconds, got '$timeout'"
+  (timeout "$timeout" gosu agent berth-mcp-setup || warn "MCP setup failed or timed out (non-fatal)") &
+}
+
+# start_modules validates every enabled module before starting any of them.
+start_modules() {
+  local name failed=0
+  local -a enabled=()
+  load_modules
+  for name in "${BERTH_MODULES[@]}"; do
+    if "${name}_enabled"; then
+      enabled+=("$name")
+    fi
+  done
+  for name in "${enabled[@]}"; do
+    if declare -F "${name}_validate" >/dev/null && ! "${name}_validate"; then
+      failed=1
+    fi
+  done
+  ((failed == 0)) || die "invalid module configuration; nothing was started"
+
+  mkdir -p "$BERTH_RUN_DIR"
+  : >"$BERTH_RUN_DIR/modules"
+  if ((${#enabled[@]} == 0)); then
+    log "no frontend enabled; idling. Enable one with:"
+    for name in "${BERTH_MODULES[@]}"; do
+      log "  $name: set $(module_secrets "$name" | head -n 1)"
+    done
+    start_service idle sleep 2147483647
+    return 0
+  fi
+  for name in "${enabled[@]}"; do
+    "${name}_start"
+    printf '%s\n' "$name" >>"$BERTH_RUN_DIR/modules"
+  done
+}
+
 main() {
   setup_identity
   case ${1:-serve} in
@@ -41,7 +99,13 @@ main() {
     berth) exec "$@" ;;
     *) exec gosu agent "$@" ;;
   esac
-  die "serve is not implemented yet"
+  ensure_agents
+  start_mcp_setup
+  start_modules
+  echo "$$" >"$BERTH_RUN_DIR/supervisor.pid"
+  local status=0
+  supervise || status=$?
+  exit "$status"
 }
 
 main "$@"
