@@ -1,0 +1,69 @@
+#!/usr/bin/env bash
+# berth-mcp-setup: register Berth's MCP servers with every installed agent.
+# Runs as agent, is idempotent, and touches only the entries named playwright
+# and context7. Registrations point at current/, so a flip needs no re-run.
+# jq programs and the JSON literal use $ on purpose; the *_add functions are
+# called indirectly through register_all.
+# shellcheck disable=SC2016,SC2329
+set -uo pipefail
+
+bin_dir=${BERTH_AGENTS_DIR:-/opt/agents}/current/bin
+
+log() { printf 'berth-mcp-setup: %s\n' "$*" >&2; }
+
+# register_all ADD_FUNCTION calls ADD_FUNCTION NAME COMMAND... per server.
+register_all() {
+  local rc=0
+  "$1" playwright "$bin_dir/playwright-mcp" --headless --no-sandbox || rc=1
+  "$1" context7 "$bin_dir/context7-mcp" || rc=1
+  return "$rc"
+}
+
+claude_add() {
+  local name=$1
+  shift
+  "$bin_dir/claude" mcp remove --scope user "$name" >/dev/null 2>&1 || true
+  "$bin_dir/claude" mcp add --scope user "$name" -- "$@"
+}
+
+codex_add() {
+  local name=$1
+  shift
+  "$bin_dir/codex" mcp remove "$name" >/dev/null 2>&1 || true
+  "$bin_dir/codex" mcp add "$name" -- "$@"
+}
+
+opencode_add() {
+  local name=$1 config command tmp
+  shift
+  config=${XDG_CONFIG_HOME:-$HOME/.config}/opencode/opencode.json
+  mkdir -p "${config%/*}" || return 1
+  if [[ ! -f $config ]]; then
+    printf '{"$schema": "https://opencode.ai/config.json"}\n' >"$config" || return 1
+  fi
+  command=$(jq -n '$ARGS.positional' --args -- "$@") || return 1
+  tmp=$(mktemp "$config.XXXXXX") || return 1
+  if jq --arg name "$name" --argjson cmd "$command" \
+    '.mcp[$name] = {type: "local", command: $cmd, enabled: true}' "$config" >"$tmp" 2>/dev/null; then
+    mv "$tmp" "$config"
+  else
+    rm -f "$tmp"
+    log "$config is not plain JSON; leaving it unchanged"
+    return 1
+  fi
+}
+
+status=0
+for agent in claude codex opencode; do
+  if [[ ! -x $bin_dir/$agent ]]; then
+    log "$agent not installed; skipping"
+    continue
+  fi
+  if register_all "${agent}_add"; then
+    log "registered MCP servers with $agent"
+  else
+    log "failed to register MCP servers with $agent"
+    status=1
+  fi
+done
+exit "$status"
