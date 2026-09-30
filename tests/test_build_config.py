@@ -128,5 +128,43 @@ class ComposeTest(unittest.TestCase):
         self.assertRegex(env, r"# renovate: datasource=docker depName=ghcr.io/salgnt/berth\nBERTH_VERSION=\d+\.\d+\.\d+\n")
 
 
+WORKFLOWS = REPO / ".github/workflows"
+
+
+def workflow(name):
+    return (WORKFLOWS / name).read_text()
+
+
+class WorkflowTest(unittest.TestCase):
+    def all_workflows(self):
+        return {p.name: p.read_text() for p in sorted(WORKFLOWS.glob("*.yml"))}
+
+    def test_actions_pinned_by_sha(self):
+        for name, text in self.all_workflows().items():
+            for line in text.splitlines():
+                if "uses:" in line:
+                    self.assertRegex(line, r"uses: [\w.-]+/[\w./-]+@[0-9a-f]{40} # v\d", f"{name}: {line.strip()}")
+
+    def test_no_pull_request_target(self):
+        for name, text in self.all_workflows().items():
+            self.assertNotIn("pull_request_target", text, name)
+
+    def test_ci_permissions_read_only(self):
+        text = workflow("ci.yml")
+        self.assertIn("permissions:\n  contents: read", text)
+        self.assertNotIn("write", text)
+
+    def test_required_check_names(self):
+        text = workflow("ci.yml")
+        for job in ("lint:", "go-test:", "shell-test:"):
+            self.assertIn(f"\n  {job}", text)
+        self.assertIn("name: image-${{ matrix.arch }}", text)
+        self.assertIn("runner: ubuntu-24.04-arm", text)
+
+    def test_no_moving_image_tags(self):
+        for name, text in self.all_workflows().items():
+            self.assertNotRegex(text, r"image: \S+:latest", name)
+
+
 if __name__ == "__main__":
     unittest.main()
