@@ -166,5 +166,28 @@ class WorkflowTest(unittest.TestCase):
             self.assertNotRegex(text, r"image: \S+:latest", name)
 
 
+class ReleaseTest(unittest.TestCase):
+    def setUp(self):
+        self.text = workflow("release.yml")
+
+    def test_release_tag_filter(self):
+        self.assertIn("tags: ['v*.*.*']", self.text)
+        self.assertIn("type=raw,value=latest,enable=${{ startsWith(github.ref, 'refs/tags/v') }}", self.text)
+
+    def test_tags_and_attestations(self):
+        for tag in ("type=edge,branch=main", "type=sha,format=short,prefix=sha-",
+                    "type=semver,pattern={{version}}", "type=semver,pattern={{major}}.{{minor}}"):
+            self.assertIn(tag, self.text)
+        self.assertIn("provenance: mode=max", self.text)
+        self.assertIn("sbom: true", self.text)
+        self.assertIn("push-by-digest=true", self.text)
+        self.assertIn("runner: ubuntu-24.04-arm", self.text)
+
+    def test_write_permissions_scoped_to_jobs(self):
+        top = self.text.split("\njobs:")[0]
+        self.assertIn("permissions:\n  contents: read", top)
+        self.assertNotIn("packages: write", top)
+
+
 if __name__ == "__main__":
     unittest.main()
