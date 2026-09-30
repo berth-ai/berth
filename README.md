@@ -16,6 +16,7 @@ The agents are the product; the frontends are optional modules.
 curl -fsSLO https://raw.githubusercontent.com/SalGnt/berth/main/compose.yaml
 curl -fsSL -o .env https://raw.githubusercontent.com/SalGnt/berth/main/.env.example
 $EDITOR .env        # set BIND_ADDRESS and at least one frontend credential
+mkdir -p workspaces # before the first start, so it is yours and not root's
 docker compose up -d
 docker compose ps   # wait for "healthy"
 ```

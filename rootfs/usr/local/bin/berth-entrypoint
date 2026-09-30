@@ -36,6 +36,15 @@ setup_identity() {
   fi
 }
 
+# check_workspaces warns when agent cannot write to /workspaces, typically a
+# host directory Docker created as root. Berth never changes its ownership.
+check_workspaces() {
+  if ! gosu agent test -w "$BERTH_WORKSPACES"; then
+    warn "$BERTH_WORKSPACES is not writable by agent (uid ${PUID:-1000}). Berth never changes its" \
+      "ownership; on the host run: chown ${PUID:-1000}:${PGID:-1000} <WORKSPACES_DIR>"
+  fi
+}
+
 # ensure_agents installs the image seed when needed. Failure never blocks
 # boot: frontends must stay reachable for diagnosis.
 ensure_agents() {
@@ -108,6 +117,7 @@ main() {
     berth) exec "$@" ;;
     *) exec gosu agent "$@" ;;
   esac
+  check_workspaces
   ensure_agents
   start_mcp_setup
   start_modules

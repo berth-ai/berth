@@ -78,6 +78,20 @@ class BootTest(unittest.TestCase):
         self.assertIn("CODE_SERVER_PORT", r.stderr)
         self.assertFalse(self.h.log_path("code-server.argv").exists())
 
+    def test_warns_when_workspaces_not_writable(self):
+        ws = self.h.tmp / "ws"
+        ws.mkdir()
+        ws.chmod(0o555)
+        self.addCleanup(ws.chmod, 0o755)
+        r = self.h.run(ENTRYPOINT, "serve", env={"BERTH_WORKSPACES": str(ws), "AGENTS_BOOT_TIMEOUT": "soon"})
+        self.assertIn(f"{ws} is not writable by agent", r.stderr)
+
+    def test_no_warning_when_workspaces_writable(self):
+        ws = self.h.tmp / "ws"
+        ws.mkdir()
+        r = self.h.run(ENTRYPOINT, "serve", env={"BERTH_WORKSPACES": str(ws), "AGENTS_BOOT_TIMEOUT": "soon"})
+        self.assertNotIn("not writable", r.stderr)
+
     def test_invalid_boot_timeout(self):
         r = self.h.run(ENTRYPOINT, "serve", env={"AGENTS_BOOT_TIMEOUT": "soon"})
         self.assertEqual(r.returncode, 1)

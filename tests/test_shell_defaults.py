@@ -36,6 +36,16 @@ class ShellDefaultsTest(unittest.TestCase):
         out = self.zsh('source "$BERTH_ETC/zshrc"; print -r -- "$HISTFILE|$STARSHIP_CONFIG"')
         self.assertEqual(out.strip(), f"{self.home}/.local/state/zsh/history|{ETC}/defaults/starship.toml")
 
+    def test_defaults_do_not_shadow_ls_or_cat(self):
+        fakebin = self.home / "fakebin"
+        fakebin.mkdir()
+        for tool in ("eza", "bat"):
+            (fakebin / tool).write_text("#!/bin/sh\n")
+            (fakebin / tool).chmod(0o755)
+        out = self.zsh(f'path=({fakebin} $path); source "$BERTH_ETC/defaults/zshrc"; '
+                       'print -r -- "${aliases[ls]-none}|${aliases[cat]-none}|${aliases[ll]-none}"')
+        self.assertEqual(out.strip(), "none|none|eza -l --git")
+
     def test_user_zshrc_replaces_defaults(self):
         (self.home / ".zshrc").write_text("# mine\n")
         out = self.zsh('source "$BERTH_ETC/zshrc"; print -r -- "[$HISTFILE]"')
