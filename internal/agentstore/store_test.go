@@ -147,3 +147,26 @@ func TestLockBusy(t *testing.T) {
 	}
 	again()
 }
+
+func TestUnreadableMetadataIsIncomplete(t *testing.T) {
+	for _, file := range []string{".complete", "source.json"} {
+		t.Run(file, func(t *testing.T) {
+			root := t.TempDir()
+			dir := testutil.MakeVersion(t, root, "a00000000000", "image", time.Now())
+			testutil.Link(t, root, "current", "a00000000000")
+			if err := os.WriteFile(filepath.Join(dir, file), nil, 0o644); err != nil {
+				t.Fatal(err)
+			}
+			s := Store{Root: root}
+			if _, err := s.Get("a00000000000"); !errors.Is(err, ErrNotFound) {
+				t.Fatalf("Get: %v", err)
+			}
+			if v, err := s.Current(); v != nil || err != nil {
+				t.Fatalf("Current: %v %v", v, err)
+			}
+			if vs, err := s.List(); err != nil || len(vs) != 0 {
+				t.Fatalf("List: %v %v", vs, err)
+			}
+		})
+	}
+}

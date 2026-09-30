@@ -64,15 +64,16 @@ func (s Store) Get(hash string) (*Version, error) {
 	}
 	dir := s.VersionDir(hash)
 	var m Manifest
-	if err := readJSON(filepath.Join(dir, completeFile), &m); err != nil {
-		if errors.Is(err, fs.ErrNotExist) {
-			return nil, fmt.Errorf("%w: %s", ErrNotFound, hash)
-		}
-		return nil, err
-	}
 	var src locksource.Source
-	if err := readJSON(filepath.Join(dir, sourceFile), &src); err != nil {
-		return nil, err
+	for file, v := range map[string]any{completeFile: &m, sourceFile: &src} {
+		if err := readJSON(filepath.Join(dir, file), v); err != nil {
+			// A missing or truncated file (say, after a power loss) means the
+			// install never finished; reinstalling it heals the store.
+			if errors.Is(err, fs.ErrNotExist) || isDecodeError(err) {
+				return nil, fmt.Errorf("%w: %s", ErrNotFound, hash)
+			}
+			return nil, err
+		}
 	}
 	return &Version{Hash: hash, Dir: dir, Source: src, Manifest: m}, nil
 }
@@ -222,4 +223,10 @@ func writeJSON(path string, v any) error {
 		return err
 	}
 	return os.Rename(tmp, path)
+}
+
+func isDecodeError(err error) bool {
+	var syntax *json.SyntaxError
+	var typ *json.UnmarshalTypeError
+	return errors.As(err, &syntax) || errors.As(err, &typ)
 }

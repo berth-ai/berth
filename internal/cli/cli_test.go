@@ -3,6 +3,7 @@ package cli
 import (
 	"bytes"
 	"context"
+	"errors"
 	"flag"
 	"io"
 	"os"
@@ -104,4 +105,20 @@ func TestStatusEmptyAsNonRoot(t *testing.T) {
 		t.Fatalf("exit %d", code)
 	}
 	golden(t, "status_empty", out)
+}
+
+func TestRootWithoutAgentUser(t *testing.T) {
+	lookup := func(string) (*runner.Identity, error) { return nil, errors.New("unknown user agent") }
+	cfg, err := defaultConfig(func(string) string { return "" }, Build{Version: "1.2.3", Commit: "abc"}, true, lookup)
+	if err != nil {
+		t.Fatalf("DefaultConfig must not need the agent user: %v", err)
+	}
+	cfg.AgentsDir = filepath.Join(t.TempDir(), "agents")
+	if out, _, code := run(t, cfg, "version"); code != 0 || out != "berth 1.2.3 (abc)\n" {
+		t.Fatalf("version: %d %q", code, out)
+	}
+	out, _, code := run(t, cfg, "gc", "--json")
+	if code != 1 || !strings.Contains(out, `"code": "no_agent_user"`) {
+		t.Fatalf("gc: %d %s", code, out)
+	}
 }

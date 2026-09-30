@@ -54,3 +54,19 @@ func TestExecAsAgentWithoutIdentityRunsAsSelf(t *testing.T) {
 		t.Fatalf("got uid %q", out.String())
 	}
 }
+
+func TestAgentEnvKeepsOnlyAllowlistedVariables(t *testing.T) {
+	environ := []string{
+		"PATH=/usr/bin", "LANG=C.UTF-8", "TZ=UTC", "HTTPS_PROXY=http://proxy:3128",
+		"GITHUB_TOKEN=secret", "GH_TOKEN=secret", "CODE_SERVER_PASSWORD=pw",
+		"npm_config_registry=http://evil", "HOME=/root", "USER=root",
+	}
+	got := agentEnv(environ, []string{"npm_config_cache=/tmp/c"}, &Identity{UID: 1000, GID: 1000, Home: "/home/agent"})
+	want := []string{
+		"PATH=/usr/bin", "LANG=C.UTF-8", "TZ=UTC", "HTTPS_PROXY=http://proxy:3128",
+		"npm_config_cache=/tmp/c", "HOME=/home/agent", "USER=agent", "LOGNAME=agent",
+	}
+	if strings.Join(got, "\n") != strings.Join(want, "\n") {
+		t.Fatalf("got %q\nwant %q", got, want)
+	}
+}

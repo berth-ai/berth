@@ -34,6 +34,7 @@ type Config struct {
 	LockTimeout time.Duration
 	IsRoot      bool
 	Agent       *runner.Identity
+	AgentErr    error // set when running as root and agent does not exist
 	Runner      runner.Runner
 	Smoke       func(ctx context.Context, dir string, bins []string) error
 	Now         func() time.Time
@@ -50,6 +51,10 @@ type Build struct {
 
 // DefaultConfig returns the in-container configuration.
 func DefaultConfig(getenv func(string) string, b Build) (Config, error) {
+	return defaultConfig(getenv, b, os.Geteuid() == 0, runner.LookupUser)
+}
+
+func defaultConfig(getenv func(string) string, b Build, isRoot bool, lookup func(string) (*runner.Identity, error)) (Config, error) {
 	keep := 3
 	if v := getenv("AGENTS_KEEP"); v != "" {
 		n, err := strconv.Atoi(v)
@@ -72,15 +77,17 @@ func DefaultConfig(getenv func(string) string, b Build) (Config, error) {
 		GitHub:      locksource.GitHub{Repo: repo, Token: getenv("GITHUB_TOKEN")},
 		Keep:        keep,
 		LockTimeout: 30 * time.Second,
-		IsRoot:      os.Geteuid() == 0,
+		IsRoot:      isRoot,
 		Now:         time.Now,
 		Version:     b.Version,
 		Commit:      b.Commit,
 	}
 	if cfg.IsRoot {
-		agent, err := runner.LookupUser("agent")
+		// Only the mutating commands need agent; report a missing user there.
+		agent, err := lookup("agent")
 		if err != nil {
-			return Config{}, fmt.Errorf("look up user agent: %w", err)
+			cfg.AgentErr = fmt.Errorf("look up user agent: %w", err)
+			return cfg, nil
 		}
 		cfg.Agent = agent
 		cfg.MiseConfig = filepath.Join(agent.Home, ".config", "mise", "config.toml")
@@ -188,6 +195,9 @@ func usageErr(err error) error {
 func (a *app) locked(name string, fn func() error) error {
 	if !a.cfg.IsRoot {
 		return output.Errorf(output.ExitNotRoot, "not_root", "", "berth %s must run as root (docker exec -u root <container> berth %s)", name, name)
+	}
+	if a.cfg.AgentErr != nil {
+		return output.Errorf(output.ExitFailure, "no_agent_user", "", "%v", a.cfg.AgentErr)
 	}
 	unlock, err := a.store.Lock(a.cfg.LockTimeout)
 	if errors.Is(err, agentstore.ErrLockBusy) {

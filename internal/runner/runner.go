@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"os/user"
+	"slices"
 	"strconv"
 	"strings"
 	"syscall"
@@ -79,7 +80,7 @@ func (e Exec) Run(ctx context.Context, c Cmd) error {
 		cmd.SysProcAttr = &syscall.SysProcAttr{Credential: &syscall.Credential{
 			Uid: e.Agent.UID, Gid: e.Agent.GID, Groups: []uint32{},
 		}}
-		cmd.Env = append(cmd.Env, "HOME="+e.Agent.Home, "USER=agent", "LOGNAME=agent")
+		cmd.Env = agentEnv(os.Environ(), c.Env, e.Agent)
 	}
 	err := cmd.Run()
 	name := strings.TrimSpace(c.Path + " " + strings.Join(c.Args, " "))
@@ -90,4 +91,27 @@ func (e Exec) Run(ctx context.Context, c Cmd) error {
 		return fmt.Errorf("%s: %w", name, err)
 	}
 	return nil
+}
+
+// agentEnvKeep lists the variables root passes on to commands run as agent.
+// Everything else, tokens and frontend secrets included, is dropped so that
+// third-party install scripts never see it.
+var agentEnvKeep = []string{
+	"PATH", "LANG", "LANGUAGE", "LC_ALL", "TZ", "TERM",
+	"HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY", "http_proxy", "https_proxy", "no_proxy",
+	"NODE_EXTRA_CA_CERTS", "SSL_CERT_FILE", "SSL_CERT_DIR",
+}
+
+// agentEnv builds the environment of a command run as agent: the allowlisted
+// part of environ, then extra, then the agent's identity.
+func agentEnv(environ, extra []string, id *Identity) []string {
+	var env []string
+	for _, kv := range environ {
+		name, _, _ := strings.Cut(kv, "=")
+		if slices.Contains(agentEnvKeep, name) {
+			env = append(env, kv)
+		}
+	}
+	env = append(env, extra...)
+	return append(env, "HOME="+id.Home, "USER=agent", "LOGNAME=agent")
 }
