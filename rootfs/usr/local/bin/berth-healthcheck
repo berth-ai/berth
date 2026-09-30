@@ -1,0 +1,33 @@
+#!/usr/bin/env bash
+# berth-healthcheck: healthy when the supervisor runs and every enabled module
+# passes its health check. Agent state does not affect health.
+set -uo pipefail
+
+BERTH_LIB_DIR=${BERTH_LIB_DIR:-/usr/local/lib/berth}
+# shellcheck source-path=SCRIPTDIR source=../lib/berth/lib.sh
+source "$BERTH_LIB_DIR/lib.sh"
+
+unhealthy() {
+  printf 'unhealthy: %s\n' "$*"
+  exit 1
+}
+
+probe_port() {
+  # shellcheck disable=SC2016  # $1 expands in the inner bash
+  timeout 2 bash -c 'exec 3<>"/dev/tcp/127.0.0.1/$1"' _ "$1" 2>/dev/null
+}
+
+pid=$(cat "$BERTH_RUN_DIR/supervisor.pid" 2>/dev/null) || unhealthy "supervisor has not started"
+kill -0 "$pid" 2>/dev/null || unhealthy "supervisor (pid $pid) is not running"
+
+load_modules
+while read -r name; do
+  [[ -n $name ]] || continue
+  declare -F "${name}_health" >/dev/null || continue
+  out=$("${name}_health") || unhealthy "$name health check failed"
+  if [[ $out =~ ^[0-9]+$ ]]; then
+    probe_port "$out" || unhealthy "$name is not accepting connections on port $out"
+  fi
+done <"$BERTH_RUN_DIR/modules"
+
+echo healthy
