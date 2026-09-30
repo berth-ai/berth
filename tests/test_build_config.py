@@ -2,6 +2,7 @@
 
 import json
 import re
+import tomllib
 import unittest
 from pathlib import Path
 
@@ -40,6 +41,18 @@ class AgentsLockTest(unittest.TestCase):
         for suffix in ("linux-x64", "linux-arm64"):
             self.assertTrue(any(p.endswith(f"claude-code-{suffix}") for p in paths), suffix)
             self.assertTrue(any(p.endswith(f"codex-{suffix}") for p in paths), suffix)
+
+
+class MiseToolsTest(unittest.TestCase):
+    def test_every_tool_pinned_exactly(self):
+        tools = tomllib.loads(read("tools/mise.toml"))["tools"]
+        self.assertGreaterEqual(len(tools), 25)
+        for name in ("node", "neovim", "gh", "glab", "uv", "ripgrep", "starship", "chezmoi",
+                     "atuin", "zoxide", "direnv", "fzf", "shellcheck", "hadolint"):
+            self.assertIn(name, tools)
+        for name, version in tools.items():
+            self.assertIsInstance(version, str, name)
+            self.assertRegex(version, r"^\d+(\.\d+)+$", name)
 
 
 if __name__ == "__main__":

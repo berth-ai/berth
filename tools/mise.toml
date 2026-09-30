@@ -1,0 +1,33 @@
+# Berth base track: pinned into /opt/mise at image build time and exposed
+# through /opt/mise/wrappers. Renovate's mise manager keeps these current.
+# Users add their own tools with `mise use -g`; those never shadow these.
+
+[tools]
+node = "24.21.0"
+neovim = "0.12.5"
+gh = "2.101.0"
+glab = "1.119.0"
+uv = "0.12.20"
+ripgrep = "15.2.0"
+fd = "10.5.0"
+fzf = "0.74.4"
+bat = "0.26.1"
+eza = "0.23.5"
+yq = "4.54.1"
+lazygit = "0.65.1"
+starship = "1.26.0"
+chezmoi = "2.73.0"
+atuin = "18.23.0"
+zoxide = "0.10.0"
+direnv = "2.37.1"
+shellcheck = "0.11.0"
+hadolint = "2.15.1"
+delta = "0.19.2"
+just = "1.58.0"
+btop = "1.4.7"
+dust = "1.2.6"
+hyperfine = "1.20.0"
+tealdeer = "1.9.0"
+sd = "1.1.0"
+shfmt = "3.14.1"
+actionlint = "1.7.12"
