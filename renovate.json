@@ -58,6 +58,11 @@
       "schedule": ["* */6 * * *"],
       "rangeStrategy": "pin",
       "automerge": true
+    },
+    {
+      "description": "Test fixtures pin fake versions on purpose; never update them",
+      "matchFileNames": ["**/testdata/**"],
+      "enabled": false
     }
   ]
 }

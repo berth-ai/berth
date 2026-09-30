@@ -172,7 +172,9 @@ class ReleaseTest(unittest.TestCase):
 
     def test_release_tag_filter(self):
         self.assertIn("tags: ['v*.*.*']", self.text)
-        self.assertIn("type=raw,value=latest,enable=${{ startsWith(github.ref, 'refs/tags/v') }}", self.text)
+        # Prerelease tags such as v1.2.0-rc.1 also match the glob; they must not move latest.
+        self.assertIn("type=raw,value=latest,enable=${{ startsWith(github.ref, 'refs/tags/v') && "
+                      "!contains(github.ref_name, '-') }}", self.text)
 
     def test_tags_and_attestations(self):
         for tag in ("type=edge,branch=main", "type=sha,format=short,prefix=sha-",
@@ -239,6 +241,25 @@ class RenovateTest(unittest.TestCase):
         found = {m.group("depName") for m in pattern.finditer(read("Dockerfile"))}
         self.assertEqual(found, {"jdx/mise", "tsl0922/ttyd", "coder/code-server",
                                  "tmux-plugins/tmux-resurrect", "tmux-plugins/tmux-continuum"})
+
+
+
+class CacheFriendlyBuildArgsTest(unittest.TestCase):
+    def test_per_commit_args_come_after_expensive_layers(self):
+        text = read("Dockerfile")
+        go_stage, rest = text.split("FROM ${UBUNTU_IMAGE} AS tools", 1)
+        runtime = rest.split("FROM ${UBUNTU_IMAGE} AS runtime", 1)[1]
+        self.assertLess(go_stage.index("RUN go mod download"), go_stage.index("ARG BERTH_COMMIT"))
+        self.assertLess(runtime.index("COPY rootfs/ /"), runtime.index("ARG BERTH_COMMIT"))
+        self.assertLess(runtime.index("COPY rootfs/ /"), runtime.index("ARG BERTH_VERSION"))
+
+
+class RenovateFixturesTest(unittest.TestCase):
+    def test_testdata_is_ignored(self):
+        rules = json.loads(read("renovate.json"))["packageRules"]
+        self.assertTrue(any(r.get("matchFileNames") == ["**/testdata/**"] and r.get("enabled") is False
+                            for r in rules))
+        self.assertIs(rules[-1].get("enabled"), False, "the disabling rule must come last")
 
 
 if __name__ == "__main__":

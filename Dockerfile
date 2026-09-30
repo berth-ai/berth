@@ -8,14 +8,15 @@ ARG GO_IMAGE=golang:1.27.1-bookworm@sha256:69a7b9788769bec032d238959b61854e9ae87
 # ---------------------------------------------------------------- go-build
 FROM --platform=$BUILDPLATFORM ${GO_IMAGE} AS go-build
 ARG TARGETARCH
-ARG BERTH_VERSION=dev
-ARG BERTH_COMMIT=unknown
-ARG BERTH_REPO=SalGnt/berth
 WORKDIR /src
 COPY go.mod go.sum ./
 RUN go mod download
 COPY cmd/ cmd/
 COPY internal/ internal/
+# Declared after the cached layers: a new commit must not invalidate them.
+ARG BERTH_VERSION=dev
+ARG BERTH_COMMIT=unknown
+ARG BERTH_REPO=SalGnt/berth
 RUN CGO_ENABLED=0 GOOS=linux GOARCH=${TARGETARCH} go build -trimpath \
       -ldflags "-s -w -X main.version=${BERTH_VERSION} -X main.commit=${BERTH_COMMIT} -X main.defaultRepo=${BERTH_REPO}" \
       -o /out/berth ./cmd/berth
@@ -58,9 +59,6 @@ RUN --mount=type=secret,id=github_token,required=false \
 FROM ${UBUNTU_IMAGE} AS runtime
 ARG UBUNTU_IMAGE
 ARG TARGETARCH
-ARG BERTH_VERSION=dev
-ARG BERTH_COMMIT=unknown
-ARG BERTH_REPO=SalGnt/berth
 # renovate: datasource=github-releases depName=tsl0922/ttyd
 ARG TTYD_VERSION=1.7.7
 ARG TTYD_SHA256_AMD64=8a217c968aba172e0dbf3f34447218dc015bc4d5e59bf51db2f2cd12b7be4f55
@@ -138,6 +136,10 @@ RUN userdel --remove ubuntu 2>/dev/null || true \
  && printf '\n# Berth\nsource /etc/berth/zshenv\n' >>/etc/zsh/zshenv \
  && printf '\n# Berth\nsource /etc/berth/zshrc\n' >>/etc/zsh/zshrc
 
+# Per-commit values, declared late so a new commit reuses every layer above.
+ARG BERTH_VERSION=dev
+ARG BERTH_COMMIT=unknown
+ARG BERTH_REPO=SalGnt/berth
 RUN --mount=type=bind,source=build/write-build-info.sh,target=/usr/local/bin/write-build-info \
     write-build-info /usr/share/berth/build-info.json "${BERTH_VERSION}" "${BERTH_COMMIT}" \
       "${TARGETARCH}" "${UBUNTU_IMAGE#*@}" "${TTYD_VERSION}" "${CODE_SERVER_VERSION}" \
