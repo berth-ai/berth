@@ -84,5 +84,78 @@ class BootTest(unittest.TestCase):
         self.assertIn("AGENTS_BOOT_TIMEOUT", r.stderr)
 
 
+@needs_bash
+class ServeTest(unittest.TestCase):
+    def setUp(self):
+        self.h = Harness(self)
+
+    def serve(self, **env):
+        proc = self.h.start(ENTRYPOINT, "serve", env=env)
+        self.h.wait_for(lambda: (self.h.run_dir / "supervisor.pid").exists() or proc.poll() is not None)
+        self.assertIsNone(proc.poll(), "entrypoint exited early")
+        return proc
+
+    def test_idle_mode(self):
+        proc = self.serve()
+        self.assertEqual(self.h.read_log("berth"), "ensure\n")
+        self.h.wait_for(lambda: self.h.read_log("mcp"))
+        code, _, err = self.h.stop(proc)
+        self.assertEqual(code, 143)
+        self.assertIn("ttyd: set WEB_TERMINAL_CREDENTIAL", err)
+        self.assertIn("code_server: set CODE_SERVER_PASSWORD", err)
+        self.assertEqual((self.h.run_dir / "modules").read_text(), "")
+
+    def test_starts_modules_and_scrubs_secrets(self):
+        proc = self.serve(WEB_TERMINAL_CREDENTIAL="me:pa:ss", CODE_SERVER_PASSWORD="hunter2", TTYD_PORT="9000")
+        self.h.wait_for(lambda: self.h.log_path("ttyd.env").exists() and self.h.log_path("code-server.env").exists())
+        argv = self.h.read_log("ttyd.argv").splitlines()
+        self.assertEqual(argv, ["-W", "-p", "9000", "-w", "/workspaces", "-c", "me:pa:ss", "tmux", "new", "-A", "-s", "main"])
+        ttyd_env = self.h.read_log("ttyd.env").splitlines()
+        cs_env = self.h.read_log("code-server.env").splitlines()
+        self.assertIn("WEB_TERMINAL_CREDENTIAL=me:pa:ss", ttyd_env)
+        self.assertFalse([l for l in ttyd_env if l.startswith("CODE_SERVER_PASSWORD=")])
+        self.assertFalse([l for l in cs_env if l.startswith("WEB_TERMINAL_CREDENTIAL=")])
+        self.assertIn("PASSWORD=hunter2", cs_env)
+        self.assertEqual((self.h.run_dir / "modules").read_text(), "ttyd\ncode_server\n")
+        code, _, _ = self.h.stop(proc)
+        self.assertEqual(code, 143)
+        self.assertEqual(self.h.read_log("ttyd.signals"), "TERM\n")
+        self.assertEqual(self.h.read_log("code-server.signals"), "TERM\n")
+
+    def test_service_exit_stops_others(self):
+        proc = self.h.start(ENTRYPOINT, "serve", env={
+            "WEB_TERMINAL_CREDENTIAL": "me:pw", "CODE_SERVER_PASSWORD": "pw", "FAKE_EXIT_SERVICE": "ttyd:7"})
+        proc.communicate(timeout=15)
+        self.assertEqual(proc.returncode, 7)
+        self.assertEqual(self.h.read_log("code-server.signals"), "TERM\n")
+
+    def test_stubborn_service_is_killed_after_grace(self):
+        self.h.fake("code-server", "trap '' TERM\nwhile :; do sleep 0.05; done\n")
+        proc = self.serve(CODE_SERVER_PASSWORD="pw", BERTH_STOP_TIMEOUT="1")
+        code, _, _ = self.h.stop(proc, timeout=10)
+        self.assertEqual(code, 143)
+
+    def test_mcp_setup_runs_in_background(self):
+        proc = self.serve(FAKE_MCP_SLEEP="30")
+        self.assertEqual(self.h.read_log("mcp"), "")  # still sleeping, yet we are up
+        self.h.wait_for(lambda: "120 gosu agent berth-mcp-setup" in self.h.read_log("timeout"))
+        # The sleeping MCP job still holds the output pipes, so wait on the
+        # entrypoint alone; harness cleanup kills the process group.
+        proc.terminate()
+        self.assertEqual(proc.wait(timeout=15), 143)
+
+    def test_ensure_failure_with_current_continues(self):
+        (self.h.agents / "current").mkdir()
+        (self.h.agents / "current" / ".complete").write_text("{}")
+        proc = self.serve(FAKE_BERTH_STATUS="1")
+        _, _, err = self.h.stop(proc)
+        self.assertIn("continuing with the installed agents", err)
+
+    def test_ensure_failure_without_current_warns_loudly(self):
+        proc = self.serve(FAKE_BERTH_STATUS="1")
+        _, _, err = self.h.stop(proc)
+        self.assertIn("NO AGENTS INSTALLED", err)
+
+
 if __name__ == "__main__":
     unittest.main()
