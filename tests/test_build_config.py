@@ -55,5 +55,78 @@ class MiseToolsTest(unittest.TestCase):
             self.assertRegex(version, r"^\d+(\.\d+)+$", name)
 
 
+# package-lock.json is left out: dependency names such as "latest-version"
+# are legitimate there, and exact pins are enforced by AgentsLockTest.
+PINNED_FILES = ["Dockerfile", "compose.yaml", ".env.example", "tools/mise.toml", "agents/package.json"]
+
+
+class DockerfileTest(unittest.TestCase):
+    def setUp(self):
+        self.lines = read("Dockerfile").splitlines()
+
+    def test_no_latest(self):
+        for rel in PINNED_FILES:
+            self.assertNotRegex(read(rel), r"\blatest\b", rel)
+
+    def test_base_images_pinned_by_digest(self):
+        images = [l for l in self.lines if re.match(r"ARG \w+_IMAGE=", l)]
+        self.assertEqual(len(images), 2)
+        for line in images:
+            self.assertRegex(line, r"@sha256:[0-9a-f]{64}$")
+        for line in self.lines:
+            if line.startswith("FROM "):
+                self.assertRegex(line, r"^FROM (--platform=\$BUILDPLATFORM )?\$\{\w+_IMAGE\} AS [\w-]+$")
+
+    def test_version_args_have_renovate_annotations(self):
+        for i, line in enumerate(self.lines):
+            if re.match(r"ARG \w+_VERSION=", line) and not line.startswith("ARG BERTH_"):
+                self.assertRegex(self.lines[i - 1], r"^# renovate: datasource=\S+ depName=\S+", line)
+
+    def test_every_download_has_a_checksum(self):
+        text = read("Dockerfile")
+        for name in ("MISE", "TTYD", "CODE_SERVER"):
+            for arch in ("AMD64", "ARM64"):
+                self.assertRegex(text, rf"ARG {name}_SHA256_{arch}=[0-9a-f]{{64}}\n")
+        for name in ("TMUX_RESURRECT", "TMUX_CONTINUUM"):
+            self.assertRegex(text, rf"ARG {name}_SHA256=[0-9a-f]{{64}}\n")
+        self.assertNotRegex(text, r"\bcurl\s+-", "download only through fetch-artifact")
+
+    def test_token_only_as_secret(self):
+        text = read("Dockerfile")
+        self.assertNotRegex(text, r"(ARG|ENV)\s+GITHUB_TOKEN")
+        self.assertIn("--mount=type=secret,id=github_token", text)
+
+    def test_runtime_contract(self):
+        text = read("Dockerfile")
+        self.assertIn('ENTRYPOINT ["tini", "--", "berth-entrypoint"]', text)
+        self.assertIn('CMD ["serve"]', text)
+        self.assertIn("DISABLE_AUTOUPDATER=1", text)
+        self.assertIn("PATH=/opt/agents/current/bin:/opt/mise/wrappers:", text)
+        self.assertIn("/usr/sbin:/usr/bin:/sbin:/bin", text)
+        self.assertNotIn("VOLUME", text)
+        self.assertIn("passwd", text)
+
+
+class ComposeTest(unittest.TestCase):
+    def test_compose_contract(self):
+        text = read("compose.yaml")
+        self.assertIn("image: ghcr.io/salgnt/berth:${BERTH_VERSION:?", text)
+        self.assertIn("${BIND_ADDRESS:?", text)
+        self.assertIn("${TTYD_PORT:-7681}:${TTYD_PORT:-7681}", text)
+        self.assertIn("${CODE_SERVER_PORT:-8080}:${CODE_SERVER_PORT:-8080}", text)
+        self.assertIn("no-new-privileges:true", text)
+        for vol in ("berth-home", "berth-agents"):
+            self.assertIn(f"name: {vol}", text)
+        self.assertNotIn("0.0.0.0", text)
+
+    def test_env_example_documents_every_variable(self):
+        env = read(".env.example")
+        for var in ("BERTH_VERSION", "BIND_ADDRESS", "PUID", "PGID", "WORKSPACES_DIR",
+                    "WEB_TERMINAL_CREDENTIAL", "TTYD_PORT", "CODE_SERVER_PASSWORD", "CODE_SERVER_PORT",
+                    "AGENTS_BOOT_TIMEOUT", "AGENTS_KEEP", "MCP_SETUP_TIMEOUT", "TZ"):
+            self.assertRegex(env, rf"(?m)^{var}=", var)
+        self.assertRegex(env, r"# renovate: datasource=docker depName=ghcr.io/salgnt/berth\nBERTH_VERSION=\d+\.\d+\.\d+\n")
+
+
 if __name__ == "__main__":
     unittest.main()

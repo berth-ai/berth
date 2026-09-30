@@ -1,0 +1,11 @@
+*
+!go.mod
+!go.sum
+!cmd/
+!internal/
+!rootfs/
+!agents/package.json
+!agents/package-lock.json
+!tools/mise.toml
+!build/
+internal/**/testdata/
