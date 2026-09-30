@@ -1,0 +1,25 @@
+# Berth's default interactive zsh configuration. Create ~/.zshrc to replace it.
+
+HISTFILE=${XDG_STATE_HOME:-$HOME/.local/state}/zsh/history
+HISTSIZE=100000
+SAVEHIST=100000
+mkdir -p ${HISTFILE:h} ${XDG_CACHE_HOME:-$HOME/.cache}/zsh
+setopt extended_history hist_ignore_all_dups hist_ignore_space share_history
+setopt auto_cd interactive_comments no_beep
+bindkey -e
+
+autoload -Uz compinit
+compinit -d ${XDG_CACHE_HOME:-$HOME/.cache}/zsh/zcompdump
+zstyle ':completion:*' menu select
+zstyle ':completion:*' matcher-list 'm:{a-z}={A-Z}'
+
+(( $+commands[eza] )) && alias ls='eza --group-directories-first' ll='eza -l --git' la='eza -la --git'
+(( $+commands[bat] )) && alias cat='bat --paging=never'
+(( $+commands[lazygit] )) && alias lg=lazygit
+alias vim=nvim
+
+(( $+commands[direnv] )) && eval "$(direnv hook zsh)"
+(( $+commands[zoxide] )) && eval "$(zoxide init zsh)"
+(( $+commands[fzf] )) && source <(fzf --zsh)
+(( $+commands[atuin] )) && eval "$(atuin init zsh --disable-up-arrow)"
+(( $+commands[starship] )) && eval "$(starship init zsh)"

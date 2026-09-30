@@ -1,0 +1,10 @@
+# Berth: PATH order for every zsh. Agents and the pinned base toolchain come
+# first; user-track mise tools and ~/.local/bin come last and never shadow them.
+typeset -gU path
+path=(
+  /opt/agents/current/bin
+  /opt/mise/wrappers
+  $path
+  $HOME/.local/bin
+  ${XDG_DATA_HOME:-$HOME/.local/share}/mise/shims
+)

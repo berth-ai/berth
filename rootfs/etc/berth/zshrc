@@ -1,0 +1,9 @@
+# Berth: system zshrc hook. Loads Berth's defaults unless ~/.zshrc exists.
+typeset -g BERTH_ETC=${BERTH_ETC:-/etc/berth}
+source $BERTH_ETC/zshenv # re-assert PATH order after /etc/zsh/zprofile
+if [[ ! -f ${XDG_CONFIG_HOME:-$HOME/.config}/starship.toml ]]; then
+  export STARSHIP_CONFIG=$BERTH_ETC/defaults/starship.toml
+fi
+if [[ ! -f ${ZDOTDIR:-$HOME}/.zshrc ]]; then
+  source $BERTH_ETC/defaults/zshrc
+fi
