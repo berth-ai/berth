@@ -189,5 +189,57 @@ class ReleaseTest(unittest.TestCase):
         self.assertNotIn("packages: write", top)
 
 
+class RenovateTest(unittest.TestCase):
+    def setUp(self):
+        self.cfg = json.loads(read("renovate.json"))
+        self.rules = self.cfg["packageRules"]
+
+    def effective(self, manager, update_type, file_name):
+        """Apply packageRules in order (later wins), as Renovate does."""
+        result = {}
+        for rule in self.rules:
+            if "matchManagers" in rule and manager not in rule["matchManagers"]:
+                continue
+            if "matchUpdateTypes" in rule and update_type not in rule["matchUpdateTypes"]:
+                continue
+            if "matchFileNames" in rule and not any(
+                    re.fullmatch(p.replace("**", ".*"), file_name) for p in rule["matchFileNames"]):
+                continue
+            result.update({k: v for k, v in rule.items() if not k.startswith("match") and k != "description"})
+        return result
+
+    def test_renovate_automerge_matrix(self):
+        cases = [
+            ("npm", "major", "agents/package.json", True),
+            ("npm", "patch", "agents/package.json", True),
+            ("mise", "minor", "tools/mise.toml", True),
+            ("mise", "major", "tools/mise.toml", False),
+            ("github-actions", "digest", ".github/workflows/ci.yml", True),
+            ("github-actions", "major", ".github/workflows/ci.yml", False),
+            ("gomod", "patch", "go.mod", True),
+            ("dockerfile", "digest", "Dockerfile", False),
+            ("custom.regex", "patch", "Dockerfile", False),
+            ("custom.regex", "minor", ".env.example", False),
+        ]
+        for manager, update, path, automerge in cases:
+            with self.subTest(manager=manager, update=update):
+                self.assertEqual(self.effective(manager, update, path).get("automerge", False), automerge)
+
+    def test_agents_group(self):
+        agents = self.effective("npm", "minor", "agents/package.json")
+        self.assertEqual(agents["groupName"], "agent CLIs")
+        self.assertEqual(agents["schedule"], ["* */6 * * *"])
+        self.assertEqual(agents["rangeStrategy"], "pin")
+        self.assertTrue(self.cfg["lockFileMaintenance"]["enabled"])
+
+    def test_regex_managers_cover_annotations(self):
+        managers = self.cfg["customManagers"]
+        dockerfile = next(m for m in managers if "Dockerfile" in m["managerFilePatterns"][0])
+        pattern = re.compile(dockerfile["matchStrings"][0].replace("(?<", "(?P<"))
+        found = {m.group("depName") for m in pattern.finditer(read("Dockerfile"))}
+        self.assertEqual(found, {"jdx/mise", "tsl0922/ttyd", "coder/code-server",
+                                 "tmux-plugins/tmux-resurrect", "tmux-plugins/tmux-continuum"})
+
+
 if __name__ == "__main__":
     unittest.main()

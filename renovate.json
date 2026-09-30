@@ -1,0 +1,63 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": ["config:recommended", "helpers:pinGitHubActionDigests", "docker:pinDigests"],
+  "timezone": "UTC",
+  "platformAutomerge": true,
+  "lockFileMaintenance": {
+    "enabled": true,
+    "schedule": ["before 6am on monday"],
+    "automerge": true
+  },
+  "customManagers": [
+    {
+      "customType": "regex",
+      "description": "Dockerfile version ARGs annotated with # renovate:",
+      "managerFilePatterns": ["/(^|/)Dockerfile$/"],
+      "matchStrings": [
+        "# renovate: datasource=(?<datasource>\\S+) depName=(?<depName>\\S+)(?: extractVersion=(?<extractVersion>\\S+))?\\s+ARG \\w+_VERSION=(?<currentValue>\\S+)"
+      ]
+    },
+    {
+      "customType": "regex",
+      "description": "Berth release pinned in .env.example",
+      "managerFilePatterns": ["/^\\.env\\.example$/"],
+      "matchStrings": [
+        "# renovate: datasource=(?<datasource>\\S+) depName=(?<depName>\\S+)\\s+BERTH_VERSION=(?<currentValue>\\S+)"
+      ]
+    },
+    {
+      "customType": "regex",
+      "description": "Tool versions annotated in workflows",
+      "managerFilePatterns": ["/^\\.github/workflows/.+\\.ya?ml$/"],
+      "matchStrings": [
+        "(?<currentValue>[^\\s#]+)\\s+# renovate: datasource=(?<datasource>\\S+) depName=(?<depName>\\S+)(?: extractVersion=(?<extractVersion>\\S+))?"
+      ]
+    }
+  ],
+  "packageRules": [
+    {
+      "description": "CI-validated minor and patch updates merge themselves",
+      "matchManagers": ["mise", "github-actions", "gomod"],
+      "matchUpdateTypes": ["minor", "patch", "digest", "pinDigest"],
+      "automerge": true
+    },
+    {
+      "description": "Base image digests, annotated ARGs (checksums need a hand update) and the Berth pin are reviewed",
+      "matchManagers": ["dockerfile", "custom.regex"],
+      "automerge": false
+    },
+    {
+      "description": "Majors are reviewed",
+      "matchUpdateTypes": ["major"],
+      "automerge": false
+    },
+    {
+      "description": "Agent CLIs: every 6 hours, one PR, exact pins, merged when CI (including the image smoke test) is green",
+      "matchFileNames": ["agents/**"],
+      "groupName": "agent CLIs",
+      "schedule": ["* */6 * * *"],
+      "rangeStrategy": "pin",
+      "automerge": true
+    }
+  ]
+}
