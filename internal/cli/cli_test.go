@@ -105,4 +105,3 @@ func TestStatusEmptyAsNonRoot(t *testing.T) {
 	}
 	golden(t, "status_empty", out)
 }
-

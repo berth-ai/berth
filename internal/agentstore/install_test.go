@@ -91,10 +91,10 @@ func TestInstallIsIdempotent(t *testing.T) {
 
 func TestInstallFailuresCleanUp(t *testing.T) {
 	cases := map[string]struct{ env, step string }{
-		"npm fails":             {"BERTH_FAKE_NPM_FAIL", "install"},
-		"browser download":      {"BERTH_FAKE_PLAYWRIGHT_FAIL", "install"},
-		"chromium launch":       {"BERTH_FAKE_CHROMIUM_FAIL", "smoke"},
-		"duplicate core":        {"BERTH_FAKE_DUPLICATE_CORE", "smoke"},
+		"npm fails":        {"BERTH_FAKE_NPM_FAIL", "install"},
+		"browser download": {"BERTH_FAKE_PLAYWRIGHT_FAIL", "install"},
+		"chromium launch":  {"BERTH_FAKE_CHROMIUM_FAIL", "smoke"},
+		"duplicate core":   {"BERTH_FAKE_DUPLICATE_CORE", "smoke"},
 	}
 	for name, c := range cases {
 		t.Run(name, func(t *testing.T) {

@@ -105,4 +105,3 @@ func Seal(dir string, chownRoot bool) error {
 		return os.Chmod(p, info.Mode().Perm()&^0o022)
 	})
 }
-

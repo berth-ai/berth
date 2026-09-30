@@ -35,11 +35,17 @@ func TestGCRetention(t *testing.T) {
 
 func TestGCSkipsVersionsInUse(t *testing.T) {
 	sources := map[string]func(proc, dir string){
-		"exe":     func(p, d string) { os.Symlink(filepath.Join(d, "ms-playwright/chrome"), filepath.Join(p, "exe")) },
-		"cwd":     func(p, d string) { os.Symlink(d, filepath.Join(p, "cwd")) },
-		"maps":    func(p, d string) { os.WriteFile(filepath.Join(p, "maps"), []byte("7f00-7f01 r-xp 0 08:01 1 "+d+"/lib.so\n"), 0o644) },
-		"cmdline": func(p, d string) { os.WriteFile(filepath.Join(p, "cmdline"), []byte("node\x00"+d+"/node_modules/x/cli.js\x00"), 0o644) },
-		"environ": func(p, d string) { os.WriteFile(filepath.Join(p, "environ"), []byte("A=1\x00PLAYWRIGHT_BROWSERS_PATH="+d+"/ms-playwright\x00"), 0o644) },
+		"exe": func(p, d string) { os.Symlink(filepath.Join(d, "ms-playwright/chrome"), filepath.Join(p, "exe")) },
+		"cwd": func(p, d string) { os.Symlink(d, filepath.Join(p, "cwd")) },
+		"maps": func(p, d string) {
+			os.WriteFile(filepath.Join(p, "maps"), []byte("7f00-7f01 r-xp 0 08:01 1 "+d+"/lib.so\n"), 0o644)
+		},
+		"cmdline": func(p, d string) {
+			os.WriteFile(filepath.Join(p, "cmdline"), []byte("node\x00"+d+"/node_modules/x/cli.js\x00"), 0o644)
+		},
+		"environ": func(p, d string) {
+			os.WriteFile(filepath.Join(p, "environ"), []byte("A=1\x00PLAYWRIGHT_BROWSERS_PATH="+d+"/ms-playwright\x00"), 0o644)
+		},
 	}
 	for name, plant := range sources {
 		t.Run(name, func(t *testing.T) {

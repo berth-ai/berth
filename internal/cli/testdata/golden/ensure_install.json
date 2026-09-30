@@ -1,0 +1,18 @@
+{
+  "action": "installed",
+  "current": {
+    "hash": "5b6cfd748b55",
+    "source": {
+      "origin": "image",
+      "fetched_at": "2026-09-30T12:00:00Z"
+    },
+    "packages": {
+      "fake-agent": "1.0.0",
+      "playwright": "1.0.0"
+    },
+    "installed_at": "2026-09-30T12:00:00Z"
+  },
+  "reason": "no-current",
+  "schema": 1,
+  "seed_hash": "5b6cfd748b55"
+}

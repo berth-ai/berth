@@ -1,0 +1,8 @@
+{
+  "error": {
+    "code": "not_root",
+    "message": "berth update must run as root (docker exec -u root \u003ccontainer\u003e berth update)",
+    "step": ""
+  },
+  "schema": 1
+}

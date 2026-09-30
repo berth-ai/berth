@@ -1,0 +1,27 @@
+{
+  "current": {
+    "hash": "5b6cfd748b55",
+    "source": {
+      "origin": "dir",
+      "fetched_at": "2026-09-30T12:00:00Z"
+    },
+    "packages": {
+      "fake-agent": "1.0.0",
+      "playwright": "1.0.0"
+    },
+    "installed_at": "2026-09-30T12:00:00Z"
+  },
+  "previous": {
+    "hash": "1016b2847361",
+    "source": {
+      "origin": "dir",
+      "fetched_at": "2026-09-30T12:00:00Z"
+    },
+    "packages": {
+      "fake-agent": "2.0.0",
+      "playwright": "1.0.0"
+    },
+    "installed_at": "2026-09-30T12:00:00Z"
+  },
+  "schema": 1
+}

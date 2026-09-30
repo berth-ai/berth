@@ -241,4 +241,3 @@ func hashOrNone(v *status.VersionView) string {
 	}
 	return v.Hash
 }
-

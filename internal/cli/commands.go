@@ -2,10 +2,15 @@ package cli
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
+	"time"
 
+	"github.com/salgnt/berth/internal/agentstore"
+	"github.com/salgnt/berth/internal/locksource"
 	"github.com/salgnt/berth/internal/output"
+	"github.com/salgnt/berth/internal/runner"
 	"github.com/salgnt/berth/internal/status"
 )
 
@@ -48,7 +53,237 @@ func runStatus(ctx context.Context, a *app, args []string) error {
 	return a.p.Result(rep, func(w io.Writer) { status.WriteHuman(w, rep) })
 }
 
-func runUpdate(context.Context, *app, []string) error   { return fmt.Errorf("not implemented") }
-func runRollback(context.Context, *app, []string) error { return fmt.Errorf("not implemented") }
-func runEnsure(context.Context, *app, []string) error   { return fmt.Errorf("not implemented") }
-func runGC(context.Context, *app, []string) error       { return fmt.Errorf("not implemented") }
+type updateResult struct {
+	Changed     bool                `json:"changed"`
+	Installed   bool                `json:"installed"`
+	FollowImage bool                `json:"follow_image"`
+	Current     *status.VersionView `json:"current"`
+	Previous    *status.VersionView `json:"previous"`
+}
+
+func (r updateResult) human(w io.Writer) {
+	switch {
+	case !r.Changed:
+		fmt.Fprintf(w, "agents already at %s\n", hashOrNone(r.Current))
+	case r.Installed:
+		fmt.Fprintf(w, "installed and activated %s (previous: %s)\n", hashOrNone(r.Current), hashOrNone(r.Previous))
+	default:
+		fmt.Fprintf(w, "activated %s (previous: %s)\n", hashOrNone(r.Current), hashOrNone(r.Previous))
+	}
+}
+
+func runUpdate(ctx context.Context, a *app, args []string) error {
+	fs := newFlagSet("update")
+	ref := fs.String("ref", "", "GitHub ref to read agents/ from (default main)")
+	image := fs.Bool("image", false, "install the image seed and follow the image again")
+	lockDir := fs.String("lock-dir", "", "install from a local directory")
+	jsonOut := fs.Bool("json", false, "print JSON")
+	pos, err := parseArgs(fs, args)
+	if err != nil {
+		return usageErr(err)
+	}
+	a.p.JSON = *jsonOut
+	if len(pos) > 0 {
+		return usageErr(fmt.Errorf("update takes no arguments"))
+	}
+	selected := 0
+	for _, set := range []bool{*ref != "", *image, *lockDir != ""} {
+		if set {
+			selected++
+		}
+	}
+	if selected > 1 {
+		return usageErr(fmt.Errorf("--ref, --image and --lock-dir are mutually exclusive"))
+	}
+	return a.locked("update", func() error {
+		var lock *locksource.Lock
+		var err error
+		switch {
+		case *image:
+			lock, err = a.seed()
+		case *lockDir != "":
+			lock, err = locksource.FromDir(*lockDir, locksource.Source{Origin: locksource.OriginDir, FetchedAt: a.cfg.Now().UTC()})
+		default:
+			r := *ref
+			if r == "" {
+				r = "main"
+			}
+			lock, err = a.cfg.GitHub.Fetch(ctx, r, a.cfg.Now())
+		}
+		if err != nil {
+			return sourceErr(err)
+		}
+		res, err := a.apply(ctx, lock, *image)
+		if err != nil {
+			return err
+		}
+		a.setupMCP(ctx)
+		a.gcQuietly()
+		return a.p.Result(res, res.human)
+	})
+}
+
+// apply installs lock if needed, flips to it and records the follow state.
+func (a *app) apply(ctx context.Context, lock *locksource.Lock, follow bool) (*updateResult, error) {
+	in := agentstore.Installer{
+		Store: a.store, Runner: a.cfg.Runner, Smoke: a.cfg.Smoke,
+		Agent: a.cfg.Agent, Now: a.cfg.Now, Logf: a.p.Logf,
+	}
+	v, installed, err := in.Install(ctx, lock)
+	if err != nil {
+		return nil, installErr(err)
+	}
+	changed, err := a.store.Flip(v.Hash)
+	if err != nil {
+		return nil, output.Errorf(output.ExitFailure, "flip_failed", "flip", "%v", err)
+	}
+	if err := a.store.WriteState(agentstore.State{FollowImage: follow}); err != nil {
+		return nil, output.Errorf(output.ExitFailure, "flip_failed", "flip", "%v", err)
+	}
+	cur, prev, err := a.views()
+	if err != nil {
+		return nil, output.Errorf(output.ExitFailure, "internal", "flip", "%v", err)
+	}
+	return &updateResult{Changed: changed, Installed: installed, FollowImage: follow, Current: cur, Previous: prev}, nil
+}
+
+// setupMCP converges MCP registrations; failures are logged, never fatal.
+func (a *app) setupMCP(ctx context.Context) {
+	if a.cfg.MCPSetup == "" {
+		return
+	}
+	err := a.cfg.Runner.Run(ctx, runner.Cmd{Path: a.cfg.MCPSetup, AsAgent: true, Timeout: 2 * time.Minute})
+	if err != nil {
+		a.p.Logf("warning: MCP setup failed: %v", err)
+	}
+}
+
+func (a *app) gcQuietly() {
+	if _, err := a.store.GC(a.cfg.Keep, agentstore.InUsePaths(a.cfg.ProcRoot)); err != nil {
+		a.p.Logf("warning: gc failed: %v", err)
+	}
+}
+
+type rollbackResult struct {
+	Current  *status.VersionView `json:"current"`
+	Previous *status.VersionView `json:"previous"`
+}
+
+func runRollback(_ context.Context, a *app, args []string) error {
+	fs := newFlagSet("rollback")
+	jsonOut := fs.Bool("json", false, "print JSON")
+	pos, err := parseArgs(fs, args)
+	if err != nil {
+		return usageErr(err)
+	}
+	a.p.JSON = *jsonOut
+	if len(pos) > 1 {
+		return usageErr(fmt.Errorf("rollback takes at most one HASH"))
+	}
+	target := ""
+	if len(pos) == 1 {
+		target = pos[0]
+	}
+	return a.locked("rollback", func() error {
+		_, err := a.store.Rollback(target)
+		switch {
+		case errors.Is(err, agentstore.ErrNoPrevious):
+			return output.Errorf(output.ExitFailure, "no_previous", "rollback", "%v", err)
+		case errors.Is(err, agentstore.ErrNotFound):
+			return output.Errorf(output.ExitFailure, "not_found", "rollback", "no complete agent set %q", target)
+		case err != nil:
+			return output.Errorf(output.ExitFailure, "flip_failed", "flip", "%v", err)
+		}
+		if err := a.store.WriteState(agentstore.State{FollowImage: false}); err != nil {
+			return output.Errorf(output.ExitFailure, "flip_failed", "flip", "%v", err)
+		}
+		cur, prev, err := a.views()
+		if err != nil {
+			return output.Errorf(output.ExitFailure, "internal", "rollback", "%v", err)
+		}
+		res := rollbackResult{Current: cur, Previous: prev}
+		return a.p.Result(res, func(w io.Writer) {
+			fmt.Fprintf(w, "rolled back to %s (previous: %s)\n", hashOrNone(cur), hashOrNone(prev))
+		})
+	})
+}
+
+type ensureResult struct {
+	Action   string              `json:"action"`
+	Reason   string              `json:"reason"`
+	SeedHash string              `json:"seed_hash"`
+	Current  *status.VersionView `json:"current"`
+}
+
+func runEnsure(ctx context.Context, a *app, args []string) error {
+	fs := newFlagSet("ensure")
+	jsonOut := fs.Bool("json", false, "print JSON")
+	pos, err := parseArgs(fs, args)
+	if err != nil {
+		return usageErr(err)
+	}
+	a.p.JSON = *jsonOut
+	if len(pos) > 0 {
+		return usageErr(fmt.Errorf("ensure takes no arguments"))
+	}
+	return a.locked("ensure", func() error {
+		seed, err := a.seed()
+		if err != nil {
+			return sourceErr(err)
+		}
+		cur, err := a.store.Current()
+		if err != nil {
+			return output.Errorf(output.ExitFailure, "internal", "ensure", "%v", err)
+		}
+		state, err := a.store.ReadState()
+		if err != nil {
+			return output.Errorf(output.ExitFailure, "internal", "ensure", "%v", err)
+		}
+		res := ensureResult{Action: "none", SeedHash: seed.Hash}
+		switch {
+		case cur == nil:
+			res.Reason = "no-current"
+		case !state.FollowImage:
+			res.Reason = "pinned"
+		case cur.Hash != seed.Hash:
+			res.Reason = "seed-changed"
+		default:
+			res.Reason = "up-to-date"
+		}
+		if res.Reason == "no-current" || res.Reason == "seed-changed" {
+			if _, err := a.apply(ctx, seed, true); err != nil {
+				return err
+			}
+			res.Action = "installed"
+			a.gcQuietly()
+		}
+		if res.Current, _, err = a.views(); err != nil {
+			return output.Errorf(output.ExitFailure, "internal", "ensure", "%v", err)
+		}
+		return a.p.Result(res, func(w io.Writer) {
+			fmt.Fprintf(w, "agents %s (%s, %s)\n", hashOrNone(res.Current), res.Action, res.Reason)
+		})
+	})
+}
+
+func runGC(_ context.Context, a *app, args []string) error {
+	fs := newFlagSet("gc")
+	jsonOut := fs.Bool("json", false, "print JSON")
+	pos, err := parseArgs(fs, args)
+	if err != nil {
+		return usageErr(err)
+	}
+	a.p.JSON = *jsonOut
+	if len(pos) > 0 {
+		return usageErr(fmt.Errorf("gc takes no arguments"))
+	}
+	return a.locked("gc", func() error {
+		res, err := a.store.GC(a.cfg.Keep, agentstore.InUsePaths(a.cfg.ProcRoot))
+		if err != nil {
+			return output.Errorf(output.ExitFailure, "internal", "gc", "%v", err)
+		}
+		return a.p.Result(res, func(w io.Writer) {
+			fmt.Fprintf(w, "removed %d, kept %d, in use %d\n", len(res.Removed), len(res.Kept), len(res.InUse))
+		})
+	})
+}
