@@ -2,6 +2,7 @@
 package cli
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"flag"
@@ -40,6 +41,12 @@ type Config struct {
 	Now         func() time.Time
 	Version     string
 	Commit      string
+
+	// Services (berth broker, berth panel).
+	BrokerSocket    string
+	BerthPath       string
+	PanelCredential string
+	PanelListen     string
 }
 
 // Build carries values injected with -ldflags.
@@ -81,6 +88,11 @@ func defaultConfig(getenv func(string) string, b Build, isRoot bool, lookup func
 		Now:         time.Now,
 		Version:     b.Version,
 		Commit:      b.Commit,
+
+		BrokerSocket:    "/run/berth/broker.sock",
+		BerthPath:       "/usr/local/bin/berth",
+		PanelCredential: getenv("PANEL_CREDENTIAL"),
+		PanelListen:     "0.0.0.0:" + cmp.Or(getenv("PANEL_PORT"), "7690"),
 	}
 	if cfg.IsRoot {
 		// Only the mutating commands need agent; report a missing user there.
@@ -113,9 +125,11 @@ var commands = map[string]command{
 	"ensure":   {"ensure [--json]                      boot-time install of the image seed", runEnsure},
 	"gc":       {"gc [--json]                          remove unused agent sets", runGC},
 	"version":  {"version                              print the berth version", runVersion},
+	"broker":   {"broker                               serve the panel's root broker (started by the panel module)", runBroker},
+	"panel":    {"panel                                serve the web panel (started by the panel module)", runPanel},
 }
 
-var order = []string{"status", "update", "rollback", "ensure", "gc", "version"}
+var order = []string{"status", "update", "rollback", "ensure", "gc", "version", "broker", "panel"}
 
 // Run executes one berth invocation and returns its exit code.
 func Run(ctx context.Context, cfg Config, args []string, stdout, stderr io.Writer) int {
