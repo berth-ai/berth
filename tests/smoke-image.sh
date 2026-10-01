@@ -100,7 +100,7 @@ x pgid berth status --json | jq -e '.current != null' >/dev/null || fail "agents
 
 step "web panel"
 panel=http://127.0.0.1:7690
-[[ $(x pgid stat -c '%a %U %G' /run/berth/broker.sock) == "660 root agent" ]] || fail "broker socket ownership"
+[[ $(x pgid stat -c '%a %U %g' /run/berth/broker.sock) == "660 root 100" ]] || fail "broker socket ownership"
 [[ $(x pgid ps -eo user:12,args | awk '$2 ~ /berth$/ && $3 == "broker" {print $1}') == root ]] || fail "broker not root"
 [[ $(x pgid ps -eo user:12,args | awk '$2 ~ /berth$/ && $3 == "panel" {print $1}') == agent ]] || fail "panel not agent"
 [[ $(x pgid curl -s -o /dev/null -w '%{http_code}' "$panel/") == 401 ]] || fail "panel without credentials"
