@@ -47,6 +47,16 @@ class ModuleLibraryTest(unittest.TestCase):
         self.assertEqual(r.stdout, "mine=m theirs=\nnames=mine\n", r.stderr)
         self.assertEqual(self.h.read_log("gosu").split()[0], "agent")
 
+    def test_start_root_service_scrubs_every_secret_and_skips_gosu(self):
+        r = self.h.bash(
+            'BERTH_ALL_SECRETS=(MINE THEIRS)\n'
+            'mine_secrets() { echo MINE; }\n'
+            'start_root_service mine sh -c \'echo "mine=${MINE:-} theirs=${THEIRS:-} keep=${KEEP:-}"\'\n'
+            'wait "${BERTH_PIDS[0]}"; echo "names=${BERTH_PID_NAMES[*]}"',
+            env={"MINE": "m", "THEIRS": "t", "KEEP": "k"})
+        self.assertEqual(r.stdout, "mine= theirs= keep=k\nnames=mine\n", r.stderr)
+        self.assertEqual(self.h.read_log("gosu"), "")
+
 
 if __name__ == "__main__":
     unittest.main()

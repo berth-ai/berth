@@ -69,15 +69,31 @@ valid_port() {
 # start_service NAME ARGV... starts ARGV in the background as agent, without
 # any other module's secrets, and records its PID for the supervisor.
 start_service() {
-  local name=$1 own var
+  local name=$1
   shift
+  spawn_scrubbed "$name" "$(module_secrets "$name")" gosu agent "$@"
+}
+
+# start_root_service NAME ARGV... starts ARGV in the background as root,
+# without any module's secrets (its own module's included), and records its
+# PID for the supervisor. Only for helpers that need root and no network.
+start_root_service() {
+  local name=$1
+  shift
+  spawn_scrubbed "$name" "" "$@"
+}
+
+# spawn_scrubbed NAME KEEP ARGV... starts ARGV with every module secret
+# removed except those listed in KEEP (newline-separated).
+spawn_scrubbed() {
+  local name=$1 keep=$2 var
+  shift 2
   local -a scrub=()
-  own=$(module_secrets "$name")
   for var in "${BERTH_ALL_SECRETS[@]}"; do
-    grep -Fxq -- "$var" <<<"$own" || scrub+=(-u "$var")
+    grep -Fxq -- "$var" <<<"$keep" || scrub+=(-u "$var")
   done
   log "starting $name"
-  env "${scrub[@]}" gosu agent "$@" &
+  env "${scrub[@]}" "$@" &
   BERTH_PIDS+=("$!")
   BERTH_PID_NAMES+=("$name")
 }

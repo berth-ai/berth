@@ -72,6 +72,18 @@ class BootTest(unittest.TestCase):
         self.assertFalse(self.h.log_path("ttyd.argv").exists())
         self.assertFalse(self.h.log_path("code-server.argv").exists())
 
+    def test_panel_credential_forms(self):
+        for cred, ok in (("me:pw", True), ("me:pa:ss", True), ("me:", False), (":pw", False), ("nocolon", False)):
+            with self.subTest(cred=cred):
+                r = self.h.bash(f'source "{SERVICES}/30-panel.sh"; PANEL_CREDENTIAL="{cred}" panel_validate')
+                self.assertEqual(r.returncode == 0, ok, r.stderr)
+
+    def test_invalid_panel_port_starts_nothing(self):
+        r = self.h.run(ENTRYPOINT, "serve", env={"PANEL_CREDENTIAL": "me:pw", "PANEL_PORT": "0"})
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("PANEL_PORT", r.stderr)
+        self.assertEqual(self.h.read_log("berth"), "ensure\n")
+
     def test_invalid_port_starts_nothing(self):
         r = self.h.run(ENTRYPOINT, "serve", env={"CODE_SERVER_PASSWORD": "pw", "CODE_SERVER_PORT": "99999"})
         self.assertEqual(r.returncode, 1)
@@ -117,6 +129,7 @@ class ServeTest(unittest.TestCase):
         self.assertEqual(code, 143)
         self.assertIn("ttyd: set WEB_TERMINAL_CREDENTIAL", err)
         self.assertIn("code_server: set CODE_SERVER_PASSWORD", err)
+        self.assertIn("panel: set PANEL_CREDENTIAL", err)
         self.assertEqual((self.h.run_dir / "modules").read_text(), "")
 
     def test_starts_modules_and_scrubs_secrets(self):
@@ -135,6 +148,34 @@ class ServeTest(unittest.TestCase):
         self.assertEqual(code, 143)
         self.assertEqual(self.h.read_log("ttyd.signals"), "TERM\n")
         self.assertEqual(self.h.read_log("code-server.signals"), "TERM\n")
+
+    def test_panel_runs_broker_as_root_and_panel_as_agent(self):
+        self.h.fake("berth", r"""
+echo "$*" >> "$FAKE_LOG/berth"
+case $1 in
+  broker|panel)
+    env | sort > "$FAKE_LOG/berth-$1.env"
+    trap 'echo TERM >> "$FAKE_LOG/berth-$1.signals"; exit 0' TERM
+    while :; do sleep 0.05; done ;;
+esac
+""")
+        proc = self.serve(PANEL_CREDENTIAL="me:panel-secret", WEB_TERMINAL_CREDENTIAL="me:ttyd-secret", PANEL_PORT="7700")
+        self.h.wait_for(lambda: self.h.log_path("berth-broker.env").exists() and self.h.log_path("berth-panel.env").exists())
+        gosu = self.h.read_log("gosu").splitlines()
+        self.assertIn("agent berth panel", gosu)
+        self.assertNotIn("agent berth broker", gosu)
+        broker_env = self.h.read_log("berth-broker.env")
+        panel_env = self.h.read_log("berth-panel.env").splitlines()
+        self.assertNotIn("panel-secret", broker_env)
+        self.assertNotIn("ttyd-secret", broker_env)
+        self.assertIn("PANEL_CREDENTIAL=me:panel-secret", panel_env)
+        self.assertIn("PANEL_PORT=7700", panel_env)
+        self.assertFalse([l for l in panel_env if l.startswith("WEB_TERMINAL_CREDENTIAL=")])
+        self.assertEqual((self.h.run_dir / "modules").read_text(), "ttyd\npanel\n")
+        code, _, err = self.h.stop(proc)
+        self.assertEqual(code, 143)
+        self.assertEqual(self.h.read_log("berth-broker.signals"), "TERM\n")
+        self.assertEqual(self.h.read_log("berth-panel.signals"), "TERM\n")
 
     def test_service_exit_stops_others(self):
         proc = self.h.start(ENTRYPOINT, "serve", env={

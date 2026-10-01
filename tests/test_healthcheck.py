@@ -49,6 +49,23 @@ class HealthcheckTest(unittest.TestCase):
         self.assertEqual(r.returncode, 1)
         self.assertIn(f"port {port}", r.stdout)
 
+    def test_panel_needs_broker_socket(self):
+        srv = socket.socket()
+        srv.bind(("127.0.0.1", 0))
+        srv.listen()
+        self.addCleanup(srv.close)
+        port = srv.getsockname()[1]
+        self.state(os.getpid(), ["panel"])
+        env = {"PANEL_CREDENTIAL": "me:pw", "PANEL_PORT": str(port)}
+        r = self.h.run(HEALTHCHECK, env=env)
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("panel health check failed", r.stdout)
+        sock = socket.socket(socket.AF_UNIX)
+        self.addCleanup(sock.close)
+        sock.bind(str(self.h.run_dir / "broker.sock"))
+        r = self.h.run(HEALTHCHECK, env=env)
+        self.assertEqual((r.returncode, r.stdout), (0, "healthy\n"), r.stderr)
+
     def test_custom_health_function(self):
         d = self.h.tmp / "services"
         d.mkdir()
