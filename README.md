@@ -30,6 +30,7 @@ takes a few minutes. Later starts are fast.
 | --- | --- | --- |
 | Browser terminal (ttyd + tmux) | `WEB_TERMINAL_CREDENTIAL=user:password` | `TTYD_PORT` (7681) |
 | Browser IDE (code-server) | `CODE_SERVER_PASSWORD=...` | `CODE_SERVER_PORT` (8080) |
+| Web panel (agent status, update, rollback) | `PANEL_CREDENTIAL=user:password` | `PANEL_PORT` (7690) |
 | Shell | always | `docker compose exec -u agent berth zsh` |
 
 With no frontend enabled, Berth idles and `docker exec` still works. Ports are
@@ -49,6 +50,11 @@ Updates install into a new directory and switch atomically. Running agent
 sessions keep working on the version they started with. After `update` or
 `rollback`, restarts keep your choice. Only `update --image` makes Berth
 follow the image again. Every command accepts `--json`.
+
+The web panel does the same from a browser: it shows the current and previous
+agent sets, checks `main` for a newer lock, and runs `update` (from `main`, a
+git ref or the image) or `rollback` while showing the log. It cannot run
+anything else.
 
 ## Upgrading the image
 
@@ -84,6 +90,8 @@ agent store live in named volumes and survive recreation. Never run
 | `TTYD_PORT` | 7681 | ttyd port |
 | `CODE_SERVER_PASSWORD` | unset | Enables code-server |
 | `CODE_SERVER_PORT` | 8080 | code-server port |
+| `PANEL_CREDENTIAL` | unset | `user:password`; enables the web panel |
+| `PANEL_PORT` | 7690 | Web panel port |
 | `AGENTS_BOOT_TIMEOUT` | 600 | Seconds allowed for installing agents at boot |
 | `AGENTS_KEEP` | 3 | Old agent sets kept besides current and previous |
 | `MCP_SETUP_TIMEOUT` | 120 | Seconds allowed for MCP registration |
@@ -93,6 +101,10 @@ agent store live in named volumes and survive recreation. Never run
 
 - All services and agents run as the unprivileged `agent` user, with `no-new-privileges`.
 - Each frontend's credential is hidden from the other frontends.
+- The web panel runs as `agent`. Agent updates need root, so the panel asks
+  a small root broker that listens only on a unix socket, has no network
+  port and no credential, and runs only `berth status`, `update` and
+  `rollback`.
 - The agent store and base toolchain are read-only to `agent`, and agent
   auto-updaters are disabled.
 - Playwright's Chromium runs with `--no-sandbox`, because the kernel sandbox

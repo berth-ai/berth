@@ -91,11 +91,31 @@ step "shell defaults"
   fail "PATH order"
 halt ttyd
 
-step "pgid=100 with both frontends, same volumes"
-boot pgid "$boot_timeout" -e PGID=100 -e WEB_TERMINAL_CREDENTIAL=smoke:smoke -e CODE_SERVER_PASSWORD=smoke
+step "pgid=100 with every frontend, same volumes"
+boot pgid "$boot_timeout" -e PGID=100 -e WEB_TERMINAL_CREDENTIAL=smoke:smoke -e CODE_SERVER_PASSWORD=smoke \
+  -e PANEL_CREDENTIAL=smoke:smoke
 [[ $(x pgid stat -c %g /home/agent) == 100 ]] || fail "home group not repaired"
 x pgid berth status --json | jq -e '.current != null' >/dev/null || fail "agents lost across recreation"
 [[ $(xa pgid id -g) == 100 ]] || fail "agent gid"
+
+step "web panel"
+panel=http://127.0.0.1:7690
+[[ $(x pgid stat -c '%a %U %G' /run/berth/broker.sock) == "660 root agent" ]] || fail "broker socket ownership"
+[[ $(x pgid ps -eo user:12,args | awk '$2 ~ /berth$/ && $3 == "broker" {print $1}') == root ]] || fail "broker not root"
+[[ $(x pgid ps -eo user:12,args | awk '$2 ~ /berth$/ && $3 == "panel" {print $1}') == agent ]] || fail "panel not agent"
+[[ $(x pgid curl -s -o /dev/null -w '%{http_code}' "$panel/") == 401 ]] || fail "panel without credentials"
+x pgid curl -fsS -u smoke:smoke "$panel/api/status" | jq -e '.current != null' >/dev/null || fail "panel status"
+[[ $(x pgid curl -s -o /dev/null -w '%{http_code}' -u smoke:smoke -H 'Content-Type: application/json' \
+  -d '{"action":"rollback"}' "$panel/api/jobs") == 403 ]] || fail "panel accepted a POST without X-Berth-Panel"
+x pgid curl -fsS -u smoke:smoke -H 'Content-Type: application/json' -H 'X-Berth-Panel: 1' \
+  -d '{"action":"update","image":true}' "$panel/api/jobs" >/dev/null || fail "panel job start"
+for ((i = 0; i < 300; i++)); do
+  state=$(x pgid curl -fsS -u smoke:smoke "$panel/api/job" | jq -r .job.state)
+  [[ $state != running ]] && break
+  sleep 1
+done
+x pgid curl -fsS -u smoke:smoke "$panel/api/job" | jq -e '.job.state == "succeeded" and .job.result.follow_image' >/dev/null ||
+  fail "panel update --image job: $(x pgid curl -fsS -u smoke:smoke "$panel/api/job")"
 halt pgid
 
 step "idle mode"

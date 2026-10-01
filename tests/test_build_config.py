@@ -114,6 +114,7 @@ class ComposeTest(unittest.TestCase):
         self.assertIn("${BIND_ADDRESS:?", text)
         self.assertIn("${TTYD_PORT:-7681}:${TTYD_PORT:-7681}", text)
         self.assertIn("${CODE_SERVER_PORT:-8080}:${CODE_SERVER_PORT:-8080}", text)
+        self.assertIn("${PANEL_PORT:-7690}:${PANEL_PORT:-7690}", text)
         self.assertIn("no-new-privileges:true", text)
         for vol in ("berth-home", "berth-agents"):
             self.assertIn(f"name: {vol}", text)
@@ -123,6 +124,7 @@ class ComposeTest(unittest.TestCase):
         env = read(".env.example")
         for var in ("BERTH_VERSION", "BIND_ADDRESS", "PUID", "PGID", "WORKSPACES_DIR",
                     "WEB_TERMINAL_CREDENTIAL", "TTYD_PORT", "CODE_SERVER_PASSWORD", "CODE_SERVER_PORT",
+                    "PANEL_CREDENTIAL", "PANEL_PORT",
                     "AGENTS_BOOT_TIMEOUT", "AGENTS_KEEP", "MCP_SETUP_TIMEOUT", "TZ"):
             self.assertRegex(env, rf"(?m)^{var}=", var)
         self.assertRegex(env, r"# renovate: datasource=docker depName=ghcr.io/salgnt/berth\nBERTH_VERSION=\d+\.\d+\.\d+\n")

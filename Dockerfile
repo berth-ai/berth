@@ -152,7 +152,7 @@ ENV BERTH_REPO=${BERTH_REPO} \
     XDG_CONFIG_DIRS=/etc/berth/defaults/xdg:/etc/xdg \
     PATH=/opt/agents/current/bin:/opt/mise/wrappers:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 
-EXPOSE 7681 8080
+EXPOSE 7681 8080 7690
 HEALTHCHECK --interval=30s --timeout=10s --start-period=600s --start-interval=2s --retries=3 \
   CMD ["berth-healthcheck"]
 ENTRYPOINT ["tini", "--", "berth-entrypoint"]
