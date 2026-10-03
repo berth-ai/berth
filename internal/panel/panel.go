@@ -10,9 +10,11 @@ import (
 	"embed"
 	"encoding/json"
 	"io"
+	"io/fs"
 	"mime"
 	"net/http"
 	"net/url"
+	"path"
 	"regexp"
 	"strconv"
 	"strings"
@@ -29,10 +31,9 @@ const (
 //go:embed static
 var static embed.FS
 
-var assets = map[string]string{
-	"panel.js":  "text/javascript; charset=utf-8",
-	"auth.js":   "text/javascript; charset=utf-8",
-	"panel.css": "text/css; charset=utf-8",
+var assetTypes = map[string]string{
+	".js":  "text/javascript; charset=utf-8",
+	".css": "text/css; charset=utf-8",
 }
 
 // browserVerbs are the broker verbs the browser may call. auth.verify,
@@ -86,7 +87,7 @@ func New(client *http.Client, brokerURL string, up Upstreams) *Server {
 	s.mux.HandleFunc("GET /{$}", s.page("index.html"))
 	s.mux.HandleFunc("GET /login", s.page("login.html"))
 	s.mux.HandleFunc("GET /setup", s.page("setup.html"))
-	s.mux.HandleFunc("GET /static/{name}", s.handleAsset)
+	s.mux.HandleFunc("GET /static/{path...}", s.handleAsset)
 	s.mux.HandleFunc("GET /api/session", s.handleSession)
 	s.mux.HandleFunc("POST /api/login", s.handleLogin)
 	s.mux.HandleFunc("POST /api/logout", s.handleLogout)
@@ -174,13 +175,17 @@ func (s *Server) page(name string) http.HandlerFunc {
 }
 
 func (s *Server) handleAsset(w http.ResponseWriter, r *http.Request) {
-	name := r.PathValue("name")
-	ct, ok := assets[name]
-	if !ok {
+	name := r.PathValue("path")
+	ct, ok := assetTypes[path.Ext(name)]
+	if !ok || !fs.ValidPath(name) {
 		http.NotFound(w, r)
 		return
 	}
-	body, _ := static.ReadFile("static/" + name)
+	body, err := static.ReadFile("static/" + name)
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
 	w.Header().Set("Content-Type", ct)
 	_, _ = w.Write(body)
 }
