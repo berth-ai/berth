@@ -1,0 +1,140 @@
+/* Berth panel tokens: the Harbor direction (internal/panel/DESIGN.md).
+   Hex values appear only between the tokens markers; everything else in
+   web/ uses these variables or the Tailwind utilities theme.css maps onto
+   them. */
+
+/* tokens:start */
+:root {
+  color-scheme: light;
+  --bg: #f5f7f9;
+  --surface: #ffffff;
+  --surface-sunken: #eef1f4;
+  --fg: #14191f;
+  --fg-secondary: #3e4852;
+  --fg-muted: #5a6672;
+  --line: #dce1e6;
+  --line-strong: #c3ccd4;
+  --line-control: #7d8b98;
+  --accent: #0b7285;
+  --accent-hover: #095e6e;
+  --accent-soft: #e3f1f3;
+  --accent-text: #0a6172;
+  --accent-fg: #ffffff;
+  --focus: #0b7285;
+  --ok: #17703f;
+  --ok-soft: #e5f3eb;
+  --warn: #975600;
+  --warn-soft: #fcf0dc;
+  --bad: #c4314b;
+  --bad-soft: #fbe9ec;
+  --bad-fg: #ffffff;
+  --info: #2f5fb3;
+  --info-soft: #e7eef9;
+  --idle: #5a6672;
+  --idle-soft: #edf0f3;
+  --log-bg: #10161c;
+  --log-fg: #d3dce4;
+  --log-dim: #8494a3;
+  --log-err: #ff8a97;
+  --thumb: #ffffff;
+  --scrim: rgba(14, 19, 24, 0.45);
+  --shadow-1: 0 1px 2px rgba(0, 0, 0, 0.12);
+  --shadow-2: 0 10px 30px rgba(16, 24, 32, 0.16), 0 1px 3px rgba(16, 24, 32, 0.08);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --bg: #0e1318;
+    --surface: #151c23;
+    --surface-sunken: #1c252e;
+    --fg: #e3e9ee;
+    --fg-secondary: #b6c1cb;
+    --fg-muted: #93a1ad;
+    --line: #26313b;
+    --line-strong: #36434f;
+    --line-control: #62717e;
+    --accent: #4fc1d1;
+    --accent-hover: #72d0dd;
+    --accent-soft: #143039;
+    --accent-text: #8fdce6;
+    --accent-fg: #081719;
+    --focus: #4fc1d1;
+    --ok: #4cc38a;
+    --ok-soft: #12291f;
+    --warn: #f0a64a;
+    --warn-soft: #2e2210;
+    --bad: #ff7b8a;
+    --bad-soft: #33161c;
+    --bad-fg: #2a0a10;
+    --info: #7aa7ff;
+    --info-soft: #17233a;
+    --idle: #9aa7b3;
+    --idle-soft: #1f2830;
+    --log-bg: #0a0f14;
+    --scrim: rgba(0, 0, 0, 0.6);
+    --shadow-1: 0 1px 2px rgba(0, 0, 0, 0.3);
+    --shadow-2: 0 10px 30px rgba(0, 0, 0, 0.5), 0 1px 3px rgba(0, 0, 0, 0.4);
+  }
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #0e1318;
+  --surface: #151c23;
+  --surface-sunken: #1c252e;
+  --fg: #e3e9ee;
+  --fg-secondary: #b6c1cb;
+  --fg-muted: #93a1ad;
+  --line: #26313b;
+  --line-strong: #36434f;
+  --line-control: #62717e;
+  --accent: #4fc1d1;
+  --accent-hover: #72d0dd;
+  --accent-soft: #143039;
+  --accent-text: #8fdce6;
+  --accent-fg: #081719;
+  --focus: #4fc1d1;
+  --ok: #4cc38a;
+  --ok-soft: #12291f;
+  --warn: #f0a64a;
+  --warn-soft: #2e2210;
+  --bad: #ff7b8a;
+  --bad-soft: #33161c;
+  --bad-fg: #2a0a10;
+  --info: #7aa7ff;
+  --info-soft: #17233a;
+  --idle: #9aa7b3;
+  --idle-soft: #1f2830;
+  --log-bg: #0a0f14;
+  --scrim: rgba(0, 0, 0, 0.6);
+  --shadow-1: 0 1px 2px rgba(0, 0, 0, 0.3);
+  --shadow-2: 0 10px 30px rgba(0, 0, 0, 0.5), 0 1px 3px rgba(0, 0, 0, 0.4);
+}
+/* tokens:end */
+
+:root {
+  --font-sans: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
+  --font-mono:
+    ui-monospace, "SF Mono", "Cascadia Mono", "JetBrains Mono", Menlo, Consolas, monospace;
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+  --space-6: 32px;
+  --space-7: 40px;
+  --space-8: 56px;
+  --radius-s: 4px;
+  --radius-m: 6px;
+  --radius-l: 10px;
+  --control-h: 32px;
+  --control-h-s: 28px;
+  --nav-w: 224px;
+  --nav-item-h: 34px;
+  --topbar-h: 52px;
+  --embed-bar-h: 44px;
+  --content-max: 1120px;
+  --form-max: 680px;
+  --card-min: 260px;
+}
