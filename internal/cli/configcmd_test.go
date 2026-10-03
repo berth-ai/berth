@@ -74,7 +74,7 @@ func TestConfigGetAndSet(t *testing.T) {
 	}
 	golden(t, "config_set", out)
 
-	out, _, code = run(t, cfg, "config", "set", "agents.keep=99")
+	_, _, code = run(t, cfg, "config", "set", "agents.keep=99")
 	if code != 1 {
 		t.Fatalf("invalid set: %d", code)
 	}

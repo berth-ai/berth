@@ -93,7 +93,7 @@ func (a *app) configCall(ctx context.Context, c broker.Client, verb string, in a
 	if code != http.StatusOK {
 		return brokerError(code, raw)
 	}
-	return a.p.Result(json.RawMessage(raw), func(w io.Writer) { writeConfigHuman(w, verb, raw) })
+	return a.p.Result(raw, func(w io.Writer) { writeConfigHuman(w, verb, raw) })
 }
 
 func writeConfigHuman(w io.Writer, verb string, raw []byte) {

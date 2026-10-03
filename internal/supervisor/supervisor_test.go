@@ -2,6 +2,7 @@ package supervisor
 
 import (
 	"bytes"
+	"errors"
 	"net"
 	"os"
 	"path/filepath"
@@ -207,7 +208,7 @@ func TestRestartClearsFailed(t *testing.T) {
 		t.Fatal(err)
 	}
 	h.waitState("ttyd", StateRunning)
-	if err := h.sup.Restart("nope"); err != ErrUnknownService {
+	if err := h.sup.Restart("nope"); !errors.Is(err, ErrUnknownService) {
 		t.Errorf("Restart(nope) = %v", err)
 	}
 }
