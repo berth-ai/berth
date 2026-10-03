@@ -153,6 +153,7 @@ func (e *env) login(c *http.Client) {
 
 func TestSetupModeGates(t *testing.T) {
 	e := newEnv(t, "setup")
+	e.s.UseAssets(fixtureAssets())
 	c := e.client()
 	for path, want := range map[string]string{"/": "/setup", "/login": "/setup", "/terminal/": "/setup"} {
 		resp, _ := e.do(c, "GET", path, "", nil)
@@ -163,7 +164,7 @@ func TestSetupModeGates(t *testing.T) {
 	if resp, body := e.do(c, "GET", "/api/status", "", nil); resp.StatusCode != 409 || !strings.Contains(body, "setup_required") {
 		t.Errorf("api in setup = %d %s", resp.StatusCode, body)
 	}
-	for _, path := range []string{"/setup", "/static/js/auth.js", "/static/panel.css", "/api/session"} {
+	for _, path := range []string{"/setup", "/static/assets/app-1a2b.js", "/static/assets/app-1a2b.css", "/api/session"} {
 		if resp, _ := e.do(c, "GET", path, "", nil); resp.StatusCode != 200 {
 			t.Errorf("GET %s = %d", path, resp.StatusCode)
 		}
@@ -375,15 +376,16 @@ func assertSecurityHeaders(t *testing.T, resp *http.Response) {
 
 func TestPageAndAssets(t *testing.T) {
 	e := newEnv(t, "normal")
+	e.s.UseAssets(fixtureAssets())
 	c := e.client()
 	e.login(c)
 	resp, body := e.do(c, "GET", "/", "", nil)
-	if resp.StatusCode != 200 || !strings.Contains(body, "<title>Berth</title>") ||
+	if resp.StatusCode != 200 || !strings.Contains(body, "<title>app</title>") ||
 		!strings.HasPrefix(resp.Header.Get("Content-Type"), "text/html") {
 		t.Fatalf("GET / = %d %q", resp.StatusCode, resp.Header.Get("Content-Type"))
 	}
 	assertSecurityHeaders(t, resp)
-	for path, ct := range map[string]string{"/static/js/app.js": "text/javascript", "/static/panel.css": "text/css"} {
+	for path, ct := range map[string]string{"/static/assets/app-1a2b.js": "text/javascript", "/static/assets/app-1a2b.css": "text/css"} {
 		resp, _ := e.do(c, "GET", path, "", nil)
 		if resp.StatusCode != 200 || !strings.HasPrefix(resp.Header.Get("Content-Type"), ct) {
 			t.Errorf("GET %s = %d %q", path, resp.StatusCode, resp.Header.Get("Content-Type"))

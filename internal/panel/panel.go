@@ -7,7 +7,6 @@ package panel
 import (
 	"bytes"
 	"context"
-	"embed"
 	"encoding/json"
 	"io"
 	"io/fs"
@@ -27,14 +26,6 @@ const (
 	panelCSP     = "default-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'"
 	modeSetup    = "setup"
 )
-
-//go:embed static
-var static embed.FS
-
-var assetTypes = map[string]string{
-	".js":  "text/javascript; charset=utf-8",
-	".css": "text/css; charset=utf-8",
-}
 
 // browserVerbs are the broker verbs the browser may call. auth.verify,
 // setup.complete and auth.reset never appear: the panel calls the first two
@@ -85,7 +76,7 @@ func New(client *http.Client, brokerURL string, up Upstreams) *Server {
 		limiter:  newLimiter(time.Now),
 	}
 	s.modes = &modeCache{ttl: time.Second, now: time.Now, fetch: s.fetchMode}
-	s.assets, _ = fs.Sub(static, "static")
+	s.assets = builtAssets()
 	s.mux.HandleFunc("GET /{$}", s.page("index.html"))
 	s.mux.HandleFunc("GET /login", s.page("login.html"))
 	s.mux.HandleFunc("GET /setup", s.page("setup.html"))

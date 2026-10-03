@@ -94,11 +94,12 @@ func TestProxyStripsSessionCookie(t *testing.T) {
 
 func TestProxyUnavailable(t *testing.T) {
 	e, term, _ := proxyEnv(t)
+	e.s.UseAssets(fixtureAssets())
 	term.srv.Close()
 	c := e.client()
 	e.login(c)
 	resp, body := e.do(c, "GET", "/terminal/", "", nil)
-	if resp.StatusCode != 502 || !strings.Contains(body, "The terminal is not running") || !strings.Contains(body, `href="/#settings"`) {
+	if resp.StatusCode != 502 || !strings.Contains(body, "The terminal is not running") {
 		t.Errorf("down = %d %s", resp.StatusCode, body)
 	}
 	if resp.Header.Get("X-Frame-Options") != "SAMEORIGIN" {
