@@ -5,19 +5,10 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Sign in · Berth</title>
 <link rel="stylesheet" href="/static/panel.css">
-<script src="/static/auth.js" defer></script>
+<script type="module" src="/static/js/auth.js"></script>
 </head>
 <body class="auth">
-<main>
-  <h1>Berth</h1>
-  <form id="login-form" class="card" autocomplete="on">
-    <h2>Sign in</h2>
-    <label>User <input id="user" name="user" autocomplete="username" required autofocus></label>
-    <label>Password <input id="password" name="password" type="password" autocomplete="current-password" required></label>
-    <p id="error" class="error" role="alert" hidden></p>
-    <button id="submit" type="submit">Sign in</button>
-  </form>
-  <p class="muted small">Forgot the login? Run <code>docker compose exec berth berth config reset-login</code> and open the new setup link.</p>
-</main>
+<div class="auth-col signin" id="auth" data-page="login"></div>
+<div id="toasts" class="toasts" aria-live="polite"></div>
 </body>
 </html>

@@ -163,7 +163,7 @@ func TestSetupModeGates(t *testing.T) {
 	if resp, body := e.do(c, "GET", "/api/status", "", nil); resp.StatusCode != 409 || !strings.Contains(body, "setup_required") {
 		t.Errorf("api in setup = %d %s", resp.StatusCode, body)
 	}
-	for _, path := range []string{"/setup", "/static/auth.js", "/static/panel.css", "/api/session"} {
+	for _, path := range []string{"/setup", "/static/js/auth.js", "/static/panel.css", "/api/session"} {
 		if resp, _ := e.do(c, "GET", path, "", nil); resp.StatusCode != 200 {
 			t.Errorf("GET %s = %d", path, resp.StatusCode)
 		}
