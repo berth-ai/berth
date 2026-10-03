@@ -39,6 +39,10 @@ async function api(path, init) {
   } catch (err) {
     return { ok: false, status: 0, body: { error: { code: "network", message: "panel unreachable: " + err.message } } };
   }
+  if (res.status === 401) {
+    location.replace("/login");
+    return { ok: false, status: 401, body: null };
+  }
   let body = null;
   try {
     body = await res.json();
@@ -301,6 +305,10 @@ function updateRequest() {
 }
 
 function init() {
+  $("logout").addEventListener("click", async () => {
+    await api("/api/logout", { method: "POST", headers: { "Content-Type": "application/json", "X-Berth-Panel": "1" }, body: "{}" });
+    location.replace("/login");
+  });
   // The request is fixed when the button is armed, so the confirmed job is
   // the one that runs even if the form changes before the second click.
   let pending = null;
