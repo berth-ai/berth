@@ -32,10 +32,23 @@ class AgentsLockTest(unittest.TestCase):
     def test_exact_versions_only(self):
         deps = json.loads(read("agents/package.json"))["dependencies"]
         self.assertEqual(sorted(deps), sorted([
-            "@anthropic-ai/claude-code", "@openai/codex", "opencode-ai",
+            "@anthropic-ai/claude-code", "@google/gemini-cli", "@openai/codex", "opencode-ai",
             "@playwright/mcp", "@upstash/context7-mcp"]))
         for name, version in deps.items():
             self.assertRegex(version, EXACT, name)
+
+    def test_descriptors_cover_agents_and_servers(self):
+        pkg = json.loads(read("agents/package.json"))
+        block = pkg["berthAgents"]
+        self.assertEqual(block["schema"], 1)
+        kinds = {name: entry["kind"] for name, entry in pkg["berth"].items()}
+        self.assertEqual(sorted(block["agents"]), sorted(n for n, k in kinds.items() if k == "agent"))
+        self.assertEqual(sorted(block["servers"]), sorted(n for n, k in kinds.items() if k == "mcp"))
+
+    def test_gemini_self_update_is_off(self):
+        settings = json.loads(read("rootfs/etc/gemini-cli/settings.json"))
+        self.assertIs(settings["general"]["enableAutoUpdate"], False)
+        self.assertIs(settings["general"]["enableAutoUpdateNotification"], False)
 
     def test_lock_matches_package_json(self):
         pkg = json.loads(read("agents/package.json"))

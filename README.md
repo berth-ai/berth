@@ -1,7 +1,7 @@
 # Berth
 
 Berth is a self-hosted agent workstation in a single container. It bundles:
-- the Claude Code, Codex and OpenCode CLIs,
+- the Claude Code, Codex, Gemini CLI and OpenCode CLIs,
 - the Playwright and Context7 MCP servers,
 - a pinned developer toolchain,
 - a persistent home and your `/workspaces`.
@@ -80,6 +80,11 @@ docker compose exec berth berth config set agents.ref=v1.4.0   # where updates c
 Switching a package off removes it from `PATH` for new shells and
 unregisters its MCP server. The installed files stay, so switching it back
 on is instant.
+
+Berth registers its MCP servers in each agent's own configuration
+(`~/.claude.json`, `~/.gemini/settings.json`, OpenCode's `opencode.json`,
+and a marked block in `~/.codex/config.toml`) and only changes the entries
+it wrote: servers you add yourself stay as they are.
 
 ## Upgrading the image
 

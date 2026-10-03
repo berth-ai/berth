@@ -4,6 +4,7 @@
   "description": "Agent CLIs and MCP servers installed by berth update. Exact versions only.",
   "dependencies": {
     "@anthropic-ai/claude-code": "2.1.285",
+    "@google/gemini-cli": "0.62.0",
     "@openai/codex": "0.159.2",
     "@playwright/mcp": "0.0.83",
     "@upstash/context7-mcp": "4.1.1",
@@ -11,9 +12,23 @@
   },
   "berth": {
     "@anthropic-ai/claude-code": { "kind": "agent", "name": "Claude Code", "keys": ["ANTHROPIC_API_KEY"] },
+    "@google/gemini-cli": { "kind": "agent", "name": "Gemini CLI", "keys": ["GEMINI_API_KEY"] },
     "@openai/codex": { "kind": "agent", "name": "Codex", "keys": ["OPENAI_API_KEY"] },
     "opencode-ai": { "kind": "agent", "name": "OpenCode", "keys": [] },
     "@playwright/mcp": { "kind": "mcp", "name": "Playwright MCP", "keys": [] },
     "@upstash/context7-mcp": { "kind": "mcp", "name": "Context7", "keys": ["CONTEXT7_API_KEY"] }
+  },
+  "berthAgents": {
+    "schema": 1,
+    "agents": {
+      "@anthropic-ai/claude-code": { "mcp": { "file": "~/.claude.json", "style": "claude", "key": "mcpServers" } },
+      "@google/gemini-cli": { "mcp": { "file": "~/.gemini/settings.json", "style": "claude", "key": "mcpServers" } },
+      "@openai/codex": { "mcp": { "file": "~/.codex/config.toml", "style": "codex-toml" } },
+      "opencode-ai": { "mcp": { "file": "$XDG_CONFIG_HOME/opencode/opencode.json", "style": "opencode", "key": "mcp" } }
+    },
+    "servers": {
+      "@playwright/mcp": { "id": "playwright", "bin": "playwright-mcp", "args": ["--headless", "--no-sandbox"] },
+      "@upstash/context7-mcp": { "id": "context7", "bin": "context7-mcp" }
+    }
   }
 }

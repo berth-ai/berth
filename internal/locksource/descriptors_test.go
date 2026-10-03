@@ -95,3 +95,29 @@ func TestParseCarriesDescriptors(t *testing.T) {
 		t.Errorf("Parse accepted schema 9: %v", err)
 	}
 }
+
+func TestRepositoryLockDescriptors(t *testing.T) {
+	lock, err := FromDir("../../agents", Source{Origin: OriginImage})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for dep, style := range map[string]string{
+		"@anthropic-ai/claude-code": StyleClaude,
+		"@openai/codex":             StyleCodexTOML,
+		"opencode-ai":               StyleOpenCode,
+		"@google/gemini-cli":        StyleClaude,
+	} {
+		if a := lock.Descriptors.Agents[dep]; a.MCP == nil || a.MCP.Style != style {
+			t.Errorf("%s descriptor = %+v, want style %s", dep, a.MCP, style)
+		}
+	}
+	if s := lock.Descriptors.Servers["@playwright/mcp"]; s.ID != "playwright" || s.Bin != "playwright-mcp" {
+		t.Errorf("playwright = %+v", s)
+	}
+	if s := lock.Descriptors.Servers["@upstash/context7-mcp"]; s.ID != "context7" || s.Bin != "context7-mcp" {
+		t.Errorf("context7 = %+v", s)
+	}
+	if m := lock.Meta["@google/gemini-cli"]; m.Name != "Gemini CLI" || len(m.Keys) != 1 || m.Keys[0] != "GEMINI_API_KEY" {
+		t.Errorf("gemini meta = %+v", m)
+	}
+}
