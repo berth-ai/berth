@@ -79,6 +79,8 @@ type Broker struct {
 	PresetsDir string
 	// SyncTimeout bounds synchronous agent commands; 0 means one minute.
 	SyncTimeout time.Duration
+	// LoginTimeout bounds forge.login; 0 means 15 minutes.
+	LoginTimeout time.Duration
 	// Now and CurrentHash default to the clock and the current agent set.
 	Now         func() time.Time
 	CurrentHash func() string
@@ -100,6 +102,13 @@ type Broker struct {
 // New returns a broker in normal mode with the default config and the
 // default host values.
 func New(store *config.Store, logins login.Store, services Services, jobs *Jobs, exec Exec) *Broker {
+	if jobs != nil {
+		jobs.Annotate = func(job *Job, log string) {
+			if job.Verb == "forge.login" {
+				job.Device = ParseDevice(log)
+			}
+		}
+	}
 	return &Broker{Store: store, Logins: logins, Services: services, Jobs: jobs, Exec: exec,
 		Host: HostFromEnv(func(string) string { return "" }),
 		cfg:  config.Defaults(), mode: ModeNormal, PeerUID: peerFromContext, checks: map[string]cachedLock{}}
