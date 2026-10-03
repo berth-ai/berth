@@ -123,7 +123,7 @@ wait_ok main 120
 step "agents from the seed"
 x main berth status --json | jq -e '.current.source.origin == "image" and .follow_image' >/dev/null ||
   fail "status does not report an image-origin current"
-for agent in claude codex opencode; do
+for agent in claude codex gemini opencode; do
   xa main "$agent" --version >/dev/null || fail "$agent --version"
 done
 for ((i = 0; i < 120; i++)); do
@@ -131,6 +131,17 @@ for ((i = 0; i < 120; i++)); do
   sleep 1
 done
 xa main claude mcp list | grep -q context7 || fail "MCP servers not registered with claude"
+xa main jq -e '.mcpServers.playwright and .mcpServers.context7' /home/agent/.gemini/settings.json >/dev/null ||
+  fail "MCP servers not registered with gemini"
+xa main grep -qx '\[mcp_servers.playwright\]' /home/agent/.codex/config.toml ||
+  fail "MCP servers not registered with codex"
+xa main jq -e '.mcp.playwright.enabled' /home/agent/.config/opencode/opencode.json >/dev/null ||
+  fail "MCP servers not registered with opencode"
+x main jq -e '.general.enableAutoUpdate == false' /etc/gemini-cli/settings.json >/dev/null ||
+  fail "gemini self-update is not off"
+# A server the user adds by hand must survive later syncs (checked below).
+xa main sh -c 'jq ".mcpServers.mine = {\"command\": \"true\"}" ~/.gemini/settings.json > /tmp/g && mv /tmp/g ~/.gemini/settings.json' ||
+  fail "adding a user MCP server to gemini"
 
 step "process identities and socket"
 ps_user() { x main ps -eo user:12,args | awk -v pat="$1" '$0 ~ pat {print $1; exit}'; }
@@ -209,7 +220,7 @@ rev() { x "$1" berth config get --json | jq -r .config.revision; }
 
 step "agent toggles and API keys"
 x main test -L /var/lib/berth/bin || fail "the agent layer is not a symlink"
-for agent in claude codex opencode; do
+for agent in claude codex gemini opencode; do
   xa main "$agent" --version >/dev/null || fail "$agent --version through the layer"
 done
 verb main config.apply '{"base_revision":'"$(rev main)"',"patch":{"agents":{"disabled":["opencode-ai","@playwright/mcp"]}}}' >/dev/null ||
@@ -222,6 +233,13 @@ for ((i = 0; i < 120; i++)); do
 done
 xa main claude mcp list | grep -q playwright && fail "disabled Playwright still registered with claude"
 xa main claude mcp list | grep -q context7 || fail "context7 lost"
+xa main jq -e '.mcpServers | has("playwright") | not' /home/agent/.gemini/settings.json >/dev/null ||
+  fail "disabled Playwright still registered with gemini"
+if xa main grep -q 'mcp_servers.playwright' /home/agent/.codex/config.toml; then
+  fail "disabled Playwright still registered with codex"
+fi
+xa main jq -e '.mcpServers.mine and .mcpServers.context7' /home/agent/.gemini/settings.json >/dev/null ||
+  fail "a user MCP server or context7 was lost from gemini"
 verb main config.apply '{"secrets":{"ANTHROPIC_API_KEY":"sk-smoke-test"}}' >/dev/null || fail "setting a key"
 verb main config.get '{}' | jq -e '.secrets.ANTHROPIC_API_KEY.set' >/dev/null || fail "key not reported as set"
 if verb main config.get '{}' | grep -q sk-smoke-test; then fail "config.get leaked the key"; fi
