@@ -60,7 +60,7 @@ describe("predict", () => {
 describe("readImport", () => {
   it("rejects files that are not exports", () => {
     expect(readImport("not json", base)).toEqual({ ok: false, error: "That file is not JSON." });
-    expect(readImport('{"schema":2}', base)).toEqual({
+    expect(readImport('{"schema":3}', base)).toEqual({
       ok: false,
       error: "That file is not a Berth config export.",
     });
@@ -77,5 +77,15 @@ describe("readImport", () => {
       rows: [{ path: "runtime.tz", from: '"Etc/UTC"', to: '"Europe/Rome"' }],
     });
     expect(readImport(JSON.stringify(base), base)).toMatchObject({ ok: true, rows: [] });
+  });
+
+  it("accepts schema 2 exports and lists MCP changes", () => {
+    const mcp = {
+      servers: { linear: { url: "https://l.example/mcp", auth: "none", enabled: true } },
+      available: {},
+    };
+    const base2: Config = { ...base, schema: 2, mcp: { servers: {}, available: {} } };
+    const parsed = readImport(JSON.stringify({ ...base2, mcp }), base2);
+    expect(parsed).toMatchObject({ ok: true, rows: [{ path: "mcp.servers" }] });
   });
 });

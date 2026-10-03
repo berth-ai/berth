@@ -60,6 +60,15 @@ export interface AgentPackage {
   enabled: boolean;
   bins: string[] | null;
   keys: PackageKey[] | null;
+  mcp_id?: string;
+}
+
+export type McpAuth = "none" | "bearer" | "oauth";
+
+export interface McpServer {
+  url: string;
+  auth: McpAuth;
+  enabled: boolean;
 }
 
 export interface HostInfo {
@@ -94,11 +103,17 @@ export interface Config {
     mcp_timeout: number | null;
   };
   runtime: { tz: string };
+  // An older broker omits it.
+  mcp?: {
+    servers: Record<string, McpServer> | null;
+    available: Record<string, string[]> | null;
+  };
 }
 
 export interface ConfigView {
   config: Config;
   mode: Mode;
+  secrets?: Record<string, { set: boolean }>;
 }
 
 export interface Changes {
