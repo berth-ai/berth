@@ -58,6 +58,7 @@ type Check struct {
 type Report struct {
 	Current     *VersionView    `json:"current"`
 	Previous    *VersionView    `json:"previous"`
+	Versions    []VersionView   `json:"versions"`
 	FollowImage bool            `json:"follow_image"`
 	Seed        *Seed           `json:"seed"`
 	UserTools   []Tool          `json:"user_tools"`
@@ -77,7 +78,7 @@ type Inputs struct {
 // Collect reads the store, seed, build info and user tools. Problems with
 // anything but the store become warnings, so status always answers.
 func Collect(in Inputs) (Report, error) {
-	rep := Report{UserTools: []Tool{}, Warnings: []string{}}
+	rep := Report{UserTools: []Tool{}, Warnings: []string{}, Versions: []VersionView{}}
 	cur, err := in.Store.Current()
 	if err != nil {
 		return rep, err
@@ -85,6 +86,13 @@ func Collect(in Inputs) (Report, error) {
 	prev, err := in.Store.Previous()
 	if err != nil {
 		return rep, err
+	}
+	all, err := in.Store.List()
+	if err != nil {
+		return rep, err
+	}
+	for i := range all {
+		rep.Versions = append(rep.Versions, *View(&all[i]))
 	}
 	state, err := in.Store.ReadState()
 	if err != nil {

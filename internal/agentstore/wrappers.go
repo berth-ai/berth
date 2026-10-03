@@ -61,6 +61,11 @@ func WriteWrappers(dir string, deps []string) ([]string, error) {
 	return slices.Sorted(maps.Keys(owner)), nil
 }
 
+// PackageBins returns the bins dependency dep declares in versionDir.
+func PackageBins(versionDir, dep string) (map[string]string, error) {
+	return packageBins(filepath.Join(versionDir, "node_modules", filepath.FromSlash(dep)))
+}
+
 func packageBins(pkgDir string) (map[string]string, error) {
 	var p struct {
 		Name string          `json:"name"`

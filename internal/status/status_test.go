@@ -71,3 +71,22 @@ func TestWriteHuman(t *testing.T) {
 		}
 	}
 }
+
+func TestCollectListsVersions(t *testing.T) {
+	root := t.TempDir()
+	old := time.Date(2026, 9, 1, 0, 0, 0, 0, time.UTC)
+	testutil.MakeVersion(t, root, "aaaaaaaaaaaa", "image", old)
+	testutil.MakeVersion(t, root, "bbbbbbbbbbbb", "ref", old.Add(time.Hour))
+	testutil.Link(t, root, "current", "bbbbbbbbbbbb")
+	rep, err := Collect(Inputs{Store: agentstore.Store{Root: root}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rep.Versions) != 2 || rep.Versions[0].Hash != "bbbbbbbbbbbb" || rep.Versions[1].Hash != "aaaaaaaaaaaa" {
+		t.Errorf("versions = %+v", rep.Versions)
+	}
+	empty, _ := Collect(Inputs{Store: agentstore.Store{Root: t.TempDir()}})
+	if empty.Versions == nil {
+		t.Error("versions must be an empty list, not null")
+	}
+}
