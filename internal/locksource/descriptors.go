@@ -30,7 +30,14 @@ type Descriptors struct {
 
 // AgentDescriptor describes one agent CLI.
 type AgentDescriptor struct {
-	MCP *MCPTarget `json:"mcp"`
+	MCP    *MCPTarget    `json:"mcp"`
+	Skills *SkillsTarget `json:"skills"`
+}
+
+// SkillsTarget is the directory an agent loads user skills from.
+type SkillsTarget struct {
+	Dir  string   `json:"dir"`  // below ~/ or $XDG_CONFIG_HOME/
+	Also []string `json:"also"` // other agents' skills directories it reads too
 }
 
 // MCPTarget is the file an agent reads its MCP servers from.
@@ -93,6 +100,14 @@ func ParseDescriptors(pkg []byte, meta map[string]Meta) (Descriptors, error) {
 				return out, err
 			}
 		}
+		if a.Skills != nil {
+			if err := validSkills(name, *a.Skills); err != nil {
+				return out, err
+			}
+			if a.Skills.Also == nil {
+				a.Skills.Also = []string{}
+			}
+		}
 		out.Agents[name] = a
 	}
 	ids := map[string]string{}
@@ -144,13 +159,46 @@ func validTarget(name string, t MCPTarget) error {
 		return invalid("package.json berthAgents block: %s mcp.style %q, want %s, %s or %s",
 			name, t.Style, StyleClaude, StyleOpenCode, StyleCodexTOML)
 	}
-	rest, ok := strings.CutPrefix(t.File, "~/")
-	if !ok {
-		rest, ok = strings.CutPrefix(t.File, "$XDG_CONFIG_HOME/")
-	}
-	if !ok || rest == "" || rest == "." || path.IsAbs(rest) || path.Clean(rest) != rest ||
-		rest == ".." || strings.HasPrefix(rest, "../") {
+	if !homePath(t.File) {
 		return invalid("package.json berthAgents block: %s mcp.file %q must be a path below ~/ or $XDG_CONFIG_HOME/", name, t.File)
 	}
 	return nil
+}
+
+// homePath reports whether p is a plain path below ~/ or $XDG_CONFIG_HOME/.
+func homePath(p string) bool {
+	rest, ok := strings.CutPrefix(p, "~/")
+	if !ok {
+		rest, ok = strings.CutPrefix(p, "$XDG_CONFIG_HOME/")
+	}
+	return ok && rest != "" && rest != "." && rest != ".." && !path.IsAbs(rest) &&
+		path.Clean(rest) == rest && !strings.HasPrefix(rest, "../")
+}
+
+func validSkills(name string, t SkillsTarget) error {
+	if !homePath(t.Dir) {
+		return invalid("package.json berthAgents block: %s skills.dir %q must be a path below ~/ or $XDG_CONFIG_HOME/", name, t.Dir)
+	}
+	for _, d := range t.Also {
+		if !homePath(d) || d == t.Dir {
+			return invalid("package.json berthAgents block: %s skills.also %q must be another agent's path below ~/ or $XDG_CONFIG_HOME/", name, d)
+		}
+	}
+	return nil
+}
+
+// SkillsVia lists, sorted, the agents whose skills directory agent dep also
+// reads: a skill linked there reaches dep too.
+func (d Descriptors) SkillsVia(dep string) []string {
+	own := d.Agents[dep].Skills
+	if own == nil {
+		return nil
+	}
+	var out []string
+	for _, other := range slices.Sorted(maps.Keys(d.Agents)) {
+		if t := d.Agents[other].Skills; other != dep && t != nil && slices.Contains(own.Also, t.Dir) {
+			out = append(out, other)
+		}
+	}
+	return out
 }

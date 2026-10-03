@@ -21,10 +21,10 @@
   "berthAgents": {
     "schema": 1,
     "agents": {
-      "@anthropic-ai/claude-code": { "mcp": { "file": "~/.claude.json", "style": "claude", "key": "mcpServers" } },
-      "@google/gemini-cli": { "mcp": { "file": "~/.gemini/settings.json", "style": "claude", "key": "mcpServers" } },
-      "@openai/codex": { "mcp": { "file": "~/.codex/config.toml", "style": "codex-toml" } },
-      "opencode-ai": { "mcp": { "file": "$XDG_CONFIG_HOME/opencode/opencode.json", "style": "opencode", "key": "mcp" } }
+      "@anthropic-ai/claude-code": { "mcp": { "file": "~/.claude.json", "style": "claude", "key": "mcpServers" }, "skills": { "dir": "~/.claude/skills" } },
+      "@google/gemini-cli": { "mcp": { "file": "~/.gemini/settings.json", "style": "claude", "key": "mcpServers" }, "skills": { "dir": "~/.gemini/skills" } },
+      "@openai/codex": { "mcp": { "file": "~/.codex/config.toml", "style": "codex-toml" }, "skills": { "dir": "~/.codex/skills" } },
+      "opencode-ai": { "mcp": { "file": "$XDG_CONFIG_HOME/opencode/opencode.json", "style": "opencode", "key": "mcp" }, "skills": { "dir": "$XDG_CONFIG_HOME/opencode/skills", "also": ["~/.claude/skills"] } }
     },
     "servers": {
       "@playwright/mcp": { "id": "playwright", "bin": "playwright-mcp", "args": ["--headless", "--no-sandbox"] },

@@ -16,7 +16,6 @@ import (
 	"strings"
 
 	"github.com/berth-ai/berth/internal/agentlayer"
-	"github.com/berth-ai/berth/internal/agentstore"
 	"github.com/berth-ai/berth/internal/config"
 	"github.com/berth-ai/berth/internal/locksource"
 )
@@ -90,7 +89,7 @@ func (s Syncer) Run() error {
 		if t == nil {
 			continue
 		}
-		if !s.agentEnabled(dep) {
+		if !agentlayer.AgentEnabled(s.Current, s.Layer, dep) {
 			s.logf("%s not enabled; skipping", name)
 			continue
 		}
@@ -142,7 +141,7 @@ func (s Syncer) enabledServers(d locksource.Descriptors) []server {
 	for _, dep := range slices.Sorted(maps.Keys(d.Servers)) {
 		sd := d.Servers[dep]
 		wrapper := filepath.Join(s.Layer, sd.Bin)
-		if isExecutable(wrapper) {
+		if agentlayer.IsExecutable(wrapper) {
 			out = append(out, server{ID: sd.ID, Command: wrapper, Args: sd.Args})
 		}
 	}
@@ -188,24 +187,6 @@ func availableTo(servers []server, avail map[string][]string, dep string) []serv
 		out = append(out, sv)
 	}
 	return out
-}
-
-func (s Syncer) agentEnabled(dep string) bool {
-	bins, err := agentstore.PackageBins(s.Current, dep)
-	if err != nil {
-		return false
-	}
-	for bin := range bins {
-		if isExecutable(filepath.Join(s.Layer, bin)) {
-			return true
-		}
-	}
-	return false
-}
-
-func isExecutable(path string) bool {
-	fi, err := os.Stat(path)
-	return err == nil && fi.Mode().IsRegular() && fi.Mode()&0o111 != 0
 }
 
 // syncFile converges one config file and returns the ids Berth now owns

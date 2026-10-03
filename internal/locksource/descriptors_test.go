@@ -121,3 +121,54 @@ func TestRepositoryLockDescriptors(t *testing.T) {
 		t.Errorf("gemini meta = %+v", m)
 	}
 }
+
+func TestSkillsDescriptors(t *testing.T) {
+	pkg := []byte(`{
+	  "dependencies": {"claude": "1.0.0", "opencode": "1.0.0"},
+	  "berth": {
+	    "claude": {"kind": "agent", "name": "Claude", "keys": []},
+	    "opencode": {"kind": "agent", "name": "OpenCode", "keys": []}
+	  },
+	  "berthAgents": {"schema": 1, "agents": {
+	    "claude": {"skills": {"dir": "~/.claude/skills"}},
+	    "opencode": {"skills": {"dir": "$XDG_CONFIG_HOME/opencode/skills", "also": ["~/.claude/skills"]}}
+	  }}
+	}`)
+	meta, err := ParseMeta(pkg, map[string]string{"claude": "1.0.0", "opencode": "1.0.0"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	d, err := ParseDescriptors(pkg, meta)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s := d.Agents["claude"].Skills; s == nil || s.Dir != "~/.claude/skills" || s.Also == nil || len(s.Also) != 0 {
+		t.Errorf("claude = %+v", s)
+	}
+	if got := d.SkillsVia("opencode"); len(got) != 1 || got[0] != "claude" {
+		t.Errorf("SkillsVia(opencode) = %v", got)
+	}
+	if got := d.SkillsVia("claude"); len(got) != 0 {
+		t.Errorf("SkillsVia(claude) = %v", got)
+	}
+}
+
+func TestSkillsDescriptorRejects(t *testing.T) {
+	for name, skills := range map[string]string{
+		"absolute dir": `{"dir": "/etc/skills"}`,
+		"dotdot dir":   `{"dir": "~/../skills"}`,
+		"bare home":    `{"dir": "~/"}`,
+		"also itself":  `{"dir": "~/.a/skills", "also": ["~/.a/skills"]}`,
+		"bad also":     `{"dir": "~/.a/skills", "also": ["/x"]}`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			pkg := []byte(`{"dependencies": {"a": "1.0.0"},
+			  "berth": {"a": {"kind": "agent", "name": "A", "keys": []}},
+			  "berthAgents": {"schema": 1, "agents": {"a": {"skills": ` + skills + `}}}}`)
+			meta, _ := ParseMeta(pkg, map[string]string{"a": "1.0.0"})
+			if _, err := ParseDescriptors(pkg, meta); err == nil || !strings.Contains(err.Error(), "skills.") {
+				t.Errorf("ParseDescriptors = %v", err)
+			}
+		})
+	}
+}

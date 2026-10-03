@@ -31,6 +31,7 @@ func fakeSet(t *testing.T) (Builder, string) {
 		"berthAgents": map[string]any{
 			"schema":  1,
 			"servers": map[string]any{"mcp-b": map[string]any{"id": "bee", "bin": "b-mcp"}},
+			"agents":  map[string]any{"agent-a": map[string]any{"skills": map[string]any{"dir": "~/.x/skills"}}},
 		},
 	}
 	raw, _ := json.Marshal(pkg)
@@ -73,6 +74,9 @@ func TestPackages(t *testing.T) {
 	}
 	if pkgs[1].MCPID != "bee" || pkgs[0].MCPID != "" {
 		t.Errorf("mcp ids = %q, %q", pkgs[0].MCPID, pkgs[1].MCPID)
+	}
+	if p := pkgs[0]; p.SkillsDir != "~/.x/skills" || p.SkillsVia != nil {
+		t.Errorf("skills fields = %q %v", p.SkillsDir, p.SkillsVia)
 	}
 	if keys, _ := b.KeyNames(); !slices.Equal(keys, []string{"A_KEY"}) {
 		t.Errorf("keys = %v", keys)

@@ -30,14 +30,16 @@ type Key struct {
 
 // Package is one package of the current set as the panel shows it.
 type Package struct {
-	Package string   `json:"package"`
-	Name    string   `json:"name"`
-	Kind    string   `json:"kind"`
-	Version string   `json:"version"`
-	Enabled bool     `json:"enabled"`
-	Bins    []string `json:"bins"`
-	Keys    []Key    `json:"keys"`
-	MCPID   string   `json:"mcp_id,omitempty"` // an MCP server's id in agent configs
+	Package   string   `json:"package"`
+	Name      string   `json:"name"`
+	Kind      string   `json:"kind"`
+	Version   string   `json:"version"`
+	Enabled   bool     `json:"enabled"`
+	Bins      []string `json:"bins"`
+	Keys      []Key    `json:"keys"`
+	MCPID     string   `json:"mcp_id,omitempty"`     // an MCP server's id in agent configs
+	SkillsDir string   `json:"skills_dir,omitempty"` // an agent's skills directory
+	SkillsVia []string `json:"skills_via,omitempty"` // agents whose skills directory it also reads
 }
 
 // Packages describes the current set with disabled applied: agents first,
@@ -79,6 +81,9 @@ func (b Builder) Packages(disabled []string) ([]Package, error) {
 			Enabled: !slices.Contains(disabled, dep), Bins: slices.Sorted(maps.Keys(bins)), Keys: []Key{},
 			MCPID: desc.Servers[dep].ID,
 		}
+		if t := desc.Agents[dep].Skills; t != nil {
+			pkg.SkillsDir, pkg.SkillsVia = t.Dir, desc.SkillsVia(dep)
+		}
 		for _, k := range m.Keys {
 			pkg.Keys = append(pkg.Keys, Key{Name: k, Set: keys[k] != ""})
 		}
@@ -88,6 +93,27 @@ func (b Builder) Packages(disabled []string) ([]Package, error) {
 		return cmp.Or(cmp.Compare(kindOrder(a.Kind), kindOrder(b.Kind)), cmp.Compare(a.Name, b.Name))
 	})
 	return out, nil
+}
+
+// AgentEnabled reports whether package dep of the set in current has a
+// wrapper in layer, which is how Berth marks a package enabled.
+func AgentEnabled(current, layer, dep string) bool {
+	bins, err := agentstore.PackageBins(current, dep)
+	if err != nil {
+		return false
+	}
+	for bin := range bins {
+		if IsExecutable(filepath.Join(layer, bin)) {
+			return true
+		}
+	}
+	return false
+}
+
+// IsExecutable reports whether path is an executable regular file.
+func IsExecutable(path string) bool {
+	fi, err := os.Stat(path)
+	return err == nil && fi.Mode().IsRegular() && fi.Mode()&0o111 != 0
 }
 
 func kindOrder(kind string) int {
