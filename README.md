@@ -26,8 +26,9 @@ a few minutes. Later starts are fast.
 
 ## Frontends and settings
 
-The panel at `http://127.0.0.1:7690` is the only published port and the only
-login. The terminal and the IDE open inside it, at `/terminal/` and `/ide/`,
+The panel at `http://127.0.0.1:7690` is where Berth is set up and run:
+health, terminal, IDE, agents, tools, accounts, settings and job logs. It is
+the only published port and the only login. The terminal and the IDE open inside it, at `/terminal/` and `/ide/`,
 and neither has a password of its own. The browser terminal (ttyd + tmux) is
 on by default, and the browser IDE (code-server) is off.
 `docker compose exec -u agent berth zsh` always works too.
