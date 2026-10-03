@@ -38,6 +38,9 @@ func (b *Broker) verbs() map[string]verbFunc {
 		"config.apply":    b.configApply,
 		"config.revert":   b.configRevert,
 		"config.reset":    b.configReset,
+		"auth.reset": func(context.Context, []byte) (int, any) {
+			return http.StatusNotImplemented, errorJSON("internal", "not yet")
+		},
 	}
 }
 

@@ -21,6 +21,10 @@ import (
 
 const maxBodyBytes = 64 << 10
 
+// rootOnlyVerbs may be called only by root (berth config inside the
+// container), never by the panel.
+var rootOnlyVerbs = map[string]bool{"auth.reset": true}
+
 // Modes.
 const (
 	ModeNormal   = "normal"
@@ -50,6 +54,8 @@ type Broker struct {
 	// PanelEnv is added to the panel service's settings.
 	PanelEnv map[string]string
 	Log      io.Writer
+	// PeerUID identifies the caller; it defaults to the uid ConnContext stored.
+	PeerUID func(r *http.Request) (uid int, ok bool)
 
 	change  sync.Mutex // serializes config changes and service restarts
 	mu      sync.Mutex // guards the fields below
@@ -60,7 +66,7 @@ type Broker struct {
 
 // New returns a broker in normal mode with the default config.
 func New(store *config.Store, services Services, jobs *Jobs, exec Exec) *Broker {
-	return &Broker{Store: store, Services: services, Jobs: jobs, Exec: exec, cfg: config.Defaults(), mode: ModeNormal}
+	return &Broker{Store: store, Services: services, Jobs: jobs, Exec: exec, PeerUID: peerFromContext, cfg: config.Defaults(), mode: ModeNormal}
 }
 
 // Load reads the config and picks the mode: recovery when it is unusable,
@@ -178,6 +184,12 @@ func (b *Broker) handleVerb(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		writeJSON(w, http.StatusNotFound, errorJSON("unknown_verb", fmt.Sprintf("unknown verb %q", name)))
 		return
+	}
+	if rootOnlyVerbs[name] {
+		if uid, ok := b.PeerUID(r); !ok || uid != 0 {
+			writeJSON(w, http.StatusForbidden, errorJSON("forbidden", name+" may only be run as root inside the container"))
+			return
+		}
 	}
 	body, err := io.ReadAll(io.LimitReader(r.Body, maxBodyBytes+1))
 	if err != nil {
