@@ -133,8 +133,8 @@ class ComposeTest(unittest.TestCase):
         self.assertNotIn("env_file", self.text)
 
     def test_image_pin_is_annotated(self):
-        self.assertRegex(self.text, r"# renovate: datasource=docker depName=ghcr.io/salgnt/berth\n\s+image: "
-                                    r"ghcr\.io/salgnt/berth:\$\{BERTH_VERSION:-\d+\.\d+\.\d+\}\n")
+        self.assertRegex(self.text, r"# renovate: datasource=docker depName=ghcr.io/berth-ai/bert\n\s+image: "
+                                    r"ghcr\.io/berth-ai/bert:\$\{BERTH_VERSION:-\d+\.\d+\.\d+\}\n")
 
     def test_only_the_panel_port(self):
         ports = re.findall(r'^\s+- "(.*:7690)"$', self.text, re.M)
@@ -266,7 +266,7 @@ class RenovateTest(unittest.TestCase):
         pattern = re.compile(m["matchStrings"][0].replace("(?<", "(?P<"))
         found = pattern.search(read("compose.yaml"))
         self.assertIsNotNone(found)
-        self.assertEqual(found.group("depName"), "ghcr.io/salgnt/berth")
+        self.assertEqual(found.group("depName"), "ghcr.io/berth-ai/bert")
 
     def test_agents_group(self):
         agents = self.effective("npm", "minor", "agents/package.json")

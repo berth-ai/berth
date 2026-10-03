@@ -11,8 +11,8 @@ import (
 	"slices"
 	"syscall"
 
-	"github.com/salgnt/berth/internal/agentstore"
-	"github.com/salgnt/berth/internal/locksource"
+	"github.com/berth-ai/bert/internal/agentstore"
+	"github.com/berth-ai/bert/internal/locksource"
 )
 
 // Builder builds Root/bin from the current agent set.

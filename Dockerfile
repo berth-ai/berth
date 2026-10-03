@@ -16,7 +16,7 @@ COPY internal/ internal/
 # Declared after the cached layers: a new commit must not invalidate them.
 ARG BERTH_VERSION=dev
 ARG BERTH_COMMIT=unknown
-ARG BERTH_REPO=SalGnt/berth
+ARG BERTH_REPO=berth-ai/bert
 RUN CGO_ENABLED=0 GOOS=linux GOARCH=${TARGETARCH} go build -trimpath \
       -ldflags "-s -w -X main.version=${BERTH_VERSION} -X main.commit=${BERTH_COMMIT} -X main.defaultRepo=${BERTH_REPO}" \
       -o /out/berth ./cmd/berth
@@ -145,7 +145,7 @@ RUN userdel --remove ubuntu 2>/dev/null || true \
 # Per-commit values, declared late so a new commit reuses every layer above.
 ARG BERTH_VERSION=dev
 ARG BERTH_COMMIT=unknown
-ARG BERTH_REPO=SalGnt/berth
+ARG BERTH_REPO=berth-ai/bert
 RUN --mount=type=bind,source=build/write-build-info.sh,target=/usr/local/bin/write-build-info \
     write-build-info /usr/share/berth/build-info.json "${BERTH_VERSION}" "${BERTH_COMMIT}" \
       "${TARGETARCH}" "${UBUNTU_IMAGE#*@}" "${TTYD_VERSION}" "${CODE_SERVER_VERSION}" \

@@ -1,8 +1,8 @@
 package broker
 
 import (
-	"github.com/salgnt/berth/internal/config"
-	"github.com/salgnt/berth/internal/supervisor"
+	"github.com/berth-ai/bert/internal/config"
+	"github.com/berth-ai/bert/internal/supervisor"
 )
 
 // Desired maps a config to the services that should run, in start order. The

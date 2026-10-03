@@ -30,4 +30,4 @@ formatters:
   settings:
     goimports:
       local-prefixes:
-        - github.com/salgnt/berth
+        - github.com/berth-ai/bert

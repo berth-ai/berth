@@ -21,7 +21,7 @@ import (
 
 	"golang.org/x/crypto/argon2"
 
-	"github.com/salgnt/berth/internal/config"
+	"github.com/berth-ai/bert/internal/config"
 )
 
 const (

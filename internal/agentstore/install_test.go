@@ -10,10 +10,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/salgnt/berth/internal/locksource"
-	"github.com/salgnt/berth/internal/runner"
-	"github.com/salgnt/berth/internal/smoke"
-	"github.com/salgnt/berth/internal/testutil"
+	"github.com/berth-ai/bert/internal/locksource"
+	"github.com/berth-ai/bert/internal/runner"
+	"github.com/berth-ai/bert/internal/smoke"
+	"github.com/berth-ai/bert/internal/testutil"
 )
 
 func TestMain(m *testing.M) {

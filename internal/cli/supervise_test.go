@@ -12,10 +12,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/salgnt/berth/internal/agentstore"
-	"github.com/salgnt/berth/internal/broker"
-	"github.com/salgnt/berth/internal/login"
-	"github.com/salgnt/berth/internal/runner"
+	"github.com/berth-ai/bert/internal/agentstore"
+	"github.com/berth-ai/bert/internal/broker"
+	"github.com/berth-ai/bert/internal/login"
+	"github.com/berth-ai/bert/internal/runner"
 )
 
 // fakeModuleRun records starts and stops in $FAKE_DIR/events; superviseConfig

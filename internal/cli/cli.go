@@ -11,13 +11,13 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/salgnt/berth/internal/agentstore"
-	"github.com/salgnt/berth/internal/config"
-	"github.com/salgnt/berth/internal/locksource"
-	"github.com/salgnt/berth/internal/output"
-	"github.com/salgnt/berth/internal/runner"
-	"github.com/salgnt/berth/internal/smoke"
-	"github.com/salgnt/berth/internal/status"
+	"github.com/berth-ai/bert/internal/agentstore"
+	"github.com/berth-ai/bert/internal/config"
+	"github.com/berth-ai/bert/internal/locksource"
+	"github.com/berth-ai/bert/internal/output"
+	"github.com/berth-ai/bert/internal/runner"
+	"github.com/berth-ai/bert/internal/smoke"
+	"github.com/berth-ai/bert/internal/status"
 )
 
 // Config holds every path and dependency the commands use. Tests build it

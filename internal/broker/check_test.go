@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/salgnt/berth/internal/locksource"
+	"github.com/berth-ai/bert/internal/locksource"
 )
 
 func TestUpdateCheckCachesPerRef(t *testing.T) {

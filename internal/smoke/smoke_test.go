@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/salgnt/berth/internal/runner"
+	"github.com/berth-ai/bert/internal/runner"
 )
 
 type recorder struct {

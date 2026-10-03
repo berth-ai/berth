@@ -13,7 +13,7 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  IMAGE: ghcr.io/salgnt/berth
+  IMAGE: ghcr.io/berth-ai/bert
 
 jobs:
   build:

@@ -18,7 +18,7 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/salgnt/berth/internal/config"
+	"github.com/berth-ai/bert/internal/config"
 )
 
 var (

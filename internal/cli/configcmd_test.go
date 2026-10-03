@@ -11,10 +11,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/salgnt/berth/internal/broker"
-	"github.com/salgnt/berth/internal/config"
-	"github.com/salgnt/berth/internal/login"
-	"github.com/salgnt/berth/internal/supervisor"
+	"github.com/berth-ai/bert/internal/broker"
+	"github.com/berth-ai/bert/internal/config"
+	"github.com/berth-ai/bert/internal/login"
+	"github.com/berth-ai/bert/internal/supervisor"
 )
 
 type staticServices struct {

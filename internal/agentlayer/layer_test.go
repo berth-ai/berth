@@ -10,8 +10,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/salgnt/berth/internal/agentstore"
-	"github.com/salgnt/berth/internal/testutil"
+	"github.com/berth-ai/bert/internal/agentstore"
+	"github.com/berth-ai/bert/internal/testutil"
 )
 
 // fakeSet makes a current version with two packages and bins: agent-a

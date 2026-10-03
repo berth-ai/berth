@@ -12,14 +12,14 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/salgnt/berth/internal/agentlayer"
-	"github.com/salgnt/berth/internal/broker"
-	"github.com/salgnt/berth/internal/config"
-	"github.com/salgnt/berth/internal/locksource"
-	"github.com/salgnt/berth/internal/login"
-	"github.com/salgnt/berth/internal/output"
-	"github.com/salgnt/berth/internal/status"
-	"github.com/salgnt/berth/internal/supervisor"
+	"github.com/berth-ai/bert/internal/agentlayer"
+	"github.com/berth-ai/bert/internal/broker"
+	"github.com/berth-ai/bert/internal/config"
+	"github.com/berth-ai/bert/internal/locksource"
+	"github.com/berth-ai/bert/internal/login"
+	"github.com/berth-ai/bert/internal/output"
+	"github.com/berth-ai/bert/internal/status"
+	"github.com/berth-ai/bert/internal/supervisor"
 )
 
 // SignalCause cancels berth's root context when a signal arrives, so that

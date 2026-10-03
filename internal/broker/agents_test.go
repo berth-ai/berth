@@ -10,9 +10,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/salgnt/berth/internal/agentlayer"
-	"github.com/salgnt/berth/internal/agentstore"
-	"github.com/salgnt/berth/internal/testutil"
+	"github.com/berth-ai/bert/internal/agentlayer"
+	"github.com/berth-ai/bert/internal/agentstore"
+	"github.com/berth-ai/bert/internal/testutil"
 )
 
 // withAgents gives tb a current set with packages agent-a (key A_KEY) and

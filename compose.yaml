@@ -4,8 +4,8 @@ name: berth
 
 services:
   berth:
-    # renovate: datasource=docker depName=ghcr.io/salgnt/berth
-    image: ghcr.io/salgnt/berth:${BERTH_VERSION:-0.1.0}
+    # renovate: datasource=docker depName=ghcr.io/berth-ai/bert
+    image: ghcr.io/berth-ai/bert:${BERTH_VERSION:-0.1.0}
     # build: .   # uncomment to build locally instead of pulling
     init: false # tini is PID 1 inside the image
     restart: unless-stopped

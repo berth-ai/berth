@@ -8,14 +8,14 @@ import (
 	"os/signal"
 	"syscall"
 
-	"github.com/salgnt/berth/internal/cli"
+	"github.com/berth-ai/bert/internal/cli"
 )
 
 // Set with -ldflags at build time.
 var (
 	version     = "dev"
 	commit      = "unknown"
-	defaultRepo = "SalGnt/berth"
+	defaultRepo = "berth-ai/bert"
 )
 
 func main() {

@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/salgnt/berth/internal/testutil"
+	"github.com/berth-ai/bert/internal/testutil"
 )
 
 var t0 = time.Date(2026, 9, 30, 12, 0, 0, 0, time.UTC)

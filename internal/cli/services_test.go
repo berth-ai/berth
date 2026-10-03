@@ -14,7 +14,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/salgnt/berth/internal/runner"
+	"github.com/berth-ai/bert/internal/runner"
 )
 
 type syncBuffer struct {

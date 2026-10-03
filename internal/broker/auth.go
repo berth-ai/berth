@@ -7,8 +7,8 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/salgnt/berth/internal/config"
-	"github.com/salgnt/berth/internal/login"
+	"github.com/berth-ai/bert/internal/config"
+	"github.com/berth-ai/bert/internal/login"
 )
 
 // ModeSetup means no login exists yet: only the panel runs, and only
