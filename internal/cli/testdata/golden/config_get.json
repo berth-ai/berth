@@ -1,6 +1,6 @@
 {
   "config": {
-    "schema": 2,
+    "schema": 3,
     "revision": 0,
     "frontends": {
       "terminal": {
@@ -23,7 +23,8 @@
     "mcp": {
       "servers": {},
       "available": {}
-    }
+    },
+    "skills": {}
   },
   "mode": "normal",
   "schema": 1,

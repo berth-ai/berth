@@ -15,18 +15,20 @@ import (
 	_ "time/tzdata" // validate zones the same way on every host
 )
 
-// Schema is the config schema this binary understands. Schema 1 had no
-// mcp section; such files still load, with its defaults.
-const Schema = 2
+// Schema is the config schema this binary understands. Schema 1 had no mcp
+// section and schema 2 no skills section; such files still load, with
+// their defaults.
+const Schema = 3
 
 // Config is the content of /var/lib/berth/config.json.
 type Config struct {
-	Schema    int       `json:"schema"`
-	Revision  int       `json:"revision"`
-	Frontends Frontends `json:"frontends"`
-	Agents    Agents    `json:"agents"`
-	Runtime   Runtime   `json:"runtime"`
-	MCP       MCP       `json:"mcp"`
+	Schema    int              `json:"schema"`
+	Revision  int              `json:"revision"`
+	Frontends Frontends        `json:"frontends"`
+	Agents    Agents           `json:"agents"`
+	Runtime   Runtime          `json:"runtime"`
+	MCP       MCP              `json:"mcp"`
+	Skills    map[string]Skill `json:"skills"`
 }
 
 // Frontends switches the optional browser frontends.
@@ -82,6 +84,7 @@ func Defaults() Config {
 		Agents:    Agents{Ref: "main", Disabled: []string{}, Keep: 3, BootTimeout: 600, MCPTimeout: 120},
 		Runtime:   Runtime{TZ: "UTC"},
 		MCP:       MCP{Servers: map[string]MCPServer{}, Available: map[string][]string{}},
+		Skills:    map[string]Skill{},
 	}
 }
 
@@ -152,6 +155,7 @@ func (c Config) Validate() error {
 		v.add("runtime.tz", "%q is not a time zone such as UTC or Europe/Rome", c.Runtime.TZ)
 	}
 	c.MCP.validate(v)
+	validateSkills(v, c.Skills)
 	return v.err()
 }
 
@@ -236,6 +240,16 @@ func (c *Config) normalize() {
 	for id, list := range c.MCP.Available {
 		slices.Sort(list)
 		c.MCP.Available[id] = slices.Compact(list)
+	}
+	if c.Skills == nil {
+		c.Skills = map[string]Skill{}
+	}
+	for id, s := range c.Skills {
+		if s.Agents != nil {
+			slices.Sort(s.Agents)
+			s.Agents = slices.Compact(s.Agents)
+			c.Skills[id] = s
+		}
 	}
 }
 

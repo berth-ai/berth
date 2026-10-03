@@ -60,6 +60,7 @@ func toMap(c Config) map[string]any {
 var userMaps = map[string]map[string]any{
 	"mcp.servers":   {"url": "", "auth": AuthNone, "enabled": true},
 	"mcp.available": nil,
+	"skills":        {"repo": "", "path": "", "ref": "", "commit": "", "description": "", "agents": nil, "enabled": true},
 }
 
 func merge(dst, def, patch map[string]any, prefix string, v *validator) {

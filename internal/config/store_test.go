@@ -90,7 +90,7 @@ func TestApplyInvalidWritesNothing(t *testing.T) {
 func TestLoadCorrupt(t *testing.T) {
 	for name, content := range map[string]string{
 		"not json":     `{"schema":`,
-		"newer schema": `{"schema":3}`,
+		"newer schema": `{"schema":4}`,
 		"unknown key":  `{"schema":1,"revision":1,"surprise":true}`,
 	} {
 		t.Run(name, func(t *testing.T) {
@@ -199,5 +199,20 @@ func TestSchemaOneFileIsRead(t *testing.T) {
 	}
 	if c.Schema != Schema || c.Revision != 4 || c.Agents.Keep != 5 || c.MCP.Servers == nil {
 		t.Errorf("config = %+v", c)
+	}
+}
+
+func TestReadUpgradesSchema2(t *testing.T) {
+	dir := t.TempDir()
+	raw := `{"schema":2,"revision":4,"mcp":{"servers":{},"available":{}}}`
+	if err := os.WriteFile(filepath.Join(dir, "config.json"), []byte(raw), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	c, err := (&Store{Dir: dir}).Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.Schema != Schema || c.Revision != 4 || c.Skills == nil {
+		t.Errorf("loaded = %+v", c)
 	}
 }

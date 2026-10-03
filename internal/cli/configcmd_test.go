@@ -166,10 +166,10 @@ func TestImportPatch(t *testing.T) {
 	if err != nil || string(got) != `{"mcp":{"servers":{}}}` {
 		t.Errorf("schema 2 = %s %v", got, err)
 	}
-	if _, err := importPatch(write("e.json", `{"schema":3}`)); err == nil || !strings.Contains(err.Error(), "config schema 3") {
-		t.Errorf("schema 3: %v", err)
+	if _, err := importPatch(write("e.json", `{"schema":4}`)); err == nil || !strings.Contains(err.Error(), "config schema 4") {
+		t.Errorf("schema 4: %v", err)
 	}
-	for _, body := range []string{`{"schema":3}`, `[]`, `{"agents":{}}`, `nope`} {
+	for _, body := range []string{`{"schema":4}`, `[]`, `{"agents":{}}`, `nope`} {
 		if _, err := importPatch(write("c.json", body)); err == nil {
 			t.Errorf("%s accepted", body)
 		}

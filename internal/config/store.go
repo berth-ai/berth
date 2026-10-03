@@ -173,8 +173,8 @@ func read(path string) (Config, error) {
 	if err := dec.Decode(&c); err != nil {
 		return Config{}, &CorruptError{Path: path, Err: err}
 	}
-	if c.Schema == 1 {
-		c.Schema = Schema // schema 1 lacks only the mcp section, whose defaults apply
+	if c.Schema == 1 || c.Schema == 2 {
+		c.Schema = Schema // older schemas lack only sections whose defaults apply
 	}
 	if err := c.Validate(); err != nil {
 		return Config{}, &CorruptError{Path: path, Err: err}

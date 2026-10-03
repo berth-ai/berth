@@ -12,7 +12,7 @@ func TestDefaultsAreValid(t *testing.T) {
 	if err := d.Validate(); err != nil {
 		t.Fatalf("defaults invalid: %v", err)
 	}
-	if d.Schema != 2 || d.Revision != 0 || !d.Frontends.Terminal.Enabled || d.Frontends.IDE.Enabled ||
+	if d.Schema != 3 || d.Revision != 0 || !d.Frontends.Terminal.Enabled || d.Frontends.IDE.Enabled ||
 		d.Agents.Ref != "main" || d.Agents.Keep != 3 || d.Agents.BootTimeout != 600 ||
 		d.Agents.MCPTimeout != 120 || d.Runtime.TZ != "UTC" || d.Agents.Disabled == nil {
 		t.Errorf("defaults = %+v", d)
@@ -21,7 +21,7 @@ func TestDefaultsAreValid(t *testing.T) {
 
 func TestValidateReportsEveryField(t *testing.T) {
 	c := Defaults()
-	c.Schema = 3
+	c.Schema = 4
 	c.Agents.Ref = "../x"
 	c.Agents.Disabled = []string{"Bad Name", "opencode-ai", "opencode-ai"}
 	c.Agents.Keep = 51

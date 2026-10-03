@@ -7,7 +7,7 @@
     "stopped": []
   },
   "config": {
-    "schema": 2,
+    "schema": 3,
     "revision": 1,
     "frontends": {
       "terminal": {
@@ -32,7 +32,8 @@
     "mcp": {
       "servers": {},
       "available": {}
-    }
+    },
+    "skills": {}
   },
   "schema": 1
 }

@@ -62,11 +62,12 @@ func newFake(mode string) *fake {
 
 func defaultConfig(rev int) map[string]any {
 	return map[string]any{
-		"schema": 2, "revision": rev,
+		"schema": 3, "revision": rev,
 		"frontends": map[string]any{"terminal": map[string]any{"enabled": true}, "ide": map[string]any{"enabled": false}},
 		"agents":    map[string]any{"ref": "main", "disabled": []any{}, "keep": 2, "boot_timeout": 600, "mcp_timeout": 300},
 		"runtime":   map[string]any{"tz": "Etc/UTC"},
 		"mcp":       map[string]any{"servers": map[string]any{}, "available": map[string]any{}},
+		"skills":    map[string]any{},
 	}
 }
 
