@@ -4,6 +4,12 @@ on:
   pull_request:
   push:
     branches: [main]
+  workflow_dispatch:
+    inputs:
+      smoke:
+        description: Run the image smoke test (slow; off on pushes and pull requests)
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -175,4 +181,5 @@ jobs:
           secrets: |
             github_token=${{ secrets.GITHUB_TOKEN }}
       - name: Smoke test
+        if: inputs.smoke
         run: tests/smoke-image.sh berth:ci

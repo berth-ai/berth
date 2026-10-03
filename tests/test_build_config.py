@@ -216,6 +216,11 @@ class WorkflowTest(unittest.TestCase):
         self.assertIn("name: image-${{ matrix.arch }}", text)
         self.assertIn("- arch: amd64\n            runner: ubuntu-24.04\n", text)
 
+    def test_image_smoke_runs_only_on_demand(self):
+        text = workflow("ci.yml")
+        self.assertIn("  workflow_dispatch:\n    inputs:\n      smoke:\n", text)
+        self.assertIn("      - name: Smoke test\n        if: inputs.smoke\n", text)
+
     def test_no_moving_image_tags(self):
         for name, text in self.all_workflows().items():
             self.assertNotRegex(text, r"image: \S+:latest", name)

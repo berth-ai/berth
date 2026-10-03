@@ -31,6 +31,7 @@ pnpm install --frozen-lockfile && pnpm fmt:check && pnpm lint && pnpm test && pn
 Work on the UI with `pnpm dev` (a watch build) and `go run ./internal/panel/devserver -dist web/dist` from the repo root; sign in as `dev` / `dev password`.
 
 Image changes: `docker buildx build --load -t berth:dev . && tests/smoke-image.sh berth:dev`.
+CI builds the image on every push but runs the smoke test only on demand: `gh workflow run ci --ref <branch> -f smoke=true`.
 
 ## Design rules
 
