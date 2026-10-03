@@ -117,7 +117,7 @@ func runUpdate(ctx context.Context, a *app, args []string) error {
 		if err != nil {
 			return err
 		}
-		a.setupMCP(ctx)
+		a.setupMCP(ctx, a.cfg.MCPTimeout)
 		a.gcQuietly()
 		return a.p.Result(res, res.human)
 	})
@@ -148,11 +148,11 @@ func (a *app) apply(ctx context.Context, lock *locksource.Lock, follow bool) (*u
 }
 
 // setupMCP converges MCP registrations; failures are logged, never fatal.
-func (a *app) setupMCP(ctx context.Context) {
+func (a *app) setupMCP(ctx context.Context, timeout time.Duration) {
 	if a.cfg.MCPSetup == "" {
 		return
 	}
-	err := a.cfg.Runner.Run(ctx, runner.Cmd{Path: a.cfg.MCPSetup, AsAgent: true, Timeout: 2 * time.Minute})
+	err := a.cfg.Runner.Run(ctx, runner.Cmd{Path: a.cfg.MCPSetup, AsAgent: true, Timeout: timeout})
 	if err != nil {
 		a.p.Logf("warning: MCP setup failed: %v", err)
 	}

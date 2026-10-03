@@ -23,6 +23,13 @@ const (
 	ExitNotRoot  = 4
 )
 
+// ExitCode ends the process with its value and prints nothing, for commands
+// whose output already says everything (berth health) or that stop on a
+// signal (berth supervise).
+type ExitCode int
+
+func (e ExitCode) Error() string { return fmt.Sprintf("exit status %d", int(e)) }
+
 // Error is a failure with a stable machine-readable code and the pipeline
 // step it happened in.
 type Error struct {
@@ -67,6 +74,10 @@ func (p Printer) Result(v any, human func(w io.Writer)) error {
 
 // Fail reports err and returns the exit code the process should use.
 func (p Printer) Fail(err error) int {
+	var ec ExitCode
+	if errors.As(err, &ec) {
+		return int(ec)
+	}
 	var e *Error
 	if !errors.As(err, &e) {
 		e = &Error{Exit: ExitFailure, Code: "internal", Message: err.Error()}

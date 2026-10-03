@@ -23,8 +23,16 @@ func main() {
 }
 
 func run() int {
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	defer stop()
+	ctx, cancel := context.WithCancelCause(context.Background())
+	defer cancel(nil)
+	sigc := make(chan os.Signal, 1)
+	signal.Notify(sigc, os.Interrupt, syscall.SIGTERM)
+	defer signal.Stop(sigc)
+	go func() {
+		if sig, ok := <-sigc; ok {
+			cancel(cli.SignalCause{Signal: sig})
+		}
+	}()
 	cfg, err := cli.DefaultConfig(os.Getenv, cli.Build{Version: version, Commit: commit, Repo: defaultRepo})
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "berth: error:", err)

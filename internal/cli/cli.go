@@ -10,10 +10,10 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"strconv"
 	"time"
 
 	"github.com/salgnt/berth/internal/agentstore"
+	"github.com/salgnt/berth/internal/config"
 	"github.com/salgnt/berth/internal/locksource"
 	"github.com/salgnt/berth/internal/output"
 	"github.com/salgnt/berth/internal/runner"
@@ -42,11 +42,17 @@ type Config struct {
 	Version     string
 	Commit      string
 
-	// Services (berth broker, berth panel).
+	// Services (berth supervise, berth panel, berth config, berth health).
 	BrokerSocket    string
 	BerthPath       string
-	PanelCredential string
+	ModuleRun       string
+	ConfigDir       string
+	MCPTimeout      time.Duration
+	Panel           *runner.Identity // the berth-panel user; set when running as root
+	PanelErr        error            // set when running as root and berth-panel does not exist
+	PanelCredential string           // transitional user:password for the panel's Basic auth
 	PanelListen     string
+	Environ         func() []string
 }
 
 // Build carries values injected with -ldflags.
@@ -62,14 +68,6 @@ func DefaultConfig(getenv func(string) string, b Build) (Config, error) {
 }
 
 func defaultConfig(getenv func(string) string, b Build, isRoot bool, lookup func(string) (*runner.Identity, error)) (Config, error) {
-	keep := 3
-	if v := getenv("AGENTS_KEEP"); v != "" {
-		n, err := strconv.Atoi(v)
-		if err != nil || n < 0 {
-			return Config{}, fmt.Errorf("AGENTS_KEEP must be a non-negative integer, got %q", v)
-		}
-		keep = n
-	}
 	repo := b.Repo
 	if v := getenv("BERTH_REPO"); v != "" {
 		repo = v
@@ -82,20 +80,30 @@ func defaultConfig(getenv func(string) string, b Build, isRoot bool, lookup func
 		ProcRoot:    "/proc",
 		MCPSetup:    "/usr/local/bin/berth-mcp-setup",
 		GitHub:      locksource.GitHub{Repo: repo, Token: getenv("GITHUB_TOKEN")},
-		Keep:        keep,
 		LockTimeout: 30 * time.Second,
 		IsRoot:      isRoot,
 		Now:         time.Now,
 		Version:     b.Version,
 		Commit:      b.Commit,
 
-		BrokerSocket:    "/run/berth/broker.sock",
-		BerthPath:       "/usr/local/bin/berth",
-		PanelCredential: getenv("PANEL_CREDENTIAL"),
-		PanelListen:     "0.0.0.0:" + cmp.Or(getenv("PANEL_PORT"), "7690"),
+		BrokerSocket: "/run/berth/broker.sock",
+		BerthPath:    "/usr/local/bin/berth",
+		ModuleRun:    "/usr/local/bin/berth-module-run",
+		ConfigDir:    "/var/lib/berth",
+		// The supervisor reads PANEL_CREDENTIAL and hands it to the panel
+		// alone as BERTH_PANEL_CREDENTIAL. Removed by the front-door plan.
+		PanelCredential: cmp.Or(getenv("BERTH_PANEL_CREDENTIAL"), getenv("PANEL_CREDENTIAL")),
+		PanelListen:     "0.0.0.0:7690",
+		Environ:         os.Environ,
 	}
+	cfg.Keep, cfg.MCPTimeout = agentSettings(cfg.ConfigDir)
 	if cfg.IsRoot {
-		// Only the mutating commands need agent; report a missing user there.
+		// Only some commands need these users; report a missing one there.
+		if panel, err := lookup("berth-panel"); err != nil {
+			cfg.PanelErr = fmt.Errorf("look up user berth-panel: %w", err)
+		} else {
+			cfg.Panel = panel
+		}
 		agent, err := lookup("agent")
 		if err != nil {
 			cfg.AgentErr = fmt.Errorf("look up user agent: %w", err)
@@ -105,6 +113,16 @@ func defaultConfig(getenv func(string) string, b Build, isRoot bool, lookup func
 		cfg.MiseConfig = filepath.Join(agent.Home, ".config", "mise", "config.toml")
 	}
 	return cfg, nil
+}
+
+// agentSettings reads the agent tunables from the config store. Without a
+// usable config, or as non-root (which cannot read it), the defaults apply.
+func agentSettings(dir string) (keep int, mcp time.Duration) {
+	c, err := (&config.Store{Dir: dir}).Load()
+	if err != nil {
+		c = config.Defaults()
+	}
+	return c.Agents.Keep, time.Duration(c.Agents.MCPTimeout) * time.Second
 }
 
 type app struct {
@@ -119,22 +137,30 @@ type command struct {
 }
 
 var commands = map[string]command{
-	"status":   {"status [--check] [--json]            show installed agent sets", runStatus},
-	"update":   {"update [--ref R | --image | --lock-dir D] [--json]  install and activate an agent set", runUpdate},
-	"rollback": {"rollback [HASH] [--json]             return to the previous (or named) agent set", runRollback},
-	"ensure":   {"ensure [--json]                      boot-time install of the image seed", runEnsure},
-	"gc":       {"gc [--json]                          remove unused agent sets", runGC},
-	"version":  {"version                              print the berth version", runVersion},
-	"broker":   {"broker                               serve the panel's root broker (started by the panel module)", runBroker},
-	"panel":    {"panel                                serve the web panel (started by the panel module)", runPanel},
+	"status":    {"status [--check] [--json]            show installed agent sets", runStatus},
+	"update":    {"update [--ref R | --image | --lock-dir D] [--json]  install and activate an agent set", runUpdate},
+	"rollback":  {"rollback [HASH] [--json]             return to the previous (or named) agent set", runRollback},
+	"ensure":    {"ensure [--json]                      boot-time install of the image seed", runEnsure},
+	"gc":        {"gc [--json]                          remove unused agent sets", runGC},
+	"config":    {"config get|set K=V...|revert|reset|export|import FILE [--json]  read or change settings", runConfig},
+	"health":    {"health [--json]                      report whether every enabled service runs", runHealth},
+	"version":   {"version                              print the berth version", runVersion},
+	"supervise": {"supervise                            run the container's services (the entrypoint starts it)", runSupervise},
+	"panel":     {"panel                                serve the web panel (the panel module starts it)", runPanel},
 }
 
-var order = []string{"status", "update", "rollback", "ensure", "gc", "version", "broker", "panel"}
+var order = []string{"status", "update", "rollback", "ensure", "gc", "config", "health", "version", "supervise", "panel"}
 
 // Run executes one berth invocation and returns its exit code.
 func Run(ctx context.Context, cfg Config, args []string, stdout, stderr io.Writer) int {
 	if cfg.Now == nil {
 		cfg.Now = time.Now
+	}
+	if cfg.Environ == nil {
+		cfg.Environ = os.Environ
+	}
+	if cfg.MCPTimeout == 0 {
+		cfg.MCPTimeout = 2 * time.Minute
 	}
 	if cfg.Runner == nil {
 		cfg.Runner = runner.Exec{Agent: cfg.Agent, Stdout: stderr, Stderr: stderr}

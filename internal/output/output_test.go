@@ -3,6 +3,7 @@ package output
 import (
 	"bytes"
 	"errors"
+	"fmt"
 	"io"
 	"strings"
 	"testing"
@@ -60,5 +61,13 @@ func TestLogfGoesToStderr(t *testing.T) {
 	Printer{Stdout: &out, Stderr: &errOut}.Logf("step %d", 3)
 	if out.Len() != 0 || errOut.String() != "berth: step 3\n" {
 		t.Fatalf("stdout %q stderr %q", out.String(), errOut.String())
+	}
+}
+
+func TestExitCodeIsSilent(t *testing.T) {
+	var out, errOut bytes.Buffer
+	p := Printer{Stdout: &out, Stderr: &errOut}
+	if code := p.Fail(fmt.Errorf("wrapped: %w", ExitCode(143))); code != 143 || out.Len()+errOut.Len() != 0 {
+		t.Errorf("code %d, out %q, err %q", code, out.String(), errOut.String())
 	}
 }
