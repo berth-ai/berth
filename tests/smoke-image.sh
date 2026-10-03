@@ -162,7 +162,7 @@ step "shell defaults"
 [[ $(xa main tmux -L smoke new-session -d \; show-options -gv history-limit \; kill-server) == 50000 ]] ||
   fail "tmux defaults"
 # shellcheck disable=SC2016  # expanded by zsh inside the container
-[[ $(xa main zsh -c 'print -l $path | head -n 2 | paste -sd,') == /opt/agents/current/bin,/opt/mise/wrappers ]] ||
+[[ $(xa main zsh -c 'print -l $path | head -n 2 | paste -sd,') == /var/lib/berth/bin,/opt/mise/wrappers ]] ||
   fail "PATH order"
 
 step "login, sessions and proxies"
@@ -197,6 +197,47 @@ for ((i = 0; i < 300; i++)); do
   sleep 1
 done
 [[ $state == succeeded ]] || fail "panel update --image job ended $state"
+
+# verb NAME VERB JSON calls a broker verb as root over the socket.
+verb() {
+  x "$1" curl -fsS --unix-socket /run/berth/broker.sock -H 'Content-Type: application/json' -d "$3" "http://b/verbs/$2"
+}
+rev() { x "$1" berth config get --json | jq -r .config.revision; }
+
+step "agent toggles and API keys"
+x main test -L /var/lib/berth/bin || fail "the agent layer is not a symlink"
+for agent in claude codex opencode; do
+  xa main "$agent" --version >/dev/null || fail "$agent --version through the layer"
+done
+verb main config.apply '{"base_revision":'"$(rev main)"',"patch":{"agents":{"disabled":["opencode-ai","@playwright/mcp"]}}}' >/dev/null ||
+  fail "disabling opencode and Playwright"
+if xa main sh -lc 'command -v opencode' >/dev/null 2>&1; then fail "opencode still on PATH"; fi
+xa main claude --version >/dev/null || fail "claude broken by disabling opencode"
+for ((i = 0; i < 120; i++)); do
+  ! xa main claude mcp list 2>/dev/null | grep -q playwright && break
+  sleep 1
+done
+xa main claude mcp list | grep -q playwright && fail "disabled Playwright still registered with claude"
+xa main claude mcp list | grep -q context7 || fail "context7 lost"
+verb main config.apply '{"secrets":{"ANTHROPIC_API_KEY":"sk-smoke-test"}}' >/dev/null || fail "setting a key"
+verb main config.get '{}' | jq -e '.secrets.ANTHROPIC_API_KEY.set' >/dev/null || fail "key not reported as set"
+if verb main config.get '{}' | grep -q sk-smoke-test; then fail "config.get leaked the key"; fi
+[[ $(x main stat -c '%a %U %G' /var/lib/berth/secrets/agents.env) == "640 root agent" ]] || fail "agents.env ownership"
+# shellcheck disable=SC2016  # expanded by the inner sh
+xa main sh -c 'sh -x /var/lib/berth/bin/claude --version 2>&1 | grep -q "export ANTHROPIC_API_KEY=sk-smoke-test"' ||
+  fail "the claude wrapper does not load its key"
+# shellcheck disable=SC2016
+if xa main sh -c 'sh -x /var/lib/berth/bin/codex --version 2>&1 | grep -q ANTHROPIC'; then
+  fail "codex's wrapper loads another package's key"
+fi
+if docker exec -u berth-panel "$prefix-main" cat /var/lib/berth/secrets/agents.env 2>/dev/null; then
+  fail "berth-panel can read agent keys"
+fi
+verb main config.apply '{"base_revision":'"$(rev main)"',"patch":{"agents":{"disabled":[]}}}' >/dev/null
+xa main opencode --version >/dev/null || fail "opencode back after re-enabling"
+verb main update.check '{}' | jq -e '.check.ref == "main" and (.check.update_available != null or .check.error != null)' >/dev/null ||
+  fail "update.check"
+x main berth status --json | jq -e '.versions | length >= 1' >/dev/null || fail "status lacks versions"
 
 step "config change restarts only what it affects"
 xa main tmux new-session -d -s keep

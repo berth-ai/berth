@@ -63,9 +63,22 @@ sessions keep working on the version they started with. After `update` or
 follow the image again. Every command accepts `--json`.
 
 The web panel does the same from a browser: it shows the current and previous
-agent sets, checks `main` for a newer lock, and runs `update` (from `main`, a
-git ref or the image) or `rollback` while showing the log. It cannot run
-anything else.
+agent sets, checks the configured ref (`main` by default) for a newer lock,
+and runs `update` (from that ref, another git ref or the image) or
+`rollback` while showing the log. It cannot run anything else.
+
+Each agent and MCP server can be switched off on its own, and agents take
+their API keys from the panel. A key set in your own shell wins over the
+panel's. From the command line:
+
+```sh
+docker compose exec berth berth config set 'agents.disabled=["opencode-ai"]'
+docker compose exec berth berth config set agents.ref=v1.4.0   # where updates come from
+```
+
+Switching a package off removes it from `PATH` for new shells and
+unregisters its MCP server. The installed files stay, so switching it back
+on is instant.
 
 ## Upgrading the image
 
