@@ -431,6 +431,7 @@ func TestVerbAllowlist(t *testing.T) {
 	for _, verb := range []string{
 		"tools.list", "tools.versions", "tools.registry", "tools.add", "tools.remove",
 		"preset.install", "git.identity", "forge.status", "forge.login",
+		"skills.add", "skills.update",
 	} {
 		resp, body := e.do(c, "POST", "/api/verbs/"+verb, `{}`, nil)
 		if got, _ := e.fb.last(); got != "POST /verbs/"+verb {
