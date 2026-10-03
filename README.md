@@ -96,8 +96,12 @@ agent store and Berth's settings live in the `berth-home`, `berth-agents` and
 
 - The pinned toolchain lives in `/opt/mise`: Node, Neovim, gh, glab, uv,
   ripgrep, fd, fzf, lazygit, starship, chezmoi, atuin and more.
-- Add your own tools with `mise use -g <tool>@<version>`. They live in your
-  home and never shadow the pinned ones.
+- Add your own tools from the panel's Tools page, or with `mise use -g
+  <tool>@<version>`. They live in your home, after the pinned ones on
+  `PATH`. Presets install pinned Go, Rust, Python or Java toolchains the
+  same way.
+- Sign in to GitHub and GitLab from the Accounts page: it shows a one-time
+  code to enter on the forge's website. Tokens stay in your home volume.
 - Berth ships opinionated defaults for zsh, Starship, tmux, Neovim, atuin,
   zoxide, fzf and direnv. Creating your own file replaces the default for that
   tool: `~/.zshrc`, `~/.config/starship.toml`, `~/.tmux.conf`,

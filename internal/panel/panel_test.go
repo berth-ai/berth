@@ -426,6 +426,15 @@ func TestVerbAllowlist(t *testing.T) {
 			t.Errorf("%s: %d %s", verb, resp.StatusCode, body)
 		}
 	}
+	for _, verb := range []string{
+		"tools.list", "tools.versions", "tools.registry", "tools.add", "tools.remove",
+		"preset.install", "git.identity", "forge.status", "forge.login",
+	} {
+		resp, body := e.do(c, "POST", "/api/verbs/"+verb, `{}`, nil)
+		if got, _ := e.fb.last(); got != "POST /verbs/"+verb {
+			t.Errorf("%s: %d %s, broker saw %q", verb, resp.StatusCode, body, got)
+		}
+	}
 	for _, path := range []string{"/api/jobs/x", "/api/jobs/1a"} {
 		if resp, _ := e.do(c, "GET", path, "", nil); resp.StatusCode != http.StatusNotFound {
 			t.Errorf("GET %s = %d", path, resp.StatusCode)

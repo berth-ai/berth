@@ -86,6 +86,9 @@ func runSupervise(ctx context.Context, a *app, args []string) error {
 	b.Layer = &layer
 	b.Agent = a.cfg.Agent
 	b.MCPSetup = a.cfg.MCPSetup
+	b.Home = broker.DefaultHome(a.cfg.BerthPath)
+	b.BaseTools = "/usr/share/berth/mise.toml"
+	b.PresetsDir = "/usr/share/berth/presets"
 	b.Fetch = func(ctx context.Context, ref string) (*locksource.Lock, error) {
 		return a.cfg.GitHub.Fetch(ctx, ref, a.cfg.Now())
 	}

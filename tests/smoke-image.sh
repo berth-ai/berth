@@ -239,6 +239,27 @@ verb main update.check '{}' | jq -e '.check.ref == "main" and (.check.update_ava
   fail "update.check"
 x main berth status --json | jq -e '.versions | length >= 1' >/dev/null || fail "status lacks versions"
 
+step "tools and accounts (as agent)"
+verb main tools.list '{}' | jq -e '(.base | map(.name) | index("node")) and (.presets | length == 4)' >/dev/null ||
+  fail "tools.list"
+verb main tools.versions '{"tool":"jq"}' | jq -e '.versions | index("1.8.2")' >/dev/null || fail "tools.versions"
+verb main tools.add '{"tool":"jq","version":"1.8.2"}' >/dev/null || fail "tools.add"
+for ((i = 0; i < 300; i++)); do
+  state=$(x main curl -fsS --unix-socket /run/berth/broker.sock http://b/jobs | jq -r '[.jobs[] | select(.verb == "tools.add")][0].state')
+  [[ $state != running ]] && break
+  sleep 1
+done
+[[ $state == succeeded ]] || fail "tools.add ended $state"
+# The system jq comes first on PATH; ask mise for the user-track one.
+xa main zsh -lc 'mise exec jq@1.8.2 -- jq --version' | grep -q 'jq-1.8.2' || fail "user-track jq not installed"
+verb main tools.list '{}' | jq -e '.user | map(.name) | index("jq")' >/dev/null || fail "jq not in the user track"
+[[ $(x main stat -c %U /home/agent/.config/mise/config.toml) == agent ]] || fail "user mise config not owned by agent"
+verb main tools.remove '{"tool":"jq"}' >/dev/null
+verb main git.identity '{"name":"Smoke Test","email":"smoke@example.org"}' >/dev/null || fail "git.identity"
+[[ $(xa main git config --global user.email) == smoke@example.org ]] || fail "git identity not written as agent"
+verb main forge.status '{}' | jq -e '.forges.gh.signed_in == false and .git.name == "Smoke Test"' >/dev/null ||
+  fail "forge.status"
+
 step "config change restarts only what it affects"
 xa main tmux new-session -d -s keep
 ttyd_pid=$(service_pid main ttyd)
