@@ -150,6 +150,9 @@ func (g Git) Archive(ctx context.Context, dir, commit, sub string, extract func(
 		done <- err
 	}()
 	xerr := extract(pr)
+	if xerr == nil {
+		_, _ = io.Copy(io.Discard, pr) // the tar reader stops before git's record padding
+	}
 	pr.CloseWithError(fmt.Errorf("extraction stopped"))
 	gerr := <-done
 	if xerr != nil {

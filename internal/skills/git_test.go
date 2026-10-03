@@ -52,3 +52,21 @@ func TestConcurrentFetchesShareTheCache(t *testing.T) {
 		}
 	}
 }
+
+// A tar reader stops at the end-of-archive marker, before git's record
+// padding; Archive must still succeed.
+func TestArchiveIntoExtract(t *testing.T) {
+	f := newFixture(t, map[string]string{"skills/pdf/SKILL.md": pdfSkill})
+	dir := CacheDir(t.TempDir(), f.url)
+	g, ctx := testGit(), context.Background()
+	commit, err := g.Fetch(ctx, dir, f.url, "main")
+	if err != nil {
+		t.Fatal(err)
+	}
+	out := t.TempDir()
+	if err := g.Archive(ctx, dir, commit, "skills/pdf", func(r io.Reader) error {
+		return extract(r, out, func(string, ...any) {})
+	}); err != nil {
+		t.Fatalf("Archive = %v", err)
+	}
+}
