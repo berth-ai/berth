@@ -21,7 +21,6 @@ func main() {
 	mode := flag.String("mode", "normal", "broker mode: normal, setup or recovery")
 	flag.Parse()
 	broker := httptest.NewServer(newFake(*mode))
-	defer broker.Close()
 	// Nothing listens on port 1, so the terminal and IDE show the
 	// "not running" page.
 	down := &url.URL{Scheme: "http", Host: "127.0.0.1:1"}
@@ -30,5 +29,7 @@ func main() {
 		h.UseAssets(os.DirFS(*dist))
 	}
 	log.Printf("panel on http://%s (mode %s)", *addr, *mode)
-	log.Fatal(http.ListenAndServe(*addr, h))
+	err := http.ListenAndServe(*addr, h)
+	broker.Close()
+	log.Fatal(err)
 }
