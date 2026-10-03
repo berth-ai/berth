@@ -72,6 +72,13 @@ type Broker struct {
 	MCPSetup string
 	// Fetch reads the agent lock on a ref for update.check.
 	Fetch func(ctx context.Context, ref string) (*locksource.Lock, error)
+	// Home holds the programs home-side verbs run as agent.
+	Home HomeCommands
+	// BaseTools and PresetsDir are the pins shipped in the image.
+	BaseTools  string
+	PresetsDir string
+	// SyncTimeout bounds synchronous agent commands; 0 means one minute.
+	SyncTimeout time.Duration
 	// Now and CurrentHash default to the clock and the current agent set.
 	Now         func() time.Time
 	CurrentHash func() string

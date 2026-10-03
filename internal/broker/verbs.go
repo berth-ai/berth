@@ -39,6 +39,12 @@ func (b *Broker) verbs() map[string]verbFunc {
 		"auth.change":     b.authChange,
 		"setup.complete":  b.setupComplete,
 		"auth.reset":      b.authReset,
+		"tools.list":      b.toolsList,
+		"tools.versions":  b.toolsVersions,
+		"tools.registry":  b.toolsRegistry,
+		"tools.add":       b.toolsAdd,
+		"tools.remove":    b.toolsRemove,
+		"preset.install":  b.presetInstall,
 	}
 }
 
