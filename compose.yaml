@@ -1,18 +1,28 @@
-# Berth: one container, reachable only on BIND_ADDRESS.
-# Copy .env.example to .env and set BIND_ADDRESS and PANEL_CREDENTIAL.
+# Berth: one container. No .env is needed; every variable below is optional.
+# After `docker compose up -d`, open the setup link from `docker compose logs berth`.
 name: berth
 
 services:
   berth:
-    image: ghcr.io/salgnt/berth:${BERTH_VERSION:?set BERTH_VERSION in .env}
+    # renovate: datasource=docker depName=ghcr.io/salgnt/berth
+    image: ghcr.io/salgnt/berth:${BERTH_VERSION:-0.1.0}
     # build: .   # uncomment to build locally instead of pulling
     init: false # tini is PID 1 inside the image
     restart: unless-stopped
-    env_file: .env
     security_opt:
       - no-new-privileges:true
+    environment:
+      PUID: ${PUID:-1000}
+      PGID: ${PGID:-1000}
+      GITHUB_TOKEN: ${GITHUB_TOKEN:-}
+      # Shown read-only in the panel; the setup link is built from them.
+      BERTH_HOST_BIND_ADDRESS: ${BIND_ADDRESS:-127.0.0.1}
+      BERTH_HOST_PANEL_PORT: ${PANEL_PORT:-7690}
+      BERTH_HOST_PUID: ${PUID:-1000}
+      BERTH_HOST_PGID: ${PGID:-1000}
+      BERTH_HOST_WORKSPACES_DIR: ${WORKSPACES_DIR:-./workspaces}
     ports:
-      - "${BIND_ADDRESS:?set BIND_ADDRESS to a private address}:${PANEL_PORT:-7690}:7690"
+      - "${BIND_ADDRESS:-127.0.0.1}:${PANEL_PORT:-7690}:7690"
     volumes:
       - berth-home:/home/agent
       - berth-agents:/opt/agents

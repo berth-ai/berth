@@ -111,25 +111,41 @@ class DockerfileTest(unittest.TestCase):
 
 
 class ComposeTest(unittest.TestCase):
-    def test_compose_contract(self):
-        text = read("compose.yaml")
-        self.assertIn("image: ghcr.io/salgnt/berth:${BERTH_VERSION:?", text)
-        self.assertIn('"${BIND_ADDRESS:?set BIND_ADDRESS to a private address}:${PANEL_PORT:-7690}:7690"', text)
-        self.assertEqual(len(re.findall(r'^\s+- "\$\{BIND_ADDRESS', text, re.M)), 1, "only the panel port is published")
-        self.assertIn("no-new-privileges:true", text)
-        for vol in ("berth-home", "berth-agents", "berth-config"):
-            self.assertIn(f"name: {vol}", text)
-        self.assertIn("berth-config:/var/lib/berth", text)
-        self.assertNotIn("0.0.0.0", text)
+    def setUp(self):
+        self.text = read("compose.yaml")
 
-    def test_env_example_documents_every_variable(self):
+    def test_no_required_variables(self):
+        self.assertNotIn(":?", self.text)
+        self.assertNotIn("env_file", self.text)
+
+    def test_image_pin_is_annotated(self):
+        self.assertRegex(self.text, r"# renovate: datasource=docker depName=ghcr.io/salgnt/berth\n\s+image: "
+                                    r"ghcr\.io/salgnt/berth:\$\{BERTH_VERSION:-\d+\.\d+\.\d+\}\n")
+
+    def test_only_the_panel_port(self):
+        ports = re.findall(r'^\s+- "(.*:7690)"$', self.text, re.M)
+        self.assertEqual(ports, ["${BIND_ADDRESS:-127.0.0.1}:${PANEL_PORT:-7690}:7690"])
+        self.assertEqual(len(re.findall(r"^\s+- \"", self.text, re.M)), 1)
+
+    def test_host_values_passed_through(self):
+        for var, src in (("BIND_ADDRESS", "BIND_ADDRESS:-127.0.0.1"), ("PANEL_PORT", "PANEL_PORT:-7690"),
+                         ("PUID", "PUID:-1000"), ("PGID", "PGID:-1000"), ("WORKSPACES_DIR", "WORKSPACES_DIR:-./workspaces")):
+            self.assertIn(f"BERTH_HOST_{var}: ${{{src}}}", self.text)
+        self.assertIn("PUID: ${PUID:-1000}", self.text)
+
+    def test_volumes_and_hardening(self):
+        self.assertIn("no-new-privileges:true", self.text)
+        for vol in ("berth-home", "berth-agents", "berth-config"):
+            self.assertIn(f"name: {vol}", self.text)
+        self.assertNotIn("0.0.0.0", self.text)
+
+    def test_env_example_is_optional(self):
         env = read(".env.example")
-        for var in ("BERTH_VERSION", "BIND_ADDRESS", "PUID", "PGID", "WORKSPACES_DIR", "PANEL_PORT", "PANEL_CREDENTIAL"):
-            self.assertRegex(env, rf"(?m)^{var}=", var)
-        for gone in ("WEB_TERMINAL_CREDENTIAL", "TTYD_PORT", "CODE_SERVER_PASSWORD", "CODE_SERVER_PORT",
-                     "AGENTS_BOOT_TIMEOUT", "AGENTS_KEEP", "MCP_SETUP_TIMEOUT", "TZ"):
-            self.assertNotRegex(env, rf"(?m)^{gone}=", gone)
-        self.assertRegex(env, r"# renovate: datasource=docker depName=ghcr.io/salgnt/berth\nBERTH_VERSION=\d+\.\d+\.\d+\n")
+        self.assertNotRegex(env, r"(?m)^[A-Z_]+=", "every override is commented out")
+        for var in ("BERTH_VERSION", "BIND_ADDRESS", "PANEL_PORT", "PUID", "PGID", "WORKSPACES_DIR", "GITHUB_TOKEN"):
+            self.assertRegex(env, rf"(?m)^# {var}=", var)
+        for gone in ("PANEL_CREDENTIAL", "WEB_TERMINAL_CREDENTIAL", "CODE_SERVER_PASSWORD"):
+            self.assertNotIn(gone, env)
 
 
 WORKFLOWS = REPO / ".github/workflows"
@@ -225,11 +241,18 @@ class RenovateTest(unittest.TestCase):
             ("gomod", "patch", "go.mod", True),
             ("dockerfile", "digest", "Dockerfile", False),
             ("custom.regex", "patch", "Dockerfile", False),
-            ("custom.regex", "minor", ".env.example", False),
+            ("custom.regex", "minor", "compose.yaml", False),
         ]
         for manager, update, path, automerge in cases:
             with self.subTest(manager=manager, update=update):
                 self.assertEqual(self.effective(manager, update, path).get("automerge", False), automerge)
+
+    def test_compose_pin_manager(self):
+        m = next(m for m in self.cfg["customManagers"] if "compose" in m["managerFilePatterns"][0])
+        pattern = re.compile(m["matchStrings"][0].replace("(?<", "(?P<"))
+        found = pattern.search(read("compose.yaml"))
+        self.assertIsNotNone(found)
+        self.assertEqual(found.group("depName"), "ghcr.io/salgnt/berth")
 
     def test_agents_group(self):
         agents = self.effective("npm", "minor", "agents/package.json")

@@ -19,10 +19,10 @@
     },
     {
       "customType": "regex",
-      "description": "Berth release pinned in .env.example",
-      "managerFilePatterns": ["/^\\.env\\.example$/"],
+      "description": "Berth release pinned as compose.yaml's default image tag",
+      "managerFilePatterns": ["/^compose\\.yaml$/"],
       "matchStrings": [
-        "# renovate: datasource=(?<datasource>\\S+) depName=(?<depName>\\S+)\\s+BERTH_VERSION=(?<currentValue>\\S+)"
+        "# renovate: datasource=(?<datasource>\\S+) depName=(?<depName>\\S+)\\s+image: \\S+:\\$\\{BERTH_VERSION:-(?<currentValue>[^}]+)\\}"
       ]
     },
     {
@@ -42,7 +42,7 @@
       "automerge": true
     },
     {
-      "description": "Base image digests, annotated ARGs (checksums need a hand update) and the Berth pin are reviewed",
+      "description": "Base image digests, annotated ARGs (checksums need a hand update) and the compose.yaml release pin are reviewed",
       "matchManagers": ["dockerfile", "custom.regex"],
       "automerge": false
     },

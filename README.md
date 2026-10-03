@@ -14,23 +14,23 @@ The agents are the product; the frontends are optional modules.
 
 ```sh
 curl -fsSLO https://raw.githubusercontent.com/SalGnt/berth/main/compose.yaml
-curl -fsSL -o .env https://raw.githubusercontent.com/SalGnt/berth/main/.env.example
-$EDITOR .env        # set BIND_ADDRESS and PANEL_CREDENTIAL
-mkdir -p workspaces # before the first start, so it is yours and not root's
+mkdir -p workspaces   # before the first start, so it is yours and not root's
 docker compose up -d
-docker compose ps   # wait for "healthy"
+docker compose logs berth | grep 'setup: open'
 ```
 
-The first start installs the agent CLIs into the `berth-agents` volume, which
-takes a few minutes. Later starts are fast.
+Open the printed link to create the panel login and pick the frontends. The
+link works once. A restart before you finish prints a new one. The first
+start also installs the agent CLIs into the `berth-agents` volume, which takes
+a few minutes. Later starts are fast.
 
 ## Frontends and settings
 
-The web panel is always on and is the only published port (`PANEL_PORT`,
-7690). The browser terminal (ttyd + tmux) is on by default, and the browser
-IDE (code-server) is off. Both listen only inside the container; the panel's
-proxy for them arrives in the next release. Until then, use
-`docker compose exec -u agent berth zsh`.
+The panel at `http://127.0.0.1:7690` is the only published port and the only
+login. The terminal and the IDE open inside it, at `/terminal/` and `/ide/`,
+and neither has a password of its own. The browser terminal (ttyd + tmux) is
+on by default, and the browser IDE (code-server) is off.
+`docker compose exec -u agent berth zsh` always works too.
 
 Settings live in the `berth-config` volume and change without restarting the
 container. Only the services a change affects restart:
@@ -43,6 +43,9 @@ docker compose exec berth berth config revert   # back to the previous revision
 
 If the config file becomes unreadable, Berth starts only the panel and
 `berth config reset` (or `revert`) recovers.
+
+Forgot the panel login? `docker compose exec berth berth config reset-login`
+deletes it and prints a new setup link.
 
 ## Agents
 
@@ -67,7 +70,7 @@ anything else.
 ## Upgrading the image
 
 ```sh
-# edit BERTH_VERSION in .env, then:
+# fetch the new compose.yaml (or set BERTH_VERSION in .env), then:
 docker compose pull && docker compose up -d
 ```
 
@@ -89,16 +92,19 @@ agent store and Berth's settings live in the `berth-home`, `berth-agents` and
 
 ## Configuration
 
-The `.env` file holds only what Docker needs on the host:
+No `.env` is needed. These optional host-side variables override the
+defaults in `compose.yaml`; `.env.example` lists them:
 
 | Variable | Default | Meaning |
 | --- | --- | --- |
-| `BERTH_VERSION` | required | Image tag to run |
-| `BIND_ADDRESS` | required | Host address the panel port is published on |
+| `BERTH_VERSION` | the release `compose.yaml` pins | Image tag to run |
+| `BIND_ADDRESS` | `127.0.0.1` | Host address the panel port is published on |
 | `PANEL_PORT` | 7690 | Host port mapped to the panel |
 | `PUID` / `PGID` | 1000 / 1000 | Identity of the `agent` user |
 | `WORKSPACES_DIR` | `./workspaces` | Host path mounted at `/workspaces` |
-| `PANEL_CREDENTIAL` | unset | `user:password` for the panel login (temporary) |
+| `GITHUB_TOKEN` | unset | Raises GitHub's rate limit for agent update checks |
+
+The panel shows these values but cannot change them.
 
 Every other setting is changed with `berth config` and kept in the
 `berth-config` volume:
@@ -115,6 +121,11 @@ Every other setting is changed with `berth config` and kept in the
 
 ## Security
 
+- One published port, bound to `BIND_ADDRESS` (default `127.0.0.1`), and one login.
+- ttyd and code-server listen only on loopback inside the container.
+- No credential appears on any command line or in any service's environment.
+- Berth does not terminate TLS: put a reverse proxy or a VPN in front for
+  remote access. Behind a TLS proxy the session cookie is marked Secure.
 - The frontends and agents run as the unprivileged `agent` user, with `no-new-privileges`.
 - Services get only the settings they need; tokens passed to the container stay with the supervisor.
 - The panel runs as its own `berth-panel` user. Privileged work goes through
