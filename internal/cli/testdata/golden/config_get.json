@@ -1,0 +1,26 @@
+{
+  "config": {
+    "schema": 1,
+    "revision": 0,
+    "frontends": {
+      "terminal": {
+        "enabled": true
+      },
+      "ide": {
+        "enabled": false
+      }
+    },
+    "agents": {
+      "ref": "main",
+      "disabled": [],
+      "keep": 3,
+      "boot_timeout": 600,
+      "mcp_timeout": 120
+    },
+    "runtime": {
+      "tz": "UTC"
+    }
+  },
+  "mode": "normal",
+  "schema": 1
+}

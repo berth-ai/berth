@@ -1,0 +1,34 @@
+{
+  "changes": {
+    "started": [
+      "code_server"
+    ],
+    "restarted": [],
+    "stopped": []
+  },
+  "config": {
+    "schema": 1,
+    "revision": 1,
+    "frontends": {
+      "terminal": {
+        "enabled": true
+      },
+      "ide": {
+        "enabled": true
+      }
+    },
+    "agents": {
+      "ref": "main",
+      "disabled": [
+        "opencode-ai"
+      ],
+      "keep": 3,
+      "boot_timeout": 600,
+      "mcp_timeout": 120
+    },
+    "runtime": {
+      "tz": "Europe/Rome"
+    }
+  },
+  "schema": 1
+}

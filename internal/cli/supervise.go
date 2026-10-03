@@ -173,6 +173,3 @@ func dirOf(path string) string {
 	}
 	return "."
 }
-
-func runConfig(context.Context, *app, []string) error { return usageErr(errors.New("not implemented")) }
-func runHealth(context.Context, *app, []string) error { return usageErr(errors.New("not implemented")) }
