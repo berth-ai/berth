@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"sync"
@@ -86,6 +87,7 @@ func runSupervise(ctx context.Context, a *app, args []string) error {
 	b.Layer = &layer
 	b.Agent = a.cfg.Agent
 	b.MCPSetup = a.cfg.MCPSetup
+	b.MCPSettings = filepath.Join(a.cfg.ConfigDir, "mcp.json")
 	b.Home = broker.DefaultHome(a.cfg.BerthPath)
 	b.BaseTools = "/usr/share/berth/mise.toml"
 	b.PresetsDir = "/usr/share/berth/presets"

@@ -70,6 +70,9 @@ type Broker struct {
 	Agent *runner.Identity
 	// MCPSetup is the MCP converger's argv; empty skips MCP registration.
 	MCPSetup []string
+	// MCPSettings is where the mcp section is published for the converger,
+	// /var/lib/berth/mcp.json; empty skips it.
+	MCPSettings string
 	// Fetch reads the agent lock on a ref for update.check.
 	Fetch func(ctx context.Context, ref string) (*locksource.Lock, error)
 	// Home holds the programs home-side verbs run as agent.
@@ -97,6 +100,10 @@ type Broker struct {
 
 	checkMu sync.Mutex
 	checks  map[string]cachedLock // update.check results by ref
+
+	mcpMu    sync.Mutex
+	mcpBusy  bool // an mcp.setup job is running
+	mcpAgain bool // settings changed during that run
 }
 
 // New returns a broker in normal mode with the default config and the
@@ -134,6 +141,12 @@ func (b *Broker) Load() config.Config {
 	case err != nil:
 		b.mode = ModeRecovery
 		b.logf("RECOVERY MODE: %v; only the panel runs until the config is reverted or reset", err)
+	}
+	if err == nil {
+		// Repair a missing or stale copy; never publish recovery defaults.
+		if werr := b.writeMCPSettings(cfg.MCP); werr != nil {
+			b.logf("WARNING: MCP settings: %v", werr)
+		}
 	}
 	return b.cfg
 }

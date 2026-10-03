@@ -3,6 +3,7 @@ package broker
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"slices"
@@ -12,6 +13,7 @@ import (
 
 	"github.com/berth-ai/berth/internal/agentlayer"
 	"github.com/berth-ai/berth/internal/agentstore"
+	"github.com/berth-ai/berth/internal/config"
 	"github.com/berth-ai/berth/internal/testutil"
 )
 
@@ -41,6 +43,7 @@ func withAgents(t *testing.T, tb *testBroker) string {
 	mcp := filepath.Join(tb.dir, "mcp-setup")
 	os.WriteFile(mcp, []byte("#!/bin/sh\necho registered >> \""+tb.dir+"/mcp.log\"\n"), 0o755)
 	tb.b.MCPSetup = []string{mcp}
+	tb.b.MCPSettings = filepath.Join(tb.dir, "mcp.json")
 	tb.b.Load()
 	return tb.b.Layer.KeysPath
 }
@@ -148,4 +151,186 @@ func TestAgentWork(t *testing.T) {
 	if exit != 3 || err != nil || res != nil || buf.String() != "out\n" {
 		t.Errorf("exit %d res %s err %v log %q", exit, res, err, buf.String())
 	}
+}
+
+// mcpRuns counts the MCP converger's runs in the fake script's log.
+func mcpRuns(tb *testBroker) int {
+	raw, _ := os.ReadFile(filepath.Join(tb.dir, "mcp.log"))
+	return strings.Count(string(raw), "registered\n")
+}
+
+// waitMCPRuns waits until the converger has run n times and no run is left.
+func waitMCPRuns(t *testing.T, tb *testBroker, n int) {
+	t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		idle := true
+		for _, j := range tb.b.Jobs.List() {
+			idle = idle && j.State != StateRunning
+		}
+		if mcpRuns(tb) >= n && idle {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatalf("mcp setup ran %d times, want %d: %+v", mcpRuns(tb), n, tb.b.Jobs.List())
+}
+
+const addLinear = `{"base_revision":0,"patch":{"mcp":{"servers":{"linear":{"url":"https://mcp.example.com/mcp","auth":"bearer"}}}},"secrets":{"MCP_LINEAR_TOKEN":"tok-1"}}`
+
+func TestAddingBearerServerStoresTokenAndPublishes(t *testing.T) {
+	tb := newTestBroker(t)
+	keysPath := withAgents(t, tb)
+	if code, out := tb.verb(t, "config.apply", addLinear); code != 200 {
+		t.Fatalf("apply = %d %v", code, out)
+	}
+	if keys, _ := agentlayer.ReadKeys(keysPath); keys["MCP_LINEAR_TOKEN"] != "tok-1" {
+		t.Errorf("keys = %v", keys)
+	}
+	m, err := config.ReadMCPFile(tb.b.MCPSettings)
+	if err != nil || m.Servers["linear"].URL != "https://mcp.example.com/mcp" {
+		t.Errorf("mcp.json = %+v, %v", m, err)
+	}
+	raw, _ := os.ReadFile(tb.b.MCPSettings)
+	if strings.Contains(string(raw), "tok-1") {
+		t.Error("mcp.json holds the token")
+	}
+	_, out := tb.verb(t, "config.get", `{}`)
+	if s, _ := out["secrets"].(map[string]any)["MCP_LINEAR_TOKEN"].(map[string]any); s["set"] != true {
+		t.Errorf("secrets = %v", out["secrets"])
+	}
+	waitMCPRuns(t, tb, 1)
+}
+
+func TestTokenOnlyForBearerServers(t *testing.T) {
+	tb := newTestBroker(t)
+	withAgents(t, tb)
+	code, out := tb.verb(t, "config.apply", `{"secrets":{"MCP_LINEAR_TOKEN":"tok"}}`)
+	if code != 400 || !strings.Contains(fmt.Sprint(out), "secrets.MCP_LINEAR_TOKEN") {
+		t.Errorf("token without server = %d %v", code, out)
+	}
+	code, out = tb.verb(t, "config.apply", `{"base_revision":0,"patch":{"mcp":{"servers":{"linear":{"url":"https://mcp.example.com/mcp","auth":"oauth"}}}},"secrets":{"MCP_LINEAR_TOKEN":"tok"}}`)
+	if code != 400 {
+		t.Errorf("token for oauth server = %d %v", code, out)
+	}
+	if _, out := tb.verb(t, "config.get", `{}`); len(out["config"].(map[string]any)["mcp"].(map[string]any)["servers"].(map[string]any)) != 0 {
+		t.Errorf("a refused apply changed the config: %v", out["config"])
+	}
+}
+
+func TestRemovingServerDeletesToken(t *testing.T) {
+	tb := newTestBroker(t)
+	keysPath := withAgents(t, tb)
+	tb.verb(t, "config.apply", addLinear)
+	code, out := tb.verb(t, "config.apply", `{"base_revision":1,"patch":{"mcp":{"servers":{"linear":null}}}}`)
+	if code != 200 {
+		t.Fatalf("remove = %d %v", code, out)
+	}
+	if keys, _ := agentlayer.ReadKeys(keysPath); keys["MCP_LINEAR_TOKEN"] != "" {
+		t.Errorf("token kept: %v", keys)
+	}
+	if m, _ := config.ReadMCPFile(tb.b.MCPSettings); len(m.Servers) != 0 {
+		t.Errorf("mcp.json = %+v", m)
+	}
+}
+
+func TestSwitchingAwayFromBearerDeletesToken(t *testing.T) {
+	tb := newTestBroker(t)
+	keysPath := withAgents(t, tb)
+	tb.verb(t, "config.apply", addLinear)
+	if code, out := tb.verb(t, "config.apply", `{"base_revision":1,"patch":{"mcp":{"servers":{"linear":{"auth":"oauth"}}}}}`); code != 200 {
+		t.Fatalf("switch = %d %v", code, out)
+	}
+	if keys, _ := agentlayer.ReadKeys(keysPath); keys["MCP_LINEAR_TOKEN"] != "" {
+		t.Errorf("token kept: %v", keys)
+	}
+}
+
+func TestTokenChangeAloneRunsSync(t *testing.T) {
+	tb := newTestBroker(t)
+	withAgents(t, tb)
+	tb.verb(t, "config.apply", addLinear)
+	waitMCPRuns(t, tb, 1)
+	tb.verb(t, "config.apply", `{"secrets":{"MCP_LINEAR_TOKEN":"tok-2"}}`)
+	waitMCPRuns(t, tb, 2)
+	tb.verb(t, "config.apply", `{"secrets":{"A_KEY":"k"}}`) // not an MCP token
+	time.Sleep(100 * time.Millisecond)
+	if n := mcpRuns(tb); n != 2 {
+		t.Errorf("mcp setup runs = %d, want 2", n)
+	}
+}
+
+func TestChangeDuringSyncRunsItAgain(t *testing.T) {
+	tb := newTestBroker(t)
+	withAgents(t, tb)
+	slow := filepath.Join(tb.dir, "slow-setup")
+	os.WriteFile(slow, []byte("#!/bin/sh\nsleep 0.3\necho registered >> \""+tb.dir+"/mcp.log\"\n"), 0o755)
+	tb.b.MCPSetup = []string{slow}
+	tb.verb(t, "config.apply", addLinear)
+	if code, out := tb.verb(t, "config.apply", `{"base_revision":1,"patch":{"mcp":{"servers":{"linear":null}}}}`); code != 200 {
+		t.Fatalf("remove = %d %v", code, out)
+	}
+	waitMCPRuns(t, tb, 2)
+}
+
+func TestTokenNameClashWithLockKey(t *testing.T) {
+	tb := newTestBroker(t)
+	withAgents(t, tb)
+	// Make the agent set declare the key the server's token would use.
+	cur := filepath.Join(tb.dir, "agents", "current", "package.json")
+	raw, _ := os.ReadFile(cur)
+	os.WriteFile(cur, []byte(strings.Replace(string(raw), `["A_KEY"]`, `["A_KEY","MCP_LINEAR_TOKEN"]`, 1)), 0o644)
+	code, out := tb.verb(t, "config.apply", `{"base_revision":0,"patch":{"mcp":{"servers":{"linear":{"url":"https://mcp.example.com/mcp","auth":"bearer"}}}}}`)
+	if code != 400 || !strings.Contains(fmt.Sprint(out), "mcp.servers.linear") {
+		t.Errorf("clash = %d %v", code, out)
+	}
+}
+
+func TestRevertRepublishesAndSyncs(t *testing.T) {
+	tb := newTestBroker(t)
+	withAgents(t, tb)
+	tb.verb(t, "config.apply", addLinear)
+	waitMCPRuns(t, tb, 1)
+	tb.verb(t, "config.apply", `{"base_revision":1,"patch":{"mcp":{"servers":{"linear":null}}}}`)
+	waitMCPRuns(t, tb, 2)
+	if code, out := tb.verb(t, "config.revert", `{}`); code != 200 {
+		t.Fatalf("revert = %d %v", code, out)
+	}
+	if m, _ := config.ReadMCPFile(tb.b.MCPSettings); m.Servers["linear"].URL == "" {
+		t.Errorf("mcp.json after revert = %+v", m)
+	}
+	waitMCPRuns(t, tb, 3)
+}
+
+func TestLoadPublishesOnlyAUsableConfig(t *testing.T) {
+	tb := newTestBroker(t)
+	withAgents(t, tb)
+	tb.verb(t, "config.apply", addLinear)
+	os.Remove(tb.b.MCPSettings)
+	tb.b.Load()
+	if m, _ := config.ReadMCPFile(tb.b.MCPSettings); m.Servers["linear"].URL == "" {
+		t.Errorf("Load did not republish: %+v", m)
+	}
+	// A corrupt config must not overwrite mcp.json with the defaults.
+	os.WriteFile(filepath.Join(tb.dir, "config.json"), []byte(`{"schema":`), 0o600)
+	tb.b.Load()
+	if m, _ := config.ReadMCPFile(tb.b.MCPSettings); m.Servers["linear"].URL == "" {
+		t.Errorf("recovery overwrote mcp.json: %+v", m)
+	}
+}
+
+func TestResetFromRecoveryRepublishes(t *testing.T) {
+	tb := newTestBroker(t)
+	withAgents(t, tb)
+	tb.verb(t, "config.apply", addLinear)
+	waitMCPRuns(t, tb, 1)
+	os.WriteFile(filepath.Join(tb.dir, "config.json"), []byte(`{"schema":`), 0o600)
+	tb.b.Load()
+	if code, out := tb.verb(t, "config.reset", `{}`); code != 200 {
+		t.Fatalf("reset = %d %v", code, out)
+	}
+	if m, _ := config.ReadMCPFile(tb.b.MCPSettings); len(m.Servers) != 0 {
+		t.Errorf("mcp.json after reset = %+v", m)
+	}
+	waitMCPRuns(t, tb, 2)
 }

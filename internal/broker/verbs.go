@@ -182,7 +182,7 @@ func (b *Broker) configGet(_ context.Context, body []byte) (int, any) {
 		return badRequest(err)
 	}
 	cfg, mode, modeErr := b.snapshot()
-	return http.StatusOK, configView{Config: cfg, Mode: mode, Error: modeErr, Secrets: b.secretStates()}
+	return http.StatusOK, configView{Config: cfg, Mode: mode, Error: modeErr, Secrets: b.secretStates(cfg)}
 }
 
 func (b *Broker) configExport(_ context.Context, body []byte) (int, any) {
@@ -223,7 +223,13 @@ func (b *Broker) configApply(_ context.Context, body []byte) (int, any) {
 	case ModeRecovery:
 		return fail(http.StatusConflict, "recovery", "the config is unusable; revert it or reset it to the defaults first")
 	}
-	if err := b.checkSecrets(in.Secrets); err != nil {
+	preview := cur
+	if hasPatch {
+		if p, err := config.Patch(cur, in.Patch); err == nil {
+			preview = p // Store.Apply reports a bad patch
+		}
+	}
+	if err := b.checkSecrets(in.Secrets, cur, preview); err != nil {
 		return validationResponse(err)
 	}
 	old, next := cur, cur
@@ -233,13 +239,24 @@ func (b *Broker) configApply(_ context.Context, body []byte) (int, any) {
 			return b.changed(old, next, err)
 		}
 	}
-	if len(in.Secrets) > 0 {
-		if err := b.writeSecrets(in.Secrets); err != nil {
+	secrets := in.Secrets
+	if gone := staleTokens(old.MCP, next.MCP); len(gone) > 0 && b.Layer != nil {
+		if secrets == nil {
+			secrets = map[string]*string{}
+		}
+		for name := range gone {
+			if _, set := secrets[name]; !set {
+				secrets[name] = nil
+			}
+		}
+	}
+	if len(secrets) > 0 {
+		if err := b.writeSecrets(secrets); err != nil {
 			return fail(http.StatusInternalServerError, "write_failed", "%v", err)
 		}
 	}
 	code, v := b.changed(old, next, nil)
-	b.refreshAgents(old, next)
+	b.refreshAgents(old, next, touchesTokens(secrets, old.MCP, next.MCP))
 	return code, v
 }
 
@@ -256,7 +273,7 @@ func (b *Broker) configRevert(_ context.Context, body []byte) (int, any) {
 	old, next, err := b.Store.Revert()
 	code, v := b.changed(old, next, err)
 	if code == http.StatusOK {
-		b.refreshAgents(before, next)
+		b.refreshAgents(before, next, false)
 	}
 	return code, v
 }
@@ -274,7 +291,7 @@ func (b *Broker) configReset(_ context.Context, body []byte) (int, any) {
 	old, next, err := b.Store.Reset()
 	code, v := b.changed(old, next, err)
 	if code == http.StatusOK {
-		b.refreshAgents(before, next)
+		b.refreshAgents(before, next, false)
 	}
 	return code, v
 }
