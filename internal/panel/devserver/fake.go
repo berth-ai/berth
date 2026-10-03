@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"net/http"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -350,8 +351,13 @@ func (f *fake) run(j *job, in map[string]any) {
 		j.Result = json.RawMessage(`{"error":{"code":"rollback_failed","step":"switch","message":"no previous agent set to switch to"}}`)
 	case "forge.login":
 		f.forges[str(in["forge"])] = true
-	case "tools.add":
-		f.tools = append(f.tools, map[string]string{"name": str(in["tool"]), "version": str(in["version"])})
+	case "tools.add", "tools.remove":
+		// Like mise use -g / unuse -g: one version per tool.
+		name := str(in["tool"])
+		f.tools = slices.DeleteFunc(f.tools, func(t map[string]string) bool { return t["name"] == name })
+		if j.Verb == "tools.add" {
+			f.tools = append(f.tools, map[string]string{"name": name, "version": str(in["version"])})
+		}
 	}
 	j.FinishedAt, j.ExitCode = &now, &code
 }

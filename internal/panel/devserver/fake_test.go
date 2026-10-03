@@ -100,3 +100,34 @@ func TestFakeSetup(t *testing.T) {
 		t.Errorf("after setup mode=%s ide=%v", f.mode, enabled(f.cfg, "ide"))
 	}
 }
+
+func TestFakeToolsReplaceAndRemove(t *testing.T) {
+	c, _ := newClient(t, "normal")
+	c.call("POST", "/api/login", `{"user":"dev","password":"dev password"}`)
+	wait := func(verb, body string) {
+		t.Helper()
+		code, out := c.call("POST", "/api/verbs/"+verb, body)
+		if code != 202 {
+			t.Fatalf("%s = %d %v", verb, code, out)
+		}
+		id := int(out["job"].(map[string]any)["id"].(float64))
+		for deadline := time.Now().Add(2 * time.Second); time.Now().Before(deadline); time.Sleep(5 * time.Millisecond) {
+			if _, out = c.call("GET", fmt.Sprintf("/api/jobs/%d", id), ""); out["job"].(map[string]any)["state"] != "running" {
+				return
+			}
+		}
+		t.Fatalf("%s never finished", verb)
+	}
+	user := func() string {
+		_, out := c.call("POST", "/api/verbs/tools.list", `{}`)
+		return fmt.Sprint(out["user"])
+	}
+	wait("tools.add", `{"tool":"terraform","version":"2.0.0"}`)
+	if got := user(); got != "[map[name:terraform version:2.0.0]]" {
+		t.Errorf("after upgrade, user tools = %s", got)
+	}
+	wait("tools.remove", `{"tool":"terraform"}`)
+	if got := user(); got != "[]" {
+		t.Errorf("after remove, user tools = %s", got)
+	}
+}
