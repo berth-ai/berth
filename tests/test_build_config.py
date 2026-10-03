@@ -84,12 +84,20 @@ class DockerfileTest(unittest.TestCase):
 
     def test_base_images_pinned_by_digest(self):
         images = [l for l in self.lines if re.match(r"ARG \w+_IMAGE=", l)]
-        self.assertEqual(len(images), 2)
+        self.assertEqual(len(images), 3)
         for line in images:
             self.assertRegex(line, r"@sha256:[0-9a-f]{64}$")
         for line in self.lines:
             if line.startswith("FROM "):
                 self.assertRegex(line, r"^FROM (--platform=\$BUILDPLATFORM )?\$\{\w+_IMAGE\} AS [\w-]+$")
+
+    def test_web_build_feeds_go_build(self):
+        text = "\n".join(self.lines)
+        self.assertIn("FROM --platform=$BUILDPLATFORM ${NODE_IMAGE} AS web-build", text)
+        self.assertIn("RUN pnpm install --frozen-lockfile", text)
+        go_stage = text.split("AS go-build", 1)[1].split("FROM ", 1)[0]
+        self.assertIn("COPY --from=web-build /src/web/dist web/dist", go_stage)
+        self.assertLess(go_stage.index("COPY --from=web-build"), go_stage.index("go build"))
 
     def test_version_args_have_renovate_annotations(self):
         for i, line in enumerate(self.lines):

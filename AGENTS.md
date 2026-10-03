@@ -10,16 +10,25 @@ of what is done; do not keep status checklists in the repo.
 - `build/`: build-time helpers, bind-mounted during `docker build`, never shipped.
 - `agents/`: the agent lockfile. `tools/mise.toml`: the base toolchain.
 - `tests/`: Python `unittest` for shell and build config; `tests/smoke-image.sh` for images.
+- `web/`: the panel UI (React, Vite, pnpm), from `SalGnt/template-web`. `pnpm build` fills `web/dist`, which `package web` embeds; `internal/panel/devserver` runs the panel against a fake broker for UI work.
 
 ## Checks before every commit
 
 ```sh
-gofmt -l . && go vet ./... && go test -race ./...
+gofmt -l $(git ls-files '*.go') && go vet ./... && go test -race ./...   # build web/ first, or the dist tests skip
 python3 -m unittest discover -s tests -v   # needs bash >= 5.1, jq, zsh
 shellcheck -x rootfs/usr/local/bin/* rootfs/usr/local/lib/berth/*.sh rootfs/etc/berth/services.d/*.sh build/*.sh tests/*.sh
 hadolint --failure-threshold error Dockerfile
 actionlint
 ```
+
+Panel UI changes, in `web/`:
+
+```sh
+pnpm install --frozen-lockfile && pnpm fmt:check && pnpm lint && pnpm test && pnpm build && pnpm e2e
+```
+
+Work on the UI with `pnpm dev` (a watch build) and `go run ./internal/panel/devserver -dist web/dist` from the repo root; sign in as `dev` / `dev password`.
 
 Image changes: `docker buildx build --load -t berth:dev . && tests/smoke-image.sh berth:dev`.
 
@@ -41,6 +50,8 @@ Image changes: `docker buildx build --load -t berth:dev . && tests/smoke-image.s
 - The `--json` output of `berth` is a contract: add fields freely, but bump
   `schema` for any removal or rename, and update the golden files in
   `internal/cli/testdata/golden` (`go test ./internal/cli -update`).
+- The panel CSP never changes. UI code must not inject `<style>` elements or use `dangerouslySetInnerHTML`; every React root sits in Base UI's `CSPProvider disableStyleElements`. The Playwright smoke test fails on any violation.
+- Pin `web/` dependencies exactly; add shadcn and ReUI components only with `pnpm dlx shadcn@<pinned version> add …`, never `@latest`.
 - Environment variables such as `BERTH_SERVICES_DIR` and `BERTH_ETC` exist
   only as test seams; do not document them for users.
 - Never commit hostnames, credentials, personal paths or other private data,

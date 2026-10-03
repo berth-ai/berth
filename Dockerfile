@@ -4,6 +4,20 @@
 ARG UBUNTU_IMAGE=ubuntu:24.04@sha256:008173c23f95b170204355c12626cb5a965d779a7e1283b09e9cffbb1bf33ca3
 # renovate: datasource=docker depName=golang
 ARG GO_IMAGE=golang:1.27.1-bookworm@sha256:69a7b9788769bec032d238959b61854e9ae87f57be9029ec04e9885fabf99195
+# renovate: datasource=docker depName=node
+ARG NODE_IMAGE=node:24.21.0-bookworm-slim@sha256:0e0ff40c39bc087845bfb27465a0df4ea419520094bc35842ff83dd8cbe6f9b6
+
+# --------------------------------------------------------------- web-build
+# The panel UI. Its output is architecture independent, so it builds once on
+# the build platform. Caches stay in /tmp, out of $HOME.
+FROM --platform=$BUILDPLATFORM ${NODE_IMAGE} AS web-build
+ENV COREPACK_HOME=/tmp/corepack
+WORKDIR /src/web
+COPY web/package.json web/pnpm-lock.yaml web/pnpm-workspace.yaml ./
+RUN corepack enable
+RUN pnpm install --frozen-lockfile --store-dir /tmp/pnpm-store
+COPY web/ ./
+RUN pnpm build
 
 # ---------------------------------------------------------------- go-build
 FROM --platform=$BUILDPLATFORM ${GO_IMAGE} AS go-build
@@ -13,6 +27,8 @@ COPY go.mod go.sum ./
 RUN go mod download
 COPY cmd/ cmd/
 COPY internal/ internal/
+COPY web/embed.go web/
+COPY --from=web-build /src/web/dist web/dist
 # Declared after the cached layers: a new commit must not invalidate them.
 ARG BERTH_VERSION=dev
 ARG BERTH_COMMIT=unknown

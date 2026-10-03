@@ -13,7 +13,7 @@ The agents are the product; the frontends are optional modules.
 ## Quick start
 
 ```sh
-curl -fsSLO https://raw.githubusercontent.com/berth-ai/bert/main/compose.yaml
+curl -fsSLO https://raw.githubusercontent.com/berth-ai/berth/main/compose.yaml
 mkdir -p workspaces   # before the first start, so it is yours and not root's
 docker compose up -d
 docker compose logs berth | grep 'setup: open'

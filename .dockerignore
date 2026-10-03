@@ -9,4 +9,9 @@
 !tools/mise.toml
 !tools/presets/
 !build/
+!web/
+web/node_modules/
+web/dist/
+web/test-results/
+web/playwright-report/
 internal/**/testdata/
