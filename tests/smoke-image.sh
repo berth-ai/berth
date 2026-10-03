@@ -302,6 +302,50 @@ verb main update.check '{}' | jq -e '.check.ref == "main" and (.check.update_ava
   fail "update.check"
 x main berth status --json | jq -e '.versions | length >= 1' >/dev/null || fail "status lacks versions"
 
+step "a skill is pinned, linked into each agent, narrowed and removed"
+pin=8a1541c4a3ffa5a20a5a91de0dcf3f0bab1d1ef4
+verb main skills.add '{"repo":"https://github.com/anthropics/skills","path":"skills/pdf","ref":"'"$pin"'"}' >/dev/null ||
+  fail "skills.add"
+for ((i = 0; i < 120; i++)); do
+  state=$(x main curl -fsS --unix-socket /run/berth/broker.sock http://b/jobs | jq -r '[.jobs[] | select(.verb == "skills.add")][0].state')
+  [[ $state != running ]] && break
+  sleep 1
+done
+[[ $state == succeeded ]] || fail "skills.add ended $state"
+verb main config.get '{}' | jq -e --arg c "$pin" '.config.skills.pdf.commit == $c' >/dev/null || fail "pdf not pinned"
+[[ $(x main stat -c '%a %U %G' /var/lib/berth/skills.json) == "640 root agent" ]] || fail "skills.json ownership"
+for ((i = 0; i < 120; i++)); do
+  xa main test -L /home/agent/.gemini/skills/pdf && break
+  sleep 1
+done
+store=/home/agent/.local/share/berth/skills/pdf
+xa main test -f "$store/SKILL.md" || fail "pdf store copy missing"
+for d in .claude/skills .codex/skills .gemini/skills; do
+  [[ $(xa main readlink "/home/agent/$d/pdf") == "$store" ]] || fail "pdf not linked in ~/$d"
+done
+# OpenCode reads ~/.claude/skills, so it gets no link of its own.
+if xa main test -e /home/agent/.config/opencode/skills/pdf; then fail "pdf linked twice for opencode"; fi
+xa main gemini skills list 2>/dev/null | grep -q pdf || fail "gemini does not load the linked skill"
+
+verb main config.apply '{"base_revision":'"$(rev main)"',"patch":{"skills":{"pdf":{"agents":["@anthropic-ai/claude-code"]}}}}' >/dev/null ||
+  fail "narrowing a skill"
+for ((i = 0; i < 60; i++)); do
+  ! xa main test -e /home/agent/.gemini/skills/pdf && break
+  sleep 1
+done
+if xa main test -e /home/agent/.gemini/skills/pdf; then fail "narrowed skill still linked for gemini"; fi
+if xa main test -e /home/agent/.codex/skills/pdf; then fail "narrowed skill still linked for codex"; fi
+xa main test -L /home/agent/.claude/skills/pdf || fail "narrowing removed claude's link"
+
+verb main config.apply '{"base_revision":'"$(rev main)"',"patch":{"skills":{"pdf":null}}}' >/dev/null ||
+  fail "removing a skill"
+for ((i = 0; i < 60; i++)); do
+  ! xa main test -e "$store" && break
+  sleep 1
+done
+if xa main test -e "$store"; then fail "removed skill's store copy kept"; fi
+if xa main test -e /home/agent/.claude/skills/pdf; then fail "removed skill still linked for claude"; fi
+
 step "tools and accounts (as agent)"
 verb main tools.list '{}' | jq -e '(.base | map(.name) | index("node")) and (.presets | length == 4)' >/dev/null ||
   fail "tools.list"
