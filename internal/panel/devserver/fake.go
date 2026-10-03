@@ -62,10 +62,11 @@ func newFake(mode string) *fake {
 
 func defaultConfig(rev int) map[string]any {
 	return map[string]any{
-		"schema": 1, "revision": rev,
+		"schema": 2, "revision": rev,
 		"frontends": map[string]any{"terminal": map[string]any{"enabled": true}, "ide": map[string]any{"enabled": false}},
 		"agents":    map[string]any{"ref": "main", "disabled": []any{}, "keep": 2, "boot_timeout": 600, "mcp_timeout": 300},
 		"runtime":   map[string]any{"tz": "Etc/UTC"},
+		"mcp":       map[string]any{"servers": map[string]any{}, "available": map[string]any{}},
 	}
 }
 
@@ -135,7 +136,7 @@ func (f *fake) verb(name string, in map[string]any) (int, any) {
 		f.user, _ = in["user"].(string)
 		return http.StatusOK, map[string]any{"user": f.user}
 	case "config.get", "config.export":
-		return http.StatusOK, map[string]any{"config": f.cfg, "mode": f.mode, "secrets": map[string]any{}}
+		return http.StatusOK, map[string]any{"config": f.cfg, "mode": f.mode, "secrets": f.secrets()}
 	case "config.apply":
 		return f.apply(in)
 	case "config.revert":
@@ -207,7 +208,7 @@ func (f *fake) apply(in map[string]any) (int, any) {
 	}
 	if secrets, ok := in["secrets"].(map[string]any); ok {
 		for k, v := range secrets {
-			if _, known := f.keys[k]; !known {
+			if _, known := f.keys[k]; !known && !isMCPToken(k) {
 				return http.StatusBadRequest, fieldError("invalid_config", "secrets."+k, "no installed package reads this key")
 			}
 			f.keys[k] = v != nil
@@ -216,7 +217,34 @@ func (f *fake) apply(in map[string]any) (int, any) {
 	if _, ok := in["patch"]; !ok {
 		return http.StatusOK, map[string]any{"config": f.cfg, "changes": changes(f.cfg, f.cfg)}
 	}
+	// Like the broker, forget the tokens of servers that no longer use one.
+	servers, _ := next["mcp"].(map[string]any)["servers"].(map[string]any)
+	keep := map[string]bool{}
+	for id, s := range servers {
+		if m, _ := s.(map[string]any); m["auth"] == "bearer" {
+			keep[mcpToken(id)] = true
+		}
+	}
+	for k := range f.keys {
+		if isMCPToken(k) && !keep[k] {
+			delete(f.keys, k)
+		}
+	}
 	return f.replace(next)
+}
+
+func isMCPToken(k string) bool { return strings.HasPrefix(k, "MCP_") && strings.HasSuffix(k, "_TOKEN") }
+
+func mcpToken(id string) string {
+	return "MCP_" + strings.ToUpper(strings.ReplaceAll(id, "-", "_")) + "_TOKEN"
+}
+
+func (f *fake) secrets() map[string]any {
+	out := map[string]any{}
+	for k, set := range f.keys {
+		out[k] = map[string]bool{"set": set}
+	}
+	return out
 }
 
 // replace makes next the current config as a new revision.
@@ -256,7 +284,7 @@ func (f *fake) status() map[string]any {
 	}
 	current := map[string]any{"hash": "3f9c2a7d1e0b4c65a8f7e2d9c1b0a3f4e5d6c7b8a9f0e1d2c3b4a5f6e7d8c9b0",
 		"source":   map[string]any{"origin": "image", "fetched_at": ago(72 * time.Hour)},
-		"packages": map[string]string{"@example/agent-cli": "2.1.0", "@example/mcp-files": "0.6.2"}, "installed_at": ago(72 * time.Hour)}
+		"packages": map[string]string{"@example/agent-cli": "2.1.0", "@example/other-cli": "1.4.0", "@example/mcp-files": "0.6.2"}, "installed_at": ago(72 * time.Hour)}
 	previous := map[string]any{"hash": "8b7a6f5e4d3c2b1a0f9e8d7c6b5a4f3e2d1c0b9a8f7e6d5c4b3a2f1e0d9c8b7a",
 		"source":   map[string]any{"origin": "ref", "ref": "main", "commit": "a1b2c3d4e5f60718293a4b5c6d7e8f9012345678", "fetched_at": ago(240 * time.Hour)},
 		"packages": map[string]string{"@example/agent-cli": "2.0.4", "@example/mcp-files": "0.6.0"}, "installed_at": ago(240 * time.Hour)}
@@ -283,8 +311,10 @@ func (f *fake) packages() []map[string]any {
 	return []map[string]any{
 		{"package": "@example/agent-cli", "name": "Example Agent", "kind": "agent", "version": "2.1.0", "enabled": !off["@example/agent-cli"],
 			"bins": []string{"example"}, "keys": []map[string]any{{"name": "EXAMPLE_API_KEY", "set": f.keys["EXAMPLE_API_KEY"]}}},
+		{"package": "@example/other-cli", "name": "Other Agent", "kind": "agent", "version": "1.4.0", "enabled": !off["@example/other-cli"],
+			"bins": []string{"other"}, "keys": []map[string]any{}},
 		{"package": "@example/mcp-files", "name": "Files MCP", "kind": "mcp", "version": "0.6.2", "enabled": !off["@example/mcp-files"],
-			"bins": []string{}, "keys": []map[string]any{}},
+			"bins": []string{}, "keys": []map[string]any{}, "mcp_id": "files"},
 	}
 }
 
@@ -373,6 +403,10 @@ func fieldError(code, field, msg string) map[string]any {
 
 func merge(dst, patch map[string]any) {
 	for k, v := range patch {
+		if v == nil {
+			delete(dst, k)
+			continue
+		}
 		if sub, ok := v.(map[string]any); ok {
 			if d, ok := dst[k].(map[string]any); ok {
 				merge(d, sub)

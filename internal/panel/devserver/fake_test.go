@@ -131,3 +131,29 @@ func TestFakeToolsReplaceAndRemove(t *testing.T) {
 		t.Errorf("after remove, user tools = %s", got)
 	}
 }
+
+func TestFakeMCPServers(t *testing.T) {
+	c, _ := newClient(t, "normal")
+	if code, out := c.call("POST", "/api/login", `{"user":"dev","password":"dev password"}`); code != 200 {
+		t.Fatalf("login = %d %v", code, out)
+	}
+	code, out := c.call("POST", "/api/verbs/config.apply",
+		`{"base_revision":1,"patch":{"mcp":{"servers":{"linear":{"url":"https://mcp.example.com/mcp","auth":"bearer","enabled":true}}}},"secrets":{"MCP_LINEAR_TOKEN":"t"}}`)
+	if code != 200 {
+		t.Fatalf("add = %d %v", code, out)
+	}
+	_, out = c.call("POST", "/api/verbs/config.get", `{}`)
+	if !strings.Contains(fmt.Sprint(out["secrets"]), "MCP_LINEAR_TOKEN:map[set:true]") ||
+		!strings.Contains(fmt.Sprint(out["config"]), "linear") {
+		t.Errorf("config.get = %v", out)
+	}
+	code, _ = c.call("POST", "/api/verbs/config.apply", `{"base_revision":2,"patch":{"mcp":{"servers":{"linear":null}}}}`)
+	_, out = c.call("POST", "/api/verbs/config.get", `{}`)
+	if code != 200 || strings.Contains(fmt.Sprint(out["config"]), "linear") || strings.Contains(fmt.Sprint(out["secrets"]), "MCP_LINEAR_TOKEN") {
+		t.Errorf("after remove = %d %v", code, out)
+	}
+	_, st := c.call("GET", "/api/status", "")
+	if s := fmt.Sprint(st["packages"]); !strings.Contains(s, "mcp_id:files") || !strings.Contains(s, "Other Agent") {
+		t.Errorf("packages = %s", s)
+	}
+}
