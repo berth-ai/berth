@@ -144,3 +144,22 @@ func TestInstallRecoversFromPartialInstall(t *testing.T) {
 		t.Fatal("partial tree was reused")
 	}
 }
+
+func TestCheckServerBins(t *testing.T) {
+	dir := t.TempDir()
+	pkg := filepath.Join(dir, "node_modules", "b-mcp")
+	if err := os.MkdirAll(pkg, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(pkg, "package.json"), []byte(`{"name":"b-mcp","bin":{"b-mcp":"cli.js"}}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	ok := locksource.Descriptors{Servers: map[string]locksource.ServerDescriptor{"b-mcp": {ID: "b", Bin: "b-mcp"}}}
+	if err := checkServerBins(dir, ok); err != nil {
+		t.Fatal(err)
+	}
+	bad := locksource.Descriptors{Servers: map[string]locksource.ServerDescriptor{"b-mcp": {ID: "b", Bin: "other"}}}
+	if err := checkServerBins(dir, bad); err == nil || !strings.Contains(err.Error(), `"other"`) {
+		t.Errorf("err = %v, want a missing-bin error naming \"other\"", err)
+	}
+}

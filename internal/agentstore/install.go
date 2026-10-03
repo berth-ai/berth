@@ -3,6 +3,7 @@ package agentstore
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io/fs"
 	"maps"
 	"os"
@@ -92,6 +93,9 @@ func (in Installer) build(ctx context.Context, final, tmp string, lock *locksour
 	if err != nil {
 		return &StepError{Step: "seal", Err: err}
 	}
+	if err := checkServerBins(tmp, lock.Descriptors); err != nil {
+		return &StepError{Step: "install", Err: err}
+	}
 	if err := Seal(tmp, in.Agent != nil); err != nil {
 		return &StepError{Step: "seal", Err: err}
 	}
@@ -160,4 +164,19 @@ func (in Installer) logf(format string, args ...any) {
 	if in.Logf != nil {
 		in.Logf(format, args...)
 	}
+}
+
+// checkServerBins verifies that every MCP server descriptor names a bin its
+// package ships, so the converger never registers a wrapper that cannot exist.
+func checkServerBins(dir string, d locksource.Descriptors) error {
+	for _, dep := range slices.Sorted(maps.Keys(d.Servers)) {
+		bins, err := PackageBins(dir, dep)
+		if err != nil {
+			return err
+		}
+		if _, ok := bins[d.Servers[dep].Bin]; !ok {
+			return fmt.Errorf("%s does not ship the bin %q its MCP descriptor names", dep, d.Servers[dep].Bin)
+		}
+	}
+	return nil
 }
