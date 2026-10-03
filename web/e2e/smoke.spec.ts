@@ -244,3 +244,46 @@ test("recovery mode offers a reset", async ({ page }) => {
   await expect(h1(page, "Overview")).toBeVisible();
   expect(problems).toEqual([]);
 });
+
+test("an MCP server is added, narrowed, edited and removed", async ({ page }) => {
+  const problems = await watch(page);
+  await signIn(page);
+  await page.goto(`${NORMAL}/#/mcp`);
+  await page.getByRole("button", { name: "Add server" }).click();
+  const dialog = page.getByRole("dialog");
+  await dialog.getByLabel("Id").fill("linear");
+  await dialog.getByLabel("URL").fill("http://mcp.example.com/mcp");
+  await dialog.getByRole("button", { name: "Add server" }).click();
+  await expect(dialog.getByText("Use https unless the host is localhost.")).toBeVisible();
+  await dialog.getByLabel("URL").fill("https://mcp.example.com/mcp");
+  await dialog.getByLabel("Auth").click();
+  await page.getByRole("option", { name: "Bearer token" }).click();
+  await dialog.getByLabel("Token").fill("tok-123");
+  await dialog.getByRole("button", { name: "Add server" }).click();
+  await expect(
+    page.getByText(/linear added\. MCP registrations update in the background\./),
+  ).toBeVisible();
+
+  const row = page.getByRole("row").filter({ hasText: "mcp.example.com" });
+  await expect(row.getByText("HTTP", { exact: true })).toBeVisible();
+  await expect(row.getByText("Set", { exact: true })).toBeVisible();
+  await row.getByRole("button", { name: "Choose agents for linear" }).click();
+  await page.getByRole("checkbox", { name: "Other Agent" }).click();
+  await expect(row.getByRole("button", { name: "Choose agents for linear" })).toHaveText(
+    "Example Agent",
+  );
+  await page.keyboard.press("Escape");
+
+  await row.getByRole("button", { name: "Edit linear" }).click();
+  await expect(dialog.getByLabel("Id")).toBeDisabled();
+  await dialog.getByLabel("URL").fill("https://mcp2.example.com/mcp");
+  await dialog.getByRole("button", { name: "Save" }).click();
+  await expect(page.getByText(/linear saved\./)).toBeVisible();
+
+  const edited = page.getByRole("row").filter({ hasText: "mcp2.example.com" });
+  await edited.getByRole("button", { name: "Remove linear" }).click();
+  await page.getByRole("alertdialog").getByRole("button", { name: "Remove" }).click();
+  await expect(page.getByText(/linear removed\./)).toBeVisible();
+  await expect(page.getByRole("row").filter({ hasText: "mcp2.example.com" })).toHaveCount(0);
+  expect(problems).toEqual([]);
+});

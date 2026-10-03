@@ -1,4 +1,5 @@
 import {
+  CircleAlert,
   CircleArrowUp,
   CircleCheck,
   CircleMinus,
@@ -33,6 +34,7 @@ const STATES: Record<string, [BadgeTone, LucideIcon, string]> = {
   restarting: ["warn", RefreshCw, "Restarting"],
   outdated: ["warn", CircleArrowUp, "Update available"],
   update: ["warn", CircleArrowUp, "Update available"],
+  clash: ["warn", CircleAlert, "Clashes with a built-in server"],
   in_progress: ["info", RefreshCw, "Running"],
   checking: ["info", RefreshCw, "Checking"],
   waiting: ["info", Clock, "Waiting"],
