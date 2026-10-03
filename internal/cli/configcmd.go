@@ -222,7 +222,7 @@ func importPatch(path string) (json.RawMessage, error) {
 		}
 	}
 	var schema int
-	if err := json.Unmarshal(doc["schema"], &schema); err != nil || schema != config.Schema {
+	if err := json.Unmarshal(doc["schema"], &schema); err != nil || schema < 1 || schema > config.Schema {
 		return nil, fmt.Errorf("%s has config schema %s; this Berth reads schema %d", path, doc["schema"], config.Schema)
 	}
 	delete(doc, "schema")

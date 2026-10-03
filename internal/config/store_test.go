@@ -90,7 +90,7 @@ func TestApplyInvalidWritesNothing(t *testing.T) {
 func TestLoadCorrupt(t *testing.T) {
 	for name, content := range map[string]string{
 		"not json":     `{"schema":`,
-		"newer schema": `{"schema":2}`,
+		"newer schema": `{"schema":3}`,
 		"unknown key":  `{"schema":1,"revision":1,"surprise":true}`,
 	} {
 		t.Run(name, func(t *testing.T) {
@@ -187,5 +187,17 @@ func TestWriteFileAtomicReplaces(t *testing.T) {
 	entries, _ := os.ReadDir(dir)
 	if len(entries) != 1 {
 		t.Errorf("temp files left: %v", entries)
+	}
+}
+
+func TestSchemaOneFileIsRead(t *testing.T) {
+	s := newStore(t)
+	writeFile(t, s, "config.json", `{"schema":1,"revision":4,"agents":{"keep":5}}`)
+	c, err := s.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.Schema != Schema || c.Revision != 4 || c.Agents.Keep != 5 || c.MCP.Servers == nil {
+		t.Errorf("config = %+v", c)
 	}
 }

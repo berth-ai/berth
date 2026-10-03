@@ -5,6 +5,9 @@ package config
 
 import (
 	"fmt"
+	"maps"
+	"net"
+	"net/url"
 	"regexp"
 	"slices"
 	"strings"
@@ -12,8 +15,9 @@ import (
 	_ "time/tzdata" // validate zones the same way on every host
 )
 
-// Schema is the config schema this binary understands.
-const Schema = 1
+// Schema is the config schema this binary understands. Schema 1 had no
+// mcp section; such files still load, with its defaults.
+const Schema = 2
 
 // Config is the content of /var/lib/berth/config.json.
 type Config struct {
@@ -22,6 +26,7 @@ type Config struct {
 	Frontends Frontends `json:"frontends"`
 	Agents    Agents    `json:"agents"`
 	Runtime   Runtime   `json:"runtime"`
+	MCP       MCP       `json:"mcp"`
 }
 
 // Frontends switches the optional browser frontends.
@@ -49,6 +54,26 @@ type Runtime struct {
 	TZ string `json:"tz"`
 }
 
+// MCP holds the MCP servers users add and the agents each server reaches.
+type MCP struct {
+	Servers   map[string]MCPServer `json:"servers"`
+	Available map[string][]string  `json:"available"` // server id → agent packages; missing means all agents
+}
+
+// MCPServer is a remote MCP server reached over streamable HTTP.
+type MCPServer struct {
+	URL     string `json:"url"`
+	Auth    string `json:"auth"`
+	Enabled bool   `json:"enabled"`
+}
+
+// Remote server auth modes. OAuth is left to each agent's own sign-in.
+const (
+	AuthNone   = "none"
+	AuthBearer = "bearer"
+	AuthOAuth  = "oauth"
+)
+
 // Defaults is the config in effect before anything was applied.
 func Defaults() Config {
 	return Config{
@@ -56,6 +81,7 @@ func Defaults() Config {
 		Frontends: Frontends{Terminal: Toggle{Enabled: true}},
 		Agents:    Agents{Ref: "main", Disabled: []string{}, Keep: 3, BootTimeout: 600, MCPTimeout: 120},
 		Runtime:   Runtime{TZ: "UTC"},
+		MCP:       MCP{Servers: map[string]MCPServer{}, Available: map[string][]string{}},
 	}
 }
 
@@ -85,6 +111,10 @@ var (
 	refPattern     = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._/-]{0,199}$`)
 	packagePattern = regexp.MustCompile(`^(@[a-z0-9][a-z0-9._-]*/)?[a-z0-9][a-z0-9._-]*$`)
 	zonePattern    = regexp.MustCompile(`^[A-Za-z][A-Za-z0-9_+-]*(/[A-Za-z0-9_+-]+)*$`)
+	// UserServerIDPattern caps ids at 48 characters so MCP_<ID>_TOKEN fits
+	// agents.env's 64-character key names; serverIDPattern is the lock's rule.
+	UserServerIDPattern = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,47}$`)
+	serverIDPattern     = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,62}$`)
 )
 
 // ValidRef reports whether ref may be passed to berth update --ref.
@@ -121,7 +151,66 @@ func (c Config) Validate() error {
 	if !validZone(c.Runtime.TZ) {
 		v.add("runtime.tz", "%q is not a time zone such as UTC or Europe/Rome", c.Runtime.TZ)
 	}
+	c.MCP.validate(v)
 	return v.err()
+}
+
+func (m MCP) validate(v *validator) {
+	for _, id := range slices.Sorted(maps.Keys(m.Servers)) {
+		s, field := m.Servers[id], "mcp.servers."+id
+		if !UserServerIDPattern.MatchString(id) {
+			v.add(field, "%q is not a server id: use 1 to 48 lowercase letters, digits and dashes", id)
+			continue
+		}
+		if msg := checkMCPURL(s.URL); msg != "" {
+			v.add(field+".url", "%s", msg)
+		}
+		if !slices.Contains([]string{AuthNone, AuthBearer, AuthOAuth}, s.Auth) {
+			v.add(field+".auth", "must be none, bearer or oauth")
+		}
+	}
+	for _, id := range slices.Sorted(maps.Keys(m.Available)) {
+		field := "mcp.available." + id
+		if !serverIDPattern.MatchString(id) {
+			v.add(field, "%q is not a server id", id)
+			continue
+		}
+		if len(m.Available[id]) == 0 {
+			v.add(field, "must name at least one agent; remove it to make the server available to all agents")
+		}
+		for i, p := range m.Available[id] {
+			if !packagePattern.MatchString(p) {
+				v.add(fmt.Sprintf("%s[%d]", field, i), "%q is not an npm package name", p)
+			}
+		}
+	}
+}
+
+// checkMCPURL returns why raw cannot be a remote MCP server's URL, or "".
+func checkMCPURL(raw string) string {
+	if raw == "" {
+		return "is required"
+	}
+	if len(raw) > 2048 {
+		return "must be at most 2048 characters"
+	}
+	u, err := url.Parse(raw)
+	if err != nil || !u.IsAbs() || u.Host == "" || u.Opaque != "" {
+		return "must be an absolute URL such as https://example.com/mcp"
+	}
+	if u.User != nil {
+		return "must not contain a user name or password; use bearer auth for tokens"
+	}
+	switch u.Scheme {
+	case "https":
+		return ""
+	case "http":
+		if h := u.Hostname(); h == "localhost" || net.ParseIP(h).IsLoopback() {
+			return ""
+		}
+		return "must use https unless the host is localhost"
+	}
+	return "must start with https://"
 }
 
 func validZone(tz string) bool {
@@ -138,6 +227,16 @@ func (c *Config) normalize() {
 		c.Agents.Disabled = []string{}
 	}
 	slices.Sort(c.Agents.Disabled)
+	if c.MCP.Servers == nil {
+		c.MCP.Servers = map[string]MCPServer{}
+	}
+	if c.MCP.Available == nil {
+		c.MCP.Available = map[string][]string{}
+	}
+	for id, list := range c.MCP.Available {
+		slices.Sort(list)
+		c.MCP.Available[id] = slices.Compact(list)
+	}
 }
 
 type validator struct{ fields []FieldError }

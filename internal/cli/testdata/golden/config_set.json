@@ -7,7 +7,7 @@
     "stopped": []
   },
   "config": {
-    "schema": 1,
+    "schema": 2,
     "revision": 1,
     "frontends": {
       "terminal": {
@@ -28,6 +28,10 @@
     },
     "runtime": {
       "tz": "Europe/Rome"
+    },
+    "mcp": {
+      "servers": {},
+      "available": {}
     }
   },
   "schema": 1

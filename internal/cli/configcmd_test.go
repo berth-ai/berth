@@ -162,7 +162,14 @@ func TestImportPatch(t *testing.T) {
 	if err != nil || string(got) != `{"runtime":{"tz":"UTC"}}` {
 		t.Errorf("bare = %s %v", got, err)
 	}
-	for _, body := range []string{`{"schema":2}`, `[]`, `{"agents":{}}`, `nope`} {
+	got, err = importPatch(write("d.json", `{"schema":2,"mcp":{"servers":{}}}`))
+	if err != nil || string(got) != `{"mcp":{"servers":{}}}` {
+		t.Errorf("schema 2 = %s %v", got, err)
+	}
+	if _, err := importPatch(write("e.json", `{"schema":3}`)); err == nil || !strings.Contains(err.Error(), "config schema 3") {
+		t.Errorf("schema 3: %v", err)
+	}
+	for _, body := range []string{`{"schema":3}`, `[]`, `{"agents":{}}`, `nope`} {
 		if _, err := importPatch(write("c.json", body)); err == nil {
 			t.Errorf("%s accepted", body)
 		}

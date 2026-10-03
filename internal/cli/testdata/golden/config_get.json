@@ -1,6 +1,6 @@
 {
   "config": {
-    "schema": 1,
+    "schema": 2,
     "revision": 0,
     "frontends": {
       "terminal": {
@@ -19,6 +19,10 @@
     },
     "runtime": {
       "tz": "UTC"
+    },
+    "mcp": {
+      "servers": {},
+      "available": {}
     }
   },
   "mode": "normal",
