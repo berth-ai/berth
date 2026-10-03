@@ -178,6 +178,9 @@ test("a conflicting save keeps this tab's edit and the other change", async ({ p
 
 test("the setup wizard creates the login", async ({ page }) => {
   const problems = await watch(page);
+  // The link pasted into a tab already on /setup changes only the fragment.
+  await page.goto(`${SETUP}/setup`);
+  await expect(page.getByText(/link/i).first()).toBeVisible();
   await page.goto(`${SETUP}/setup#token=dev-token`);
   await expect(page).toHaveURL(`${SETUP}/setup`);
   await page.getByLabel("User").fill("dev");
