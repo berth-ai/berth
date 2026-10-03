@@ -1,8 +1,11 @@
 package main
 
 import (
+	"cmp"
 	"encoding/json"
 	"net/http"
+	"path"
+	"reflect"
 	"slices"
 	"strconv"
 	"strings"
@@ -185,7 +188,13 @@ func (f *fake) verb(name string, in map[string]any) (int, any) {
 		}
 		f.git = map[string]string{"name": name, "email": email}
 		return http.StatusOK, f.git
-	case "update", "rollback", "gc", "tools.add", "tools.remove", "preset.install", "forge.login":
+	case "skills.update":
+		id := str(in["id"])
+		if _, ok := f.cfg["skills"].(map[string]any)[id]; !ok {
+			return http.StatusNotFound, apiError("unknown_skill", "no skill named "+id)
+		}
+		return f.start(name, in)
+	case "update", "rollback", "gc", "tools.add", "tools.remove", "preset.install", "forge.login", "skills.add":
 		return f.start(name, in)
 	}
 	return http.StatusNotFound, apiError("unknown_verb", "unknown verb")
@@ -231,7 +240,12 @@ func (f *fake) apply(in map[string]any) (int, any) {
 			delete(f.keys, k)
 		}
 	}
-	return f.replace(next)
+	syncSkills := !reflect.DeepEqual(f.cfg["skills"], next["skills"])
+	code, out := f.replace(next)
+	if syncSkills {
+		f.start("skills.sync", nil)
+	}
+	return code, out
 }
 
 func isMCPToken(k string) bool { return strings.HasPrefix(k, "MCP_") && strings.HasSuffix(k, "_TOKEN") }
@@ -311,9 +325,11 @@ func (f *fake) packages() []map[string]any {
 	}
 	return []map[string]any{
 		{"package": "@example/agent-cli", "name": "Example Agent", "kind": "agent", "version": "2.1.0", "enabled": !off["@example/agent-cli"],
-			"bins": []string{"example"}, "keys": []map[string]any{{"name": "EXAMPLE_API_KEY", "set": f.keys["EXAMPLE_API_KEY"]}}},
+			"bins": []string{"example"}, "keys": []map[string]any{{"name": "EXAMPLE_API_KEY", "set": f.keys["EXAMPLE_API_KEY"]}},
+			"skills_dir": "~/.example/skills"},
 		{"package": "@example/other-cli", "name": "Other Agent", "kind": "agent", "version": "1.4.0", "enabled": !off["@example/other-cli"],
-			"bins": []string{"other"}, "keys": []map[string]any{}},
+			"bins": []string{"other"}, "keys": []map[string]any{},
+			"skills_dir": "~/.other/skills", "skills_via": []string{"@example/agent-cli"}},
 		{"package": "@example/mcp-files", "name": "Files MCP", "kind": "mcp", "version": "0.6.2", "enabled": !off["@example/mcp-files"],
 			"bins": []string{}, "keys": []map[string]any{}, "mcp_id": "files"},
 	}
@@ -325,7 +341,8 @@ func (f *fake) check() map[string]any {
 }
 
 var groups = map[string]string{"update": "agents", "rollback": "agents", "gc": "agents",
-	"tools.add": "tools", "tools.remove": "tools", "preset.install": "tools", "forge.login": "forge"}
+	"tools.add": "tools", "tools.remove": "tools", "preset.install": "tools", "forge.login": "forge",
+	"skills.add": "skills", "skills.update": "skills", "skills.sync": "skills-sync"}
 
 func (f *fake) start(verb string, in map[string]any) (int, any) {
 	group := groups[verb]
@@ -344,6 +361,8 @@ func (f *fake) start(verb string, in map[string]any) (int, any) {
 		args = []string{"/opt/mise/bin/mise", "install", str(in["preset"])}
 	case "forge.login":
 		args = []string{"/usr/bin/" + str(in["forge"]), "auth", "login"}
+	case "skills.add", "skills.update":
+		args = []string{"/usr/local/bin/berth", "skills", "resolve", "--json", "--repo", str(in["repo"]), "--ref", str(in["ref"])}
 	}
 	j := &job{ID: len(f.jobs) + 1, Verb: verb, Group: group, Args: args, State: "running", StartedAt: time.Now().UTC(), Result: json.RawMessage("null")}
 	f.jobs = append(f.jobs, j)
@@ -358,6 +377,8 @@ func (f *fake) run(j *job, in map[string]any) {
 		lines = []string{"starting rollback", "error: no previous agent set to switch to"}
 	case "forge.login":
 		lines = []string{"! First copy your one-time code", "waiting for approval", "waiting for approval", "waiting for approval", "approved", "logged in"}
+	case "skills.add", "skills.update":
+		lines = []string{"fetch     " + str(in["repo"]) + "@" + str(in["ref"]), "read      SKILL.md", "verify    frontmatter ok"}
 	}
 	for i, line := range lines {
 		time.Sleep(f.step)
@@ -389,6 +410,39 @@ func (f *fake) run(j *job, in map[string]any) {
 		if j.Verb == "tools.add" {
 			f.tools = append(f.tools, map[string]string{"name": name, "version": str(in["version"])})
 		}
+	case "skills.add":
+		if strings.Contains(str(in["repo"])+str(in["ref"]), "missing") {
+			code, j.State = 1, "failed"
+			j.Result = json.RawMessage(`{"error":{"code":"ref_not_found","field":"ref","message":"Ref ` + str(in["ref"]) + ` not found in that repository"}}`)
+			break
+		}
+		id := path.Base(cmp.Or(str(in["path"]), strings.TrimSuffix(str(in["repo"]), ".git")))
+		if _, ok := f.cfg["skills"].(map[string]any)[id]; ok {
+			code, j.State = 1, "failed"
+			j.Result = json.RawMessage(`{"error":{"code":"skill_exists","field":"path","message":"A skill named ` + id + ` is already installed"}}`)
+			break
+		}
+		next := clone(f.cfg)
+		next["skills"].(map[string]any)[id] = map[string]any{"repo": str(in["repo"]), "path": str(in["path"]), "ref": str(in["ref"]),
+			"commit": "0123456789abcdef0123456789abcdef01234567", "description": "A skill from " + str(in["repo"]),
+			"agents": in["agents"], "enabled": true}
+		f.replace(next)
+		f.start("skills.sync", nil) // start takes no lock; the broker syncs after every skills change
+		j.Result = json.RawMessage(`{"skill":"` + id + `","changed":true}`)
+	case "skills.update":
+		id := str(in["id"])
+		s, _ := f.cfg["skills"].(map[string]any)[id].(map[string]any)
+		ref := cmp.Or(str(in["ref"]), str(s["ref"]))
+		if s == nil || !strings.Contains(ref, "v2") {
+			j.Result = json.RawMessage(`{"skill":"` + id + `","changed":false}`)
+			break
+		}
+		next := clone(f.cfg)
+		ns := next["skills"].(map[string]any)[id].(map[string]any)
+		ns["ref"], ns["commit"] = ref, "89abcdef0123456789abcdef0123456789abcdef"
+		f.replace(next)
+		f.start("skills.sync", nil) // start takes no lock; the broker syncs after every skills change
+		j.Result = json.RawMessage(`{"skill":"` + id + `","changed":true}`)
 	}
 	j.FinishedAt, j.ExitCode = &now, &code
 }

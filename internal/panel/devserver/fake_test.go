@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/cookiejar"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -156,4 +157,41 @@ func TestFakeMCPServers(t *testing.T) {
 	if s := fmt.Sprint(st["packages"]); !strings.Contains(s, "mcp_id:files") || !strings.Contains(s, "Other Agent") {
 		t.Errorf("packages = %s", s)
 	}
+}
+
+func TestFakeSkills(t *testing.T) {
+	f := newFake("normal")
+	f.step = 0
+	code, out := f.verb("skills.add", map[string]any{"repo": "https://github.com/anthropics/skills", "path": "skills/pdf", "ref": "main"})
+	if code != http.StatusAccepted {
+		t.Fatalf("add = %d %v", code, out)
+	}
+	waitFakeJobs(t, f)
+	skills := f.cfg["skills"].(map[string]any)
+	if pdf, ok := skills["pdf"].(map[string]any); !ok || pdf["enabled"] != true {
+		t.Fatalf("skills = %v", skills)
+	}
+	f.verb("skills.add", map[string]any{"repo": "https://github.com/acme/missing", "ref": "main"})
+	waitFakeJobs(t, f)
+	last := f.jobs[len(f.jobs)-1]
+	if last.State != "failed" || !strings.Contains(string(last.Result), `"field":"ref"`) {
+		t.Errorf("missing = %+v %s", last, last.Result)
+	}
+	if code, _ := f.verb("skills.update", map[string]any{"id": "nothere"}); code != http.StatusNotFound {
+		t.Errorf("unknown update = %d", code)
+	}
+}
+
+func waitFakeJobs(t *testing.T, f *fake) {
+	t.Helper()
+	for range 200 {
+		f.mu.Lock()
+		running := slices.ContainsFunc(f.jobs, func(j *job) bool { return j.State == "running" })
+		f.mu.Unlock()
+		if !running {
+			return
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	t.Fatal("fake jobs did not finish")
 }
