@@ -9,6 +9,7 @@ import {
   Menu,
   Plug,
   SlidersHorizontal,
+  Sparkles,
   SquareTerminal,
   Wrench,
 } from "lucide-react";
@@ -28,6 +29,7 @@ const NAV = [
   { to: "/ide", label: "IDE", icon: Code },
   { to: "/agents", label: "Agents", icon: Bot },
   { to: "/mcp", label: "MCP servers", icon: Plug },
+  { to: "/skills", label: "Skills", icon: Sparkles },
   { to: "/tools", label: "Tools", icon: Wrench },
   { to: "/accounts", label: "Accounts", icon: CircleUser },
   { to: "/settings", label: "Settings", icon: SlidersHorizontal },

@@ -53,6 +53,7 @@ test("every page renders inside the CSP", async ({ page }) => {
     ["#/", "Overview"],
     ["#/agents", "Agents"],
     ["#/mcp", "MCP servers"],
+    ["#/skills", "Skills"],
     ["#/tools", "Tools"],
     ["#/tools?tab=yours", "Tools"],
     ["#/tools?tab=presets", "Tools"],
@@ -162,6 +163,7 @@ test("nothing scrolls sideways at 400 px", async ({ page }) => {
     ["#/", "Overview"],
     ["#/agents", "Agents"],
     ["#/mcp", "MCP servers"],
+    ["#/skills", "Skills"],
     ["#/tools", "Tools"],
     ["#/tools?tab=yours", "Your tools"],
     ["#/accounts", "Accounts"],
@@ -285,5 +287,50 @@ test("an MCP server is added, narrowed, edited and removed", async ({ page }) =>
   await page.getByRole("alertdialog").getByRole("button", { name: "Remove" }).click();
   await expect(page.getByText(/linear removed\./)).toBeVisible();
   await expect(page.getByRole("row").filter({ hasText: "mcp2.example.com" })).toHaveCount(0);
+  expect(problems).toEqual([]);
+});
+
+test("a skill is added, narrowed, updated and removed", async ({ page }) => {
+  const problems = await watch(page);
+  await signIn(page);
+  await page.goto(`${NORMAL}/#/skills`);
+  await expect(page.getByText("No skills yet.")).toBeVisible();
+
+  await page.getByRole("button", { name: "Add skill" }).click();
+  const dialog = page.getByRole("dialog");
+  await dialog.getByRole("button", { name: "Add pdf" }).click();
+  await expect(page.getByText(/pdf added\./)).toBeVisible();
+  const pdf = page.getByRole("row").filter({ hasText: "anthropics/skills · skills/pdf" });
+  await expect(pdf.getByText("main · 0123456789ab")).toBeVisible();
+
+  await page.getByRole("button", { name: "Add skill" }).click();
+  await dialog.getByRole("button", { name: "From a repository" }).click();
+  await dialog.getByLabel("Repository").fill("acme/eng-skills");
+  await dialog.getByLabel("Path").fill("release-notes");
+  await dialog.getByLabel("Ref").fill("missing");
+  await dialog.getByRole("button", { name: "Add skill" }).click();
+  await expect(dialog.getByText("Ref missing not found in that repository")).toBeVisible();
+  await dialog.getByLabel("Ref").fill("v1.2.0");
+  await dialog.getByRole("button", { name: "Add skill" }).click();
+  await expect(page.getByText(/Skill added\./)).toBeVisible();
+
+  await pdf.getByRole("button", { name: "Choose agents for pdf" }).click();
+  await page.getByRole("checkbox", { name: "Other Agent" }).click();
+  // Other Agent reads Example Agent's directory, so it is still reached.
+  await expect(pdf.getByRole("button", { name: "Choose agents for pdf" })).toHaveText(
+    "Example Agent, Other Agent",
+  );
+  await page.keyboard.press("Escape");
+
+  await pdf.getByRole("switch", { name: "Turn off pdf" }).click();
+  await expect(pdf.getByRole("switch", { name: "Turn on pdf" })).not.toBeChecked();
+
+  await pdf.getByRole("button", { name: "Update pdf" }).click();
+  await expect(page.getByText("Already up to date.")).toBeVisible();
+
+  await pdf.getByRole("button", { name: "Remove pdf" }).click();
+  await page.getByRole("alertdialog").getByRole("button", { name: "Remove" }).click();
+  await expect(page.getByText(/pdf removed\./)).toBeVisible();
+  await expect(page.getByRole("row").filter({ hasText: "skills/pdf" })).toHaveCount(0);
   expect(problems).toEqual([]);
 });
