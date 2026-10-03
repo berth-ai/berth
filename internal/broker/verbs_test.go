@@ -361,22 +361,6 @@ func TestServiceRestart(t *testing.T) {
 	}
 }
 
-func TestUpdateCheck(t *testing.T) {
-	tb := newTestBroker(t)
-	tb.exec.stdout = `{"check":{"ref":"main","update_available":true},"schema":1}`
-	code, out := tb.verb(t, "update.check", `{}`)
-	if code != 200 || out["check"].(map[string]any)["update_available"] != true {
-		t.Fatalf("check = %d %v", code, out)
-	}
-	if got := tb.exec.last(); !slices.Equal(got, []string{"status", "--json", "--check"}) {
-		t.Errorf("args = %q", got)
-	}
-	tb.exec.stdout, tb.exec.exit = `{"error":{"code":"fetch_failed","message":"x"},"schema":1}`, 1
-	if code, out := tb.verb(t, "update.check", `{}`); code != 502 || errCode(out) != "fetch_failed" {
-		t.Errorf("failed check = %d %v", code, out)
-	}
-}
-
 func TestDesired(t *testing.T) {
 	c := config.Defaults()
 	c.Frontends.IDE.Enabled = true

@@ -15,6 +15,7 @@ import (
 	"github.com/salgnt/berth/internal/agentlayer"
 	"github.com/salgnt/berth/internal/broker"
 	"github.com/salgnt/berth/internal/config"
+	"github.com/salgnt/berth/internal/locksource"
 	"github.com/salgnt/berth/internal/login"
 	"github.com/salgnt/berth/internal/output"
 	"github.com/salgnt/berth/internal/status"
@@ -85,6 +86,9 @@ func runSupervise(ctx context.Context, a *app, args []string) error {
 	b.Layer = &layer
 	b.Agent = a.cfg.Agent
 	b.MCPSetup = a.cfg.MCPSetup
+	b.Fetch = func(ctx context.Context, ref string) (*locksource.Lock, error) {
+		return a.cfg.GitHub.Fetch(ctx, ref, a.cfg.Now())
+	}
 	cfg := b.Load()
 
 	if err := os.MkdirAll(dirOf(a.cfg.BrokerSocket), 0o755); err != nil {

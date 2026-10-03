@@ -156,7 +156,7 @@ async function check() {
   button.disabled = true;
   out.hidden = false;
   out.className = "muted";
-  out.textContent = "Checking the agent lock on main…";
+  out.textContent = "Checking the agent lock…";
   const r = await post("update.check");
   button.disabled = false;
   if (!r.ok || !r.body || !r.body.check) {
@@ -165,7 +165,10 @@ async function check() {
     return;
   }
   const c = r.body.check;
-  if (c.update_available) {
+  if (c.update_available === null) {
+    out.className = "error";
+    out.textContent = "Check failed for " + c.ref + ": " + c.error;
+  } else if (c.update_available) {
     out.className = "";
     out.textContent = "Update available on " + c.ref + ": " + c.hash + " (" + short(c.commit) + ").";
   } else {

@@ -11,7 +11,6 @@ import (
 	"net/http"
 	"regexp"
 	"slices"
-	"time"
 
 	"github.com/salgnt/berth/internal/config"
 	"github.com/salgnt/berth/internal/supervisor"
@@ -19,8 +18,6 @@ import (
 
 // agentsGroup serializes the jobs that change the agent store.
 const agentsGroup = "agents"
-
-const checkTimeout = 2 * time.Minute
 
 var hashPattern = regexp.MustCompile(`^[0-9a-f]{12}$`)
 
@@ -140,32 +137,6 @@ func berthWork(exec Exec, args []string) Work {
 		}
 		return exit, bytes.TrimSpace(stdout.Bytes()), nil
 	}
-}
-
-// updateCheck compares current with the lock on main, as berth status --check
-// does. Plan 3 replaces it with a cached, ref-aware check.
-func (b *Broker) updateCheck(ctx context.Context, body []byte) (int, any) {
-	if err := decode(body, &struct{}{}); err != nil {
-		return badRequest(err)
-	}
-	ctx, cancel := context.WithTimeout(ctx, checkTimeout)
-	defer cancel()
-	var stdout bytes.Buffer
-	exit, err := b.Exec(ctx, []string{"status", "--json", "--check"}, &stdout, b.logWriter())
-	raw := bytes.TrimSpace(stdout.Bytes())
-	switch {
-	case err != nil:
-		return fail(http.StatusBadGateway, "exec_failed", "%v", err)
-	case len(raw) == 0 || !json.Valid(raw):
-		return fail(http.StatusBadGateway, "bad_output", "berth status printed no valid JSON")
-	case exit != 0:
-		return http.StatusBadGateway, json.RawMessage(raw)
-	}
-	var rep struct {
-		Check json.RawMessage `json:"check"`
-	}
-	_ = json.Unmarshal(raw, &rep)
-	return http.StatusOK, map[string]any{"check": rep.Check}
 }
 
 func (b *Broker) serviceRestart(_ context.Context, body []byte) (int, any) {

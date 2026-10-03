@@ -17,6 +17,7 @@ import (
 
 	"github.com/salgnt/berth/internal/agentlayer"
 	"github.com/salgnt/berth/internal/config"
+	"github.com/salgnt/berth/internal/locksource"
 	"github.com/salgnt/berth/internal/login"
 	"github.com/salgnt/berth/internal/runner"
 	"github.com/salgnt/berth/internal/status"
@@ -69,6 +70,11 @@ type Broker struct {
 	Agent *runner.Identity
 	// MCPSetup is berth-mcp-setup; empty skips MCP registration.
 	MCPSetup string
+	// Fetch reads the agent lock on a ref for update.check.
+	Fetch func(ctx context.Context, ref string) (*locksource.Lock, error)
+	// Now and CurrentHash default to the clock and the current agent set.
+	Now         func() time.Time
+	CurrentHash func() string
 
 	change  sync.Mutex // serializes config changes and service restarts
 	mu      sync.Mutex // guards the fields below
@@ -79,6 +85,9 @@ type Broker struct {
 
 	verifyMu   sync.Mutex
 	lastVerify time.Time
+
+	checkMu sync.Mutex
+	checks  map[string]cachedLock // update.check results by ref
 }
 
 // New returns a broker in normal mode with the default config and the
@@ -86,7 +95,7 @@ type Broker struct {
 func New(store *config.Store, logins login.Store, services Services, jobs *Jobs, exec Exec) *Broker {
 	return &Broker{Store: store, Logins: logins, Services: services, Jobs: jobs, Exec: exec,
 		Host: HostFromEnv(func(string) string { return "" }),
-		cfg:  config.Defaults(), mode: ModeNormal, PeerUID: peerFromContext}
+		cfg:  config.Defaults(), mode: ModeNormal, PeerUID: peerFromContext, checks: map[string]cachedLock{}}
 }
 
 // Load reads the login and the config and picks the mode: setup without a
@@ -147,6 +156,7 @@ type StatusReport struct {
 	Agents      *status.Report       `json:"agents"`
 	AgentsError string               `json:"agents_error,omitempty"`
 	Packages    []agentlayer.Package `json:"packages"`
+	Check       *Check               `json:"check"`
 	Host        Host                 `json:"host"`
 }
 
@@ -162,6 +172,7 @@ func (b *Broker) Status() StatusReport {
 			st.Agents = &rep
 		}
 	}
+	st.Check = b.cachedCheck(cfg.Agents.Ref)
 	st.Packages = []agentlayer.Package{}
 	if b.Layer != nil {
 		// An error here already shows as agents_error.
@@ -250,13 +261,6 @@ func (b *Broker) logf(format string, args ...any) {
 	if b.Log != nil {
 		fmt.Fprintf(b.Log, "berth: "+format+"\n", args...)
 	}
-}
-
-func (b *Broker) logWriter() io.Writer {
-	if b.Log == nil {
-		return io.Discard
-	}
-	return b.Log
 }
 
 func errorJSON(code, message string) json.RawMessage {
