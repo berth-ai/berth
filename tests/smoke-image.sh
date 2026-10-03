@@ -256,6 +256,48 @@ if docker exec -u berth-panel "$prefix-main" cat /var/lib/berth/secrets/agents.e
 fi
 verb main config.apply '{"base_revision":'"$(rev main)"',"patch":{"agents":{"disabled":[]}}}' >/dev/null
 xa main opencode --version >/dev/null || fail "opencode back after re-enabling"
+
+step "a remote MCP server reaches every agent, narrows and goes away"
+verb main config.apply '{"base_revision":'"$(rev main)"',"patch":{"mcp":{"servers":{"remote-demo":{"url":"https://mcp.example.com/mcp","auth":"bearer"}}}},"secrets":{"MCP_REMOTE_DEMO_TOKEN":"smoke-token"}}' >/dev/null ||
+  fail "adding a remote MCP server"
+for ((i = 0; i < 60; i++)); do
+  xa main jq -e '.mcpServers["remote-demo"]' /home/agent/.gemini/settings.json >/dev/null 2>&1 && break
+  sleep 1
+done
+xa main jq -e '.mcpServers["remote-demo"].headers.Authorization == "Bearer smoke-token"' /home/agent/.claude.json >/dev/null ||
+  fail "remote server not registered with claude"
+xa main jq -e '.mcpServers["remote-demo"].type == "http"' /home/agent/.gemini/settings.json >/dev/null ||
+  fail "remote server not registered with gemini"
+xa main jq -e '.mcp["remote-demo"].type == "remote"' /home/agent/.config/opencode/opencode.json >/dev/null ||
+  fail "remote server not registered with opencode"
+xa main grep -q 'url = "https://mcp.example.com/mcp"' /home/agent/.codex/config.toml ||
+  fail "remote server not registered with codex"
+xa main codex mcp list | grep -q remote-demo || fail "codex cannot read the remote server"
+[[ $(x main stat -c '%a %U %G' /var/lib/berth/mcp.json) == "640 root agent" ]] || fail "mcp.json ownership"
+if x main grep -q smoke-token /var/lib/berth/mcp.json; then fail "mcp.json holds the token"; fi
+
+verb main config.apply '{"base_revision":'"$(rev main)"',"patch":{"mcp":{"available":{"remote-demo":["@anthropic-ai/claude-code"]}}}}' >/dev/null ||
+  fail "narrowing a remote MCP server"
+for ((i = 0; i < 60; i++)); do
+  xa main jq -e '.mcpServers | has("remote-demo") | not' /home/agent/.gemini/settings.json >/dev/null 2>&1 && break
+  sleep 1
+done
+xa main jq -e '.mcpServers | has("remote-demo") | not' /home/agent/.gemini/settings.json >/dev/null ||
+  fail "narrowed server still registered with gemini"
+xa main jq -e '.mcpServers["remote-demo"]' /home/agent/.claude.json >/dev/null ||
+  fail "narrowed server lost from claude"
+
+verb main config.apply '{"base_revision":'"$(rev main)"',"patch":{"mcp":{"servers":{"remote-demo":null},"available":{"remote-demo":null}}}}' >/dev/null ||
+  fail "removing a remote MCP server"
+for ((i = 0; i < 60; i++)); do
+  xa main jq -e '.mcpServers | has("remote-demo") | not' /home/agent/.claude.json >/dev/null 2>&1 && break
+  sleep 1
+done
+xa main jq -e '.mcpServers | has("remote-demo") | not' /home/agent/.claude.json >/dev/null ||
+  fail "removed server still registered with claude"
+if x main grep -q MCP_REMOTE_DEMO_TOKEN /var/lib/berth/secrets/agents.env; then
+  fail "removed server's token kept"
+fi
 verb main update.check '{}' | jq -e '.check.ref == "main" and (.check.update_available != null or .check.error != null)' >/dev/null ||
   fail "update.check"
 x main berth status --json | jq -e '.versions | length >= 1' >/dev/null || fail "status lacks versions"
