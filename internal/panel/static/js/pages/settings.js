@@ -2,33 +2,11 @@
 import { verb, errorText, fieldErrors } from "../api.js";
 import { h, clear, button, busy, card, pageHeader, field, input, toggle, alert, toast, saveBar, facts,
   confirmDialog, dialog, skeleton, describeChanges } from "../ui.js";
+import { getPath, setPath, diff, rebase } from "../draft.js";
 
 // The settings this page edits, by dotted path.
 const PATHS = ["frontends.terminal.enabled", "frontends.ide.enabled", "runtime.tz",
   "agents.keep", "agents.boot_timeout", "agents.mcp_timeout"];
-
-function getPath(obj, path) {
-  return path.split(".").reduce((o, k) => (o == null ? undefined : o[k]), obj);
-}
-
-function setPath(obj, path, value) {
-  const keys = path.split(".");
-  let o = obj;
-  for (const k of keys.slice(0, -1)) o = o[k] = o[k] || {};
-  o[keys[keys.length - 1]] = value;
-}
-
-function diff(base, draft, paths) {
-  const patch = {};
-  const changed = [];
-  for (const p of paths) {
-    if (JSON.stringify(getPath(base, p)) !== JSON.stringify(getPath(draft, p))) {
-      setPath(patch, p, getPath(draft, p));
-      changed.push(p);
-    }
-  }
-  return { patch, changed };
-}
 
 /** predict says, before saving, which services a change restarts. */
 function predict(base, draft) {
@@ -68,9 +46,10 @@ export function render(ctx) {
       done();
       for (const f of Object.values(fields)) f.setError("");
       if (r.status === 409 && r.body && r.body.config) {
+        draft = rebase(base, draft, r.body.config, PATHS);
         base = r.body.config;
+        drawForm();
         clear(conflict, alert("warn", "Settings changed elsewhere. Your edits are kept on top of the new values; review and save again."));
-        refresh();
         return;
       }
       if (!r.ok) {
