@@ -1,0 +1,8 @@
+# Berth preset, installed into the user track with `mise use -g`.
+# Renovate's mise manager keeps [tools] current.
+[preset]
+name = "Python"
+description = "CPython interpreter"
+
+[tools]
+python = "3.14.8"

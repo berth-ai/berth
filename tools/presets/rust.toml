@@ -1,0 +1,8 @@
+# Berth preset, installed into the user track with `mise use -g`.
+# Renovate's mise manager keeps [tools] current.
+[preset]
+name = "Rust"
+description = "Rust toolchain with cargo"
+
+[tools]
+rust = "1.99.0"

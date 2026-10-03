@@ -303,5 +303,33 @@ class RenovateFixturesTest(unittest.TestCase):
         self.assertIs(rules[-1].get("enabled"), False, "the disabling rule must come last")
 
 
+class PresetsTest(unittest.TestCase):
+    PRESETS = sorted((REPO / "tools/presets").glob("*.toml"))
+
+    def test_initial_presets(self):
+        self.assertEqual([p.stem for p in self.PRESETS], ["go", "java", "python", "rust"])
+
+    def test_presets_are_exact_and_described(self):
+        for path in self.PRESETS:
+            data = tomllib.loads(path.read_text())
+            self.assertEqual(sorted(data), ["preset", "tools"], path.name)
+            self.assertTrue(data["preset"]["name"] and data["preset"]["description"], path.name)
+            self.assertTrue(data["tools"], path.name)
+            for tool, version in data["tools"].items():
+                self.assertIsInstance(version, str, f"{path.name}: {tool}")
+                self.assertRegex(version, r"^(?:[a-z]+-)?\d+\.\d+\.\d+(?:[+.][0-9A-Za-z.]+)?$", f"{path.name}: {tool}")
+
+    def test_renovate_mise_manager_covers_presets(self):
+        cfg = json.loads(read("renovate.json"))
+        patterns = cfg["mise"]["managerFilePatterns"]
+        self.assertTrue(any(re.search(p.strip("/"), "tools/presets/go.toml") for p in patterns), patterns)
+        self.assertTrue(any(re.search(p.strip("/"), "tools/mise.toml") for p in patterns), patterns)
+
+    def test_image_ships_pins(self):
+        text = read("Dockerfile")
+        self.assertIn("COPY tools/mise.toml /usr/share/berth/mise.toml", text)
+        self.assertIn("COPY tools/presets/ /usr/share/berth/presets/", text)
+
+
 if __name__ == "__main__":
     unittest.main()

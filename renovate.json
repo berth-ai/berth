@@ -8,6 +8,9 @@
     "schedule": ["before 6am on monday"],
     "automerge": true
   },
+  "mise": {
+    "managerFilePatterns": ["/(^|/)\\.?mise\\.toml$/", "/^tools/presets/[^/]+\\.toml$/"]
+  },
   "customManagers": [
     {
       "customType": "regex",

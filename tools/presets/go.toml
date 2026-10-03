@@ -1,0 +1,8 @@
+# Berth preset, installed into the user track with `mise use -g`.
+# Renovate's mise manager keeps [tools] current.
+[preset]
+name = "Go"
+description = "Go toolchain"
+
+[tools]
+go = "1.27.1"

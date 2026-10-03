@@ -1,0 +1,8 @@
+# Berth preset, installed into the user track with `mise use -g`.
+# Renovate's mise manager keeps [tools] current.
+[preset]
+name = "Java"
+description = "Eclipse Temurin JDK (LTS)"
+
+[tools]
+java = "temurin-25.0.4+7.0.LTS"

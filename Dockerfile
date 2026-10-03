@@ -125,6 +125,8 @@ COPY --from=tools /opt/mise /opt/mise
 COPY --from=go-build /out/berth /usr/local/bin/berth
 COPY rootfs/ /
 COPY agents/package.json agents/package-lock.json /usr/share/berth/agents/
+COPY tools/mise.toml /usr/share/berth/mise.toml
+COPY tools/presets/ /usr/share/berth/presets/
 
 # The agent user replaces Ubuntu's default uid-1000 user. berth-panel runs the
 # web panel and alone shares the broker socket's group. /workspaces is created
