@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"io"
 	"maps"
 	"net/http"
@@ -167,8 +166,9 @@ func (b *Broker) writeSecrets(secrets map[string]*string) error {
 }
 
 // refreshAgents rebuilds the layer when the enabled set changed, publishes
-// the MCP settings when they changed, and re-registers MCP servers when
-// either changed or an MCP token did.
+// the MCP and skills settings when they changed, re-registers MCP servers
+// when either the set or the MCP settings changed or an MCP token did, and
+// re-links skills when the set or the skills changed.
 func (b *Broker) refreshAgents(old, next config.Config, tokens bool) {
 	disabled := b.Layer != nil && !slices.Equal(old.Agents.Disabled, next.Agents.Disabled)
 	settings := !sameMCP(old.MCP, next.MCP) || b.publishedStale(next.MCP)
@@ -177,6 +177,15 @@ func (b *Broker) refreshAgents(old, next config.Config, tokens bool) {
 			b.logf("WARNING: agent layer: %v", err)
 			return
 		}
+	}
+	if !sameSkills(old.Skills, next.Skills) || b.skillsStale(next.Skills) {
+		if err := b.writeSkillsSettings(next.Skills); err != nil {
+			b.logf("WARNING: skills settings: %v", err)
+		} else {
+			b.startSkillsSync()
+		}
+	} else if disabled {
+		b.startSkillsSync()
 	}
 	if settings {
 		if err := b.writeMCPSettings(next.MCP); err != nil {
@@ -190,34 +199,12 @@ func (b *Broker) refreshAgents(old, next config.Config, tokens bool) {
 	b.startMCPSetup(time.Duration(next.Agents.MCPTimeout) * time.Second)
 }
 
-// startMCPSetup runs the MCP converger as a job. A change made while a run
-// is going queues one more run, so the last change is always registered.
+// startMCPSetup runs the MCP converger as a job.
 func (b *Broker) startMCPSetup(timeout time.Duration) {
-	b.mcpMu.Lock()
-	defer b.mcpMu.Unlock()
-	if b.mcpBusy {
-		b.mcpAgain = true
-		return
-	}
 	work := b.agentWork(b.MCPSetup[0], b.MCPSetup[1:], timeout)
-	_, err := b.Jobs.Start("mcp.setup", mcpGroup, nil, func(ctx context.Context, out io.Writer) (int, json.RawMessage, error) {
-		for {
-			code, res, err := work(ctx, out)
-			b.mcpMu.Lock()
-			again := b.mcpAgain && ctx.Err() == nil
-			b.mcpAgain, b.mcpBusy = false, again
-			b.mcpMu.Unlock()
-			if !again {
-				return code, res, err
-			}
-			fmt.Fprintln(out, "MCP settings changed during the run; running again.")
-		}
-	})
-	if err != nil {
+	if err := b.mcpRuns.start(b.Jobs, "mcp.setup", mcpGroup, work, "MCP settings changed during the run; running again."); err != nil {
 		b.logf("WARNING: MCP setup not started: %v", err)
-		return
 	}
-	b.mcpBusy = true
 }
 
 // secretStates reports which known keys and MCP tokens have a value.
