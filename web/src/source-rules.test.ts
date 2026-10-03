@@ -54,4 +54,13 @@ describe("source rules", () => {
       }
     }
   });
+
+  it("takes the setup token from the fragment before rendering, never from a query", () => {
+    const main = readFileSync(join(root, "src/auth/setup-main.tsx"), "utf8");
+    const take = main.indexOf("takeSetupToken()");
+    expect(take).toBeGreaterThan(-1);
+    expect(take).toBeLessThan(main.indexOf("createRoot("));
+    for (const path of sources)
+      expect(readFileSync(path, "utf8").includes("?token"), relative(root, path)).toBe(false);
+  });
 });
