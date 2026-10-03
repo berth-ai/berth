@@ -52,7 +52,10 @@ test("every page renders inside the CSP", async ({ page }) => {
   for (const [hash, heading] of [
     ["#/", "Overview"],
     ["#/agents", "Agents"],
+    ["#/mcp", "MCP servers"],
     ["#/tools", "Tools"],
+    ["#/tools?tab=yours", "Tools"],
+    ["#/tools?tab=presets", "Tools"],
     ["#/accounts", "Accounts"],
     ["#/settings", "Settings"],
     ["#/activity", "Activity"],
@@ -106,15 +109,49 @@ test("M3 locations still open their pages", async ({ page }) => {
 test("dialogs, selects, autocompletes and toasts stay inside the CSP", async ({ page }) => {
   const problems = await watch(page);
   await signIn(page);
-  await page.goto(`${NORMAL}/#/tools`);
+  await page.goto(`${NORMAL}/#/tools?tab=yours`);
   await page.getByRole("button", { name: "Add tool" }).first().click();
   const dialog = page.getByRole("dialog");
   await dialog.getByLabel("Tool").fill("terr");
   await page.getByRole("option", { name: "terraform" }).click();
   await dialog.getByLabel("Version").click();
-  await page.getByRole("option", { name: "2.0.0" }).click();
+  await page.getByRole("option", { name: "1.0.0" }).click();
   await dialog.getByRole("button", { name: "Add tool" }).click();
+  await expect(page.getByText("terraform 1.0.0 installed.")).toBeVisible({ timeout: 15_000 });
+  expect(problems).toEqual([]);
+});
+
+test("a user tool upgrades in place and an MCP server switches off", async ({ page }) => {
+  const problems = await watch(page);
+  await signIn(page);
+  // An unknown tab falls back to Built-in.
+  await page.goto(`${NORMAL}/#/tools?tab=junk`);
+  await expect(page.getByRole("table", { name: "Built-in tools" })).toBeVisible();
+
+  await page.goto(`${NORMAL}/#/tools?tab=yours`);
+  const row = page.getByRole("row").filter({ hasText: "terraform" });
+  await expect(row.getByText("Update available")).toBeVisible();
+  await row.getByRole("button", { name: "Upgrade" }).click();
   await expect(page.getByText("terraform 2.0.0 installed.")).toBeVisible({ timeout: 15_000 });
+  await expect(row.getByText("Installed", { exact: true })).toBeVisible();
+  await expect(row.getByRole("button", { name: "Upgrade" })).toHaveCount(0);
+
+  await page.goto(`${NORMAL}/#/mcp`);
+  const mcp = page.getByRole("row").filter({ hasText: "Files MCP" });
+  await expect(mcp.getByText("None needed")).toBeVisible();
+  await expect(mcp.getByRole("button", { name: /Manage/ })).toHaveCount(0);
+  await mcp.getByRole("switch", { name: "Turn off Files MCP" }).click();
+  await expect(page.getByText(/Files MCP is off\./)).toBeVisible();
+  await expect(mcp.getByRole("switch", { name: "Turn on Files MCP" })).not.toBeChecked();
+  await mcp.getByRole("switch", { name: "Turn on Files MCP" }).click();
+  await expect(page.getByText(/Files MCP is on\./)).toBeVisible();
+
+  await page.goto(`${NORMAL}/#/agents`);
+  const agent = page.getByRole("row").filter({ hasText: "Example Agent" });
+  await agent.getByRole("button", { name: "Manage Example Agent" }).click();
+  await expect(page.getByLabel("EXAMPLE_API_KEY")).toBeVisible();
+  await page.getByRole("button", { name: "Package versions for 3f9c2a7d" }).click();
+  await expect(page.getByText("@example/agent-cli").first()).toBeVisible();
   expect(problems).toEqual([]);
 });
 
@@ -124,7 +161,9 @@ test("nothing scrolls sideways at 400 px", async ({ page }) => {
   for (const [hash, text] of [
     ["#/", "Overview"],
     ["#/agents", "Agents"],
+    ["#/mcp", "MCP servers"],
     ["#/tools", "Tools"],
+    ["#/tools?tab=yours", "Your tools"],
     ["#/accounts", "Accounts"],
     ["#/settings", "Settings"],
     ["#/activity", "Activity"],
