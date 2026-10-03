@@ -120,6 +120,7 @@ func runUpdate(ctx context.Context, a *app, args []string) error {
 			return err
 		}
 		a.setupMCP(ctx, a.cfg.MCPTimeout)
+		a.setupSkills(ctx)
 		a.gcQuietly()
 		return a.p.Result(res, res.human)
 	})
@@ -223,6 +224,7 @@ func runRollback(ctx context.Context, a *app, args []string) error {
 		}
 		a.rebuildLayer()
 		a.setupMCP(ctx, a.cfg.MCPTimeout)
+		a.setupSkills(ctx)
 		cur, prev, err := a.views()
 		if err != nil {
 			return output.Errorf(output.ExitFailure, "internal", "rollback", "%v", err)

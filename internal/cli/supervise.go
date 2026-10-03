@@ -154,6 +154,7 @@ func (a *app) boot(ctx context.Context, cfg config.Config, bg *sync.WaitGroup) {
 	go func() {
 		defer bg.Done()
 		a.setupMCP(ctx, time.Duration(cfg.Agents.MCPTimeout)*time.Second)
+		a.setupSkills(ctx)
 	}()
 }
 

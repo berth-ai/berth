@@ -123,6 +123,7 @@ func TestSuperviseRequiresRootAndUsers(t *testing.T) {
 
 func TestSuperviseRunsReconcilesAndStops(t *testing.T) {
 	cfg, dir := superviseConfig(t)
+	order := convergers(t, &cfg)
 	stderr, stop := supervise(t, cfg)
 	c := broker.NewClient(cfg.BrokerSocket)
 	waitServices(t, c, "panel")
@@ -138,6 +139,13 @@ func TestSuperviseRunsReconcilesAndStops(t *testing.T) {
 	waitServices(t, c, "panel", "ttyd")
 	if log, _ := os.ReadFile(filepath.Join(dir, "berth.log")); string(log) != "ensure\n" {
 		t.Errorf("boot ran %q", log)
+	}
+	deadline := time.Now().Add(5 * time.Second)
+	for got, _ := os.ReadFile(order); string(got) != "mcp\nskills\n"; got, _ = os.ReadFile(order) {
+		if time.Now().After(deadline) {
+			t.Fatalf("boot ran convergers %q", got)
+		}
+		time.Sleep(20 * time.Millisecond)
 	}
 	panelEnv, _ := os.ReadFile(filepath.Join(dir, "panel.env"))
 	ttydEnv, _ := os.ReadFile(filepath.Join(dir, "ttyd.env"))

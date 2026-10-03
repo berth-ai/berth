@@ -29,6 +29,7 @@ type Config struct {
 	MiseConfig  string
 	ProcRoot    string
 	MCPSetup    []string // argv of the MCP converger; empty skips it
+	SkillsSync  []string // argv of the skills converger; empty skips it
 	GitHub      locksource.GitHub
 	Keep        int
 	LockTimeout time.Duration
@@ -80,6 +81,7 @@ func defaultConfig(getenv func(string) string, b Build, isRoot bool, lookup func
 		MiseConfig:  "/home/agent/.config/mise/config.toml",
 		ProcRoot:    "/proc",
 		MCPSetup:    []string{"/usr/local/bin/berth", "mcp", "sync"},
+		SkillsSync:  []string{"/usr/local/bin/berth", "skills", "sync"},
 		GitHub:      locksource.GitHub{Repo: repo, Token: getenv("GITHUB_TOKEN")},
 		LockTimeout: 30 * time.Second,
 		IsRoot:      isRoot,
@@ -148,6 +150,7 @@ var commands = map[string]command{
 	"version":   {"version                              print the berth version", runVersion},
 	"supervise": {"supervise                            run the container's services (the entrypoint starts it)", runSupervise},
 	"mcp":       {"mcp sync                             register MCP servers with the agents (internal)", runMCP},
+	"skills":    {"skills resolve|sync                  pin skills and link them for the agents (internal)", runSkills},
 	"panel":     {"panel                                serve the web panel (the panel module starts it)", runPanel},
 }
 
