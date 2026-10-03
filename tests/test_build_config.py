@@ -115,7 +115,7 @@ class DockerfileTest(unittest.TestCase):
         self.assertIn('ENTRYPOINT ["tini", "--", "berth-entrypoint"]', text)
         self.assertIn('CMD ["serve"]', text)
         self.assertIn("DISABLE_AUTOUPDATER=1", text)
-        self.assertIn("PATH=/opt/agents/current/bin:/opt/mise/wrappers:", text)
+        self.assertIn("PATH=/var/lib/berth/bin:/opt/mise/wrappers:", text)
         self.assertIn("/usr/sbin:/usr/bin:/sbin:/bin", text)
         self.assertNotIn("VOLUME", text)
         self.assertIn("passwd", text)

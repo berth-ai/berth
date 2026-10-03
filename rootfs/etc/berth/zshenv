@@ -1,8 +1,9 @@
-# Berth: PATH order for every zsh. Agents and the pinned base toolchain come
-# first; user-track mise tools and ~/.local/bin come last and never shadow them.
+# Berth: PATH order for every zsh. Enabled agents (the wrapper layer) and the
+# pinned base toolchain come first; user-track mise tools and ~/.local/bin
+# come last and never shadow them.
 typeset -gU path
 path=(
-  /opt/agents/current/bin
+  /var/lib/berth/bin
   /opt/mise/wrappers
   $path
   $HOME/.local/bin

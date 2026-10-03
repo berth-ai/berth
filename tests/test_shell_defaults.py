@@ -28,7 +28,7 @@ class ShellDefaultsTest(unittest.TestCase):
 
     def test_path_order(self):
         path = self.zsh('source "$BERTH_ETC/zshenv"; print -l $path').splitlines()
-        self.assertEqual(path[:2], ["/opt/agents/current/bin", "/opt/mise/wrappers"])
+        self.assertEqual(path[:2], ["/var/lib/berth/bin", "/opt/mise/wrappers"])
         shims = str(self.home / ".local/share/mise/shims")
         self.assertGreater(path.index(shims), path.index("/usr/bin"))
 
