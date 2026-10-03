@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/http"
 	"os"
 	"slices"
 	"strings"
@@ -13,6 +14,7 @@ import (
 
 	"github.com/salgnt/berth/internal/broker"
 	"github.com/salgnt/berth/internal/config"
+	"github.com/salgnt/berth/internal/login"
 	"github.com/salgnt/berth/internal/output"
 	"github.com/salgnt/berth/internal/status"
 	"github.com/salgnt/berth/internal/supervisor"
@@ -28,7 +30,7 @@ func (c SignalCause) Error() string { return "received " + c.Signal.String() }
 
 // serviceEnvKeep lists the variables services inherit from berth supervise.
 // Everything else the operator passed to the container (tokens, host-side
-// compose values, the transitional PANEL_CREDENTIAL) stays with the supervisor.
+// compose values) stays with the supervisor.
 var serviceEnvKeep = []string{
 	"PATH", "LANG", "LANGUAGE", "LC_ALL",
 	"EDITOR", "VISUAL", "XDG_CONFIG_DIRS", "DISABLE_AUTOUPDATER", "BERTH_REPO",
@@ -74,9 +76,9 @@ func runSupervise(ctx context.Context, a *app, args []string) error {
 	sup := supervisor.New(a.cfg.ModuleRun, serviceEnv(a.cfg.Environ()), a.p.Stderr)
 	jobs := broker.NewJobs(ctx)
 	jobs.Log = a.p.Stderr
-	b := broker.New(&config.Store{Dir: a.cfg.ConfigDir}, sup, jobs, broker.CommandExec(a.cfg.BerthPath))
+	b := broker.New(&config.Store{Dir: a.cfg.ConfigDir}, login.Store{Path: a.cfg.LoginPath}, sup, jobs, broker.CommandExec(a.cfg.BerthPath))
 	b.Agents = a.agentsReport
-	b.PanelEnv = a.panelEnv()
+	b.Host = broker.HostFromEnv(a.cfg.Getenv)
 	b.Log = a.p.Stderr
 	cfg := b.Load()
 
@@ -88,7 +90,9 @@ func runSupervise(ctx context.Context, a *app, args []string) error {
 		return output.Errorf(output.ExitFailure, "listen_failed", "listen", "%v", err)
 	}
 	served := make(chan error, 1)
-	go func() { served <- serveHTTP(ctx, l, b.Handler()) }()
+	go func() {
+		served <- serveServer(ctx, l, &http.Server{Handler: b.Handler(), ConnContext: broker.ConnContext})
+	}()
 	a.p.Logf("supervisor listening on %s", a.cfg.BrokerSocket)
 
 	var bg sync.WaitGroup
@@ -142,15 +146,6 @@ func (a *app) boot(ctx context.Context, cfg config.Config, bg *sync.WaitGroup) {
 // a secret and read it back in an error message.
 func (a *app) agentsReport() (status.Report, error) {
 	return status.Collect(status.Inputs{Store: a.store, SeedDir: a.cfg.SeedDir, BuildInfo: a.cfg.BuildInfo})
-}
-
-// panelEnv hands the transitional panel credential to the panel alone.
-func (a *app) panelEnv() map[string]string {
-	env := map[string]string{}
-	if a.cfg.PanelCredential != "" {
-		env["BERTH_PANEL_CREDENTIAL"] = a.cfg.PanelCredential
-	}
-	return env
 }
 
 // exitForCause maps the signal that stopped berth to the conventional exit code.

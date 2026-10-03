@@ -22,10 +22,7 @@ func runPanel(ctx context.Context, a *app, args []string) error {
 	if a.cfg.IsRoot {
 		return output.Errorf(output.ExitFailure, "root", "", "berth panel must not run as root; the panel module starts it as berth-panel")
 	}
-	h, err := panel.New(a.cfg.PanelCredential, broker.UnixClient(a.cfg.BrokerSocket), broker.BaseURL)
-	if err != nil {
-		return output.Errorf(output.ExitFailure, "invalid_config", "", "%v", err)
-	}
+	h := panel.New(broker.UnixClient(a.cfg.BrokerSocket), broker.BaseURL, panel.DefaultUpstreams())
 	l, err := net.Listen("tcp", a.cfg.PanelListen)
 	if err != nil {
 		return output.Errorf(output.ExitFailure, "listen_failed", "listen", "%v", err)
@@ -37,10 +34,16 @@ func runPanel(ctx context.Context, a *app, args []string) error {
 	return nil
 }
 
-// serveHTTP serves h on l until ctx is cancelled, then shuts down gracefully.
-// No write timeout: `status --check` may legitimately take minutes.
+// serveHTTP serves h on l until ctx is cancelled.
 func serveHTTP(ctx context.Context, l net.Listener, h http.Handler) error {
-	srv := &http.Server{Handler: h, ReadHeaderTimeout: 10 * time.Second, IdleTimeout: 2 * time.Minute}
+	return serveServer(ctx, l, &http.Server{Handler: h})
+}
+
+// serveServer serves srv on l until ctx is cancelled, then shuts down
+// gracefully. No write timeout: jobs and the proxied frontends stream.
+func serveServer(ctx context.Context, l net.Listener, srv *http.Server) error {
+	srv.ReadHeaderTimeout = 10 * time.Second
+	srv.IdleTimeout = 2 * time.Minute
 	errc := make(chan error, 1)
 	go func() { errc <- srv.Serve(l) }()
 	select {

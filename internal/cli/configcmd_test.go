@@ -13,6 +13,7 @@ import (
 
 	"github.com/salgnt/berth/internal/broker"
 	"github.com/salgnt/berth/internal/config"
+	"github.com/salgnt/berth/internal/login"
 	"github.com/salgnt/berth/internal/supervisor"
 )
 
@@ -39,7 +40,12 @@ func brokerConfig(t *testing.T, svc broker.Services) Config {
 	cfg.BrokerSocket = filepath.Join(dir, "b.sock")
 	ctx, cancel := context.WithCancel(context.Background())
 	jobs := broker.NewJobs(ctx)
-	b := broker.New(&config.Store{Dir: filepath.Join(dir, "cfg")}, svc, jobs, nil)
+	logins := login.Store{Path: filepath.Join(dir, "cfg", "secrets", "panel.json")}
+	b := broker.New(&config.Store{Dir: filepath.Join(dir, "cfg")}, logins, svc, jobs, nil)
+	if err := logins.Set("me", "correct horse battery"); err != nil {
+		t.Fatal(err)
+	}
+	b.PeerUID = func(*http.Request) (int, bool) { return 0, true }
 	b.Load()
 	l, err := broker.Listen(cfg.BrokerSocket, -1)
 	if err != nil {
@@ -184,5 +190,17 @@ func TestHealth(t *testing.T) {
 	cfg.BrokerSocket = filepath.Join(shortTempDir(t), "missing.sock")
 	if out, _, code := run(t, cfg, "health"); code != 1 || !strings.Contains(out, "not reachable") {
 		t.Errorf("no supervisor: %d %q", code, out)
+	}
+}
+
+func TestConfigResetLogin(t *testing.T) {
+	cfg := brokerConfig(t, running("panel"))
+	out, errOut, code := run(t, cfg, "config", "reset-login", "--json")
+	if code != 0 || !strings.Contains(out, `"setup_url": "http://127.0.0.1:7690/setup#token=`) {
+		t.Fatalf("reset-login: %d %s %s", code, out, errOut)
+	}
+	out, _, _ = run(t, cfg, "config", "reset-login")
+	if !strings.HasPrefix(out, "login removed; finish setup at http://127.0.0.1:7690/setup#token=") {
+		t.Errorf("human = %q", out)
 	}
 }

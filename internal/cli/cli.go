@@ -2,7 +2,6 @@
 package cli
 
 import (
-	"cmp"
 	"context"
 	"errors"
 	"flag"
@@ -43,16 +42,17 @@ type Config struct {
 	Commit      string
 
 	// Services (berth supervise, berth panel, berth config, berth health).
-	BrokerSocket    string
-	BerthPath       string
-	ModuleRun       string
-	ConfigDir       string
-	MCPTimeout      time.Duration
-	Panel           *runner.Identity // the berth-panel user; set when running as root
-	PanelErr        error            // set when running as root and berth-panel does not exist
-	PanelCredential string           // transitional user:password for the panel's Basic auth
-	PanelListen     string
-	Environ         func() []string
+	BrokerSocket string
+	BerthPath    string
+	ModuleRun    string
+	ConfigDir    string
+	MCPTimeout   time.Duration
+	Panel        *runner.Identity // the berth-panel user; set when running as root
+	PanelErr     error            // set when running as root and berth-panel does not exist
+	PanelListen  string
+	LoginPath    string              // the panel login, readable by root only
+	Getenv       func(string) string // reads the BERTH_HOST_* values for display
+	Environ      func() []string
 }
 
 // Build carries values injected with -ldflags.
@@ -90,11 +90,10 @@ func defaultConfig(getenv func(string) string, b Build, isRoot bool, lookup func
 		BerthPath:    "/usr/local/bin/berth",
 		ModuleRun:    "/usr/local/bin/berth-module-run",
 		ConfigDir:    "/var/lib/berth",
-		// The supervisor reads PANEL_CREDENTIAL and hands it to the panel
-		// alone as BERTH_PANEL_CREDENTIAL. Removed by the front-door plan.
-		PanelCredential: cmp.Or(getenv("BERTH_PANEL_CREDENTIAL"), getenv("PANEL_CREDENTIAL")),
-		PanelListen:     "0.0.0.0:7690",
-		Environ:         os.Environ,
+		PanelListen:  "0.0.0.0:7690",
+		LoginPath:    "/var/lib/berth/secrets/panel.json",
+		Getenv:       getenv,
+		Environ:      os.Environ,
 	}
 	cfg.Keep, cfg.MCPTimeout = agentSettings(cfg.ConfigDir)
 	if cfg.IsRoot {
@@ -142,7 +141,7 @@ var commands = map[string]command{
 	"rollback":  {"rollback [HASH] [--json]             return to the previous (or named) agent set", runRollback},
 	"ensure":    {"ensure [--json]                      boot-time install of the image seed", runEnsure},
 	"gc":        {"gc [--json]                          remove unused agent sets", runGC},
-	"config":    {"config get|set K=V...|revert|reset|export|import FILE [--json]  read or change settings", runConfig},
+	"config":    {"config get|set K=V...|revert|reset|export|import FILE|reset-login [--json]  read or change settings", runConfig},
 	"health":    {"health [--json]                      report whether every enabled service runs", runHealth},
 	"version":   {"version                              print the berth version", runVersion},
 	"supervise": {"supervise                            run the container's services (the entrypoint starts it)", runSupervise},
@@ -158,6 +157,9 @@ func Run(ctx context.Context, cfg Config, args []string, stdout, stderr io.Write
 	}
 	if cfg.Environ == nil {
 		cfg.Environ = os.Environ
+	}
+	if cfg.Getenv == nil {
+		cfg.Getenv = os.Getenv
 	}
 	if cfg.MCPTimeout == 0 {
 		cfg.MCPTimeout = 2 * time.Minute

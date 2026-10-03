@@ -93,34 +93,15 @@ func TestServiceArgs(t *testing.T) {
 
 func TestPanelRefusesRoot(t *testing.T) {
 	cfg := testConfig(t)
-	cfg.PanelCredential = "me:pw"
 	_, errOut, code := run(t, cfg, "panel")
 	if code != 1 || !strings.Contains(errOut, "must not run as root") {
 		t.Fatalf("exit %d: %s", code, errOut)
 	}
 }
 
-func TestPanelConfigErrors(t *testing.T) {
-	for name, tc := range map[string]struct{ cred, listen, want string }{
-		"no credential":  {"", "127.0.0.1:0", "PANEL_CREDENTIAL"},
-		"bad credential": {"nopassword", "127.0.0.1:0", "PANEL_CREDENTIAL"},
-	} {
-		t.Run(name, func(t *testing.T) {
-			cfg := testConfig(t)
-			cfg.IsRoot = false
-			cfg.PanelCredential, cfg.PanelListen = tc.cred, tc.listen
-			_, errOut, code := run(t, cfg, "panel")
-			if code != 1 || !strings.Contains(errOut, tc.want) {
-				t.Fatalf("exit %d: %s", code, errOut)
-			}
-		})
-	}
-}
-
 func TestPanelServes(t *testing.T) {
 	cfg := testConfig(t)
 	cfg.IsRoot = false
-	cfg.PanelCredential = "me:pw"
 	cfg.PanelListen = "127.0.0.1:0"
 	cfg.BrokerSocket = filepath.Join(shortTempDir(t), "missing.sock")
 
@@ -129,16 +110,13 @@ func TestPanelServes(t *testing.T) {
 	waitFor(t, "panel to listen", func() bool { return listening.MatchString(stderr.String()) })
 	addr := listening.FindStringSubmatch(stderr.String())[1]
 
-	req, _ := http.NewRequest("GET", "http://"+addr+"/api/status", nil)
-	req.SetBasicAuth("me", "pw")
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := http.Get("http://" + addr + "/api/status")
 	if err != nil {
 		t.Fatal(err)
 	}
-	body, _ := io.ReadAll(resp.Body)
 	resp.Body.Close()
-	if resp.StatusCode != http.StatusBadGateway || !strings.Contains(string(body), "broker_unavailable") {
-		t.Fatalf("status = %d %s", resp.StatusCode, body)
+	if resp.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("status = %d", resp.StatusCode)
 	}
 	if code := stop(); code != 0 {
 		t.Fatalf("exit %d: %s", code, stderr)
@@ -146,20 +124,15 @@ func TestPanelServes(t *testing.T) {
 }
 
 func TestDefaultConfigServices(t *testing.T) {
-	env := map[string]string{"PANEL_CREDENTIAL": "me:pw", "PANEL_PORT": "9000", "AGENTS_KEEP": "9"}
+	env := map[string]string{"PANEL_PORT": "9000", "AGENTS_KEEP": "9"}
 	cfg, err := defaultConfig(func(k string) string { return env[k] }, Build{}, false, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cfg.PanelCredential != "me:pw" || cfg.PanelListen != "0.0.0.0:7690" || cfg.Keep != 3 ||
+	if cfg.LoginPath != "/var/lib/berth/secrets/panel.json" || cfg.PanelListen != "0.0.0.0:7690" || cfg.Keep != 3 ||
 		cfg.BrokerSocket != "/run/berth/broker.sock" || cfg.ModuleRun != "/usr/local/bin/berth-module-run" ||
 		cfg.ConfigDir != "/var/lib/berth" || cfg.MCPTimeout != 2*time.Minute {
 		t.Errorf("cfg = %+v", cfg)
-	}
-	env = map[string]string{"BERTH_PANEL_CREDENTIAL": "panel:pw"}
-	cfg, _ = defaultConfig(func(k string) string { return env[k] }, Build{}, false, nil)
-	if cfg.PanelCredential != "panel:pw" {
-		t.Errorf("panel side credential = %q", cfg.PanelCredential)
 	}
 }
 

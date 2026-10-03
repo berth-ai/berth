@@ -18,6 +18,10 @@ linters:
       # surface in the assertions that follow.
       - path: _test\.go
         linters: [errcheck]
+      # The panel tests' do helper reads and closes every body before it
+      # returns the response for its status and headers.
+      - path: internal/panel/.*_test\.go
+        linters: [bodyclose]
 
 formatters:
   enable:

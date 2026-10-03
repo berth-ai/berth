@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strings"
 	"syscall"
@@ -13,6 +14,7 @@ import (
 
 	"github.com/salgnt/berth/internal/agentstore"
 	"github.com/salgnt/berth/internal/broker"
+	"github.com/salgnt/berth/internal/login"
 	"github.com/salgnt/berth/internal/runner"
 )
 
@@ -44,7 +46,8 @@ func superviseConfig(t *testing.T) (Config, string) {
 	cfg.BrokerSocket = filepath.Join(dir, "broker.sock")
 	cfg.ConfigDir = filepath.Join(dir, "config")
 	cfg.Panel = &runner.Identity{UID: uint32(os.Getuid()), GID: uint32(os.Getgid())}
-	cfg.PanelCredential = "me:pw"
+	cfg.LoginPath = filepath.Join(dir, "config", "secrets", "panel.json")
+	cfg.Getenv = func(string) string { return "" }
 	cfg.Environ = func() []string {
 		return []string{"PATH=" + os.Getenv("PATH"), "FAKE_DIR=" + dir, "GITHUB_TOKEN=secret", "LANG=C.UTF-8"}
 	}
@@ -122,6 +125,16 @@ func TestSuperviseRunsReconcilesAndStops(t *testing.T) {
 	cfg, dir := superviseConfig(t)
 	stderr, stop := supervise(t, cfg)
 	c := broker.NewClient(cfg.BrokerSocket)
+	waitServices(t, c, "panel")
+	m := regexp.MustCompile(`setup: open http://127\.0\.0\.1:7690/setup#token=([0-9a-f]{32})`).FindStringSubmatch(stderr.String())
+	if m == nil {
+		t.Fatalf("no setup link in:\n%s", stderr)
+	}
+	code, raw, err := c.Verb(context.Background(), "setup.complete",
+		map[string]any{"token": m[1], "user": "me", "password": "correct horse battery"})
+	if err != nil || code != 200 {
+		t.Fatalf("setup = %d %s %v", code, raw, err)
+	}
 	waitServices(t, c, "panel", "ttyd")
 	if log, _ := os.ReadFile(filepath.Join(dir, "berth.log")); string(log) != "ensure\n" {
 		t.Errorf("boot ran %q", log)
@@ -133,11 +146,11 @@ func TestSuperviseRunsReconcilesAndStops(t *testing.T) {
 			t.Errorf("%s env:\n%s", name, env)
 		}
 	}
-	if !strings.Contains(string(panelEnv), "BERTH_PANEL_CREDENTIAL=me:pw\n") || strings.Contains(string(ttydEnv), "me:pw") {
-		t.Errorf("panel credential must reach the panel only")
+	if strings.Contains(string(panelEnv), "PASSWORD") || strings.Contains(string(panelEnv), "CREDENTIAL") {
+		t.Errorf("panel env carries a credential:\n%s", panelEnv)
 	}
 
-	code, raw, err := c.Verb(context.Background(), "config.apply",
+	code, raw, err = c.Verb(context.Background(), "config.apply",
 		map[string]any{"base_revision": 0, "patch": json.RawMessage(`{"frontends":{"ide":{"enabled":true}}}`)})
 	if err != nil || code != 200 {
 		t.Fatalf("apply = %d %s %v", code, raw, err)
@@ -158,7 +171,7 @@ func TestSuperviseRunsReconcilesAndStops(t *testing.T) {
 func TestSuperviseInterruptExits130(t *testing.T) {
 	cfg, _ := superviseConfig(t)
 	_, stop := supervise(t, cfg)
-	waitServices(t, broker.NewClient(cfg.BrokerSocket), "panel", "ttyd")
+	waitServices(t, broker.NewClient(cfg.BrokerSocket), "panel")
 	if got := stop(os.Interrupt); got != 130 {
 		t.Errorf("exit %d", got)
 	}
@@ -166,6 +179,9 @@ func TestSuperviseInterruptExits130(t *testing.T) {
 
 func TestSuperviseRecoveryMode(t *testing.T) {
 	cfg, _ := superviseConfig(t)
+	if err := (login.Store{Path: cfg.LoginPath}).Set("me", "correct horse battery"); err != nil {
+		t.Fatal(err)
+	}
 	os.MkdirAll(cfg.ConfigDir, 0o755)
 	os.WriteFile(filepath.Join(cfg.ConfigDir, "config.json"), []byte("{nope"), 0o600)
 	stderr, _ := supervise(t, cfg)
@@ -199,7 +215,7 @@ func TestSuperviseWarnsWhenEnsureFails(t *testing.T) {
 	cfg, dir := superviseConfig(t)
 	os.WriteFile(cfg.BerthPath, []byte("#!/bin/sh\necho \"$*\" >> \""+dir+"/berth.log\"\nexit 1\n"), 0o755)
 	stderr, _ := supervise(t, cfg)
-	waitServices(t, broker.NewClient(cfg.BrokerSocket), "panel", "ttyd")
+	waitServices(t, broker.NewClient(cfg.BrokerSocket), "panel")
 	if !strings.Contains(stderr.String(), "NO AGENTS INSTALLED") {
 		t.Errorf("stderr:\n%s", stderr)
 	}

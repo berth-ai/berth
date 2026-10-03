@@ -30,7 +30,7 @@ func runConfig(ctx context.Context, a *app, args []string) error {
 	}
 	a.p.JSON = *jsonOut
 	if len(pos) == 0 {
-		return usageErr(errors.New("config needs a subcommand: get, set, revert, reset, export or import"))
+		return usageErr(errors.New("config needs a subcommand: get, set, revert, reset, export, import or reset-login"))
 	}
 	if !a.cfg.IsRoot {
 		return output.Errorf(output.ExitNotRoot, "not_root", "",
@@ -44,6 +44,24 @@ func runConfig(ctx context.Context, a *app, args []string) error {
 			return usageErr(fmt.Errorf("config %s takes no arguments", sub))
 		}
 		return a.configCall(ctx, c, "config."+sub, nil)
+	case "reset-login":
+		if len(rest) > 0 {
+			return usageErr(errors.New("config reset-login takes no arguments"))
+		}
+		code, raw, err := c.Verb(ctx, "auth.reset", nil)
+		if err != nil {
+			return output.Errorf(output.ExitFailure, "unreachable", "", "%v", err)
+		}
+		if code != http.StatusOK {
+			return brokerError(code, raw)
+		}
+		var res struct {
+			SetupURL string `json:"setup_url"`
+		}
+		_ = json.Unmarshal(raw, &res)
+		return a.p.Result(raw, func(w io.Writer) {
+			fmt.Fprintf(w, "login removed; finish setup at %s\n", res.SetupURL)
+		})
 	case "set":
 		if len(rest) == 0 {
 			return usageErr(errors.New("config set needs KEY=VALUE arguments, such as frontends.ide.enabled=true"))
