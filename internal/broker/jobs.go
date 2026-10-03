@@ -43,6 +43,7 @@ type Job struct {
 	Result       json.RawMessage `json:"result"`
 	Log          string          `json:"log,omitempty"`
 	LogTruncated bool            `json:"log_truncated"`
+	Device       *Device         `json:"device,omitempty"`
 }
 
 // Work runs one job, writing its log to out. It returns the exit code of the
@@ -56,6 +57,9 @@ type Jobs struct {
 	Now      func() time.Time
 	LogLimit int
 	Log      io.Writer // receives every job's log too; nil discards it
+	// Annotate may add fields derived from a job's log to snapshots that
+	// include the log.
+	Annotate func(job *Job, log string)
 
 	ctx  context.Context
 	wg   sync.WaitGroup
@@ -94,7 +98,7 @@ func (j *Jobs) Start(verb, group string, args []string, work Work) (Job, error) 
 	j.logf("job %d (%s) started", e.job.ID, verb)
 	j.wg.Add(1)
 	go j.run(e, work)
-	return e.snapshot(true), nil
+	return e.snapshot(true, j.Annotate), nil
 }
 
 // trim forgets the oldest finished jobs beyond maxJobs. Caller holds j.mu.
@@ -144,7 +148,7 @@ func (j *Jobs) Get(id int) (Job, error) {
 	defer j.mu.Unlock()
 	for _, e := range j.jobs {
 		if e.job.ID == id {
-			return e.snapshot(true), nil
+			return e.snapshot(true, j.Annotate), nil
 		}
 	}
 	return Job{}, ErrNoJob
@@ -156,7 +160,7 @@ func (j *Jobs) List() []Job {
 	defer j.mu.Unlock()
 	out := make([]Job, 0, len(j.jobs))
 	for _, e := range slices.Backward(j.jobs) {
-		out = append(out, e.snapshot(false))
+		out = append(out, e.snapshot(false, j.Annotate))
 	}
 	return out
 }
@@ -164,11 +168,14 @@ func (j *Jobs) List() []Job {
 // Wait blocks until every running job has finished.
 func (j *Jobs) Wait() { j.wg.Wait() }
 
-func (e *entry) snapshot(withLog bool) Job {
+func (e *entry) snapshot(withLog bool, annotate func(*Job, string)) Job {
 	job := e.job
 	job.Args = append([]string{}, e.job.Args...)
 	if withLog {
 		job.Log, job.LogTruncated = e.out.snapshot()
+		if annotate != nil {
+			annotate(&job, job.Log)
+		}
 	}
 	return job
 }
