@@ -4,19 +4,25 @@ import { applyConfig } from "@/api/config";
 import { refreshStatus, useConfig, useStatus } from "@/api/queries";
 import { verb } from "@/api/request";
 import { runJob } from "@/api/run-job";
-import type { Job, Status, UpdateCheck } from "@/api/types";
+import type { AgentVersion, Job, Status, UpdateCheck } from "@/api/types";
 import { BusyButton } from "@/components/busy-button";
 import { useConfirm } from "@/components/confirm";
 import { EmptyState } from "@/components/empty-state";
 import { FormField, fieldProps } from "@/components/form-field";
 import { InlineAlert } from "@/components/inline-alert";
 import { LoadingRows } from "@/components/loading";
-import { Page, PageHeader, SectionTitle } from "@/components/page";
+import { Page, PageHeader } from "@/components/page";
 import { PanelCard } from "@/components/panel-card";
 import { Button } from "@/components/ui/button";
-import { Card } from "@/components/ui/card";
-import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Input } from "@/components/ui/input";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
 import { errorText, fieldErrors } from "@/lib/errors";
 import { describeSource, short, when } from "@/lib/format";
 import { notify, type Tone } from "@/lib/notify";
@@ -24,7 +30,7 @@ import { useTitle } from "@/lib/use-title";
 import { checkResult, versionLabel } from "./agents-logic";
 import { PackageSection } from "./package-table";
 
-// Agents: update source and actions, per-package toggles and keys, history.
+// Agents: update source and actions, version history, per-agent toggles and keys.
 export function AgentsPage() {
   useTitle("Agents");
   const status = useStatus();
@@ -36,6 +42,7 @@ export function AgentsPage() {
         description="Pinned agent CLIs. Updates install a new locked set; the previous one is kept for rollback."
       />
       <SourceCard />
+      <History status={status.data} />
       <PackageSection
         title="Agents"
         kind="agent"
@@ -44,8 +51,6 @@ export function AgentsPage() {
         all={pkgs}
         empty="No agents installed yet."
       />
-      <SectionTitle>History</SectionTitle>
-      <History status={status.data} />
     </Page>
   );
 }
@@ -58,6 +63,12 @@ function finishJob(job: Job | null, okText: string) {
   );
   void refreshStatus();
 }
+
+/** startJob is a confirm action that starts a job and reports its outcome. */
+const startJob = (name: string, okText: string) => async () => {
+  void runJob(name, {}).then((job) => finishJob(job, okText));
+  return true;
+};
 
 function SourceCard() {
   const config = useConfig();
@@ -107,11 +118,6 @@ function SourceForm({ initialRef }: { initialRef: string }) {
     void refreshStatus();
   };
 
-  const start = (name: string, okText: string) => async () => {
-    void runJob(name, {}).then((job) => finishJob(job, okText));
-    return true;
-  };
-
   return (
     <PanelCard
       footer={
@@ -148,24 +154,11 @@ function SourceForm({ initialRef }: { initialRef: string }) {
                 body: "Berth switches back at once, offline. Restarts keep this choice until the next update.",
                 confirm: "Roll back",
                 danger: true,
-                action: start("rollback", "Rolled back."),
+                action: startJob("rollback", "Rolled back."),
               })
             }
           >
             Roll back
-          </Button>
-          <Button
-            variant="outline"
-            onClick={() =>
-              confirm({
-                title: "Remove unused agent sets?",
-                body: "Current, previous, any set in use, and the configured number of kept sets stay.",
-                confirm: "Clean up",
-                action: start("gc", "Old versions removed."),
-              })
-            }
-          >
-            Clean up old versions
           </Button>
         </>
       }
@@ -207,42 +200,118 @@ function SourceForm({ initialRef }: { initialRef: string }) {
 }
 
 function History({ status }: { status: Status | undefined }) {
-  if (!status) return <LoadingRows n={3} />;
-  const versions = status.agents?.versions ?? [];
-  if (!versions.length) {
-    return (
-      <PanelCard>
-        <EmptyState text="No agent set is installed yet." />
-      </PanelCard>
-    );
-  }
+  const [dialog, confirm] = useConfirm();
+  const versions = status?.agents?.versions ?? [];
   return (
-    <Card className="gap-0 py-0">
-      {versions.map((v) => (
-        <Collapsible key={v.hash} className="border-b last:border-b-0">
-          <CollapsibleTrigger className="group grid w-full cursor-pointer grid-cols-[90px_110px_minmax(0,1fr)_auto] items-center gap-3 px-4 py-2 text-left hover:bg-surface-sunken max-sm:grid-cols-[minmax(0,1fr)_auto]">
-            <strong className="flex items-center gap-1">
-              <ChevronRight
-                aria-hidden
-                className="size-3.5 transition-transform group-data-panel-open:rotate-90"
+    <PanelCard
+      title="Version history"
+      actions={
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() =>
+            confirm({
+              title: "Remove unused agent sets?",
+              body: "Current, previous, any set in use, and the configured number of kept sets stay.",
+              confirm: "Clean up",
+              action: startJob("gc", "Old versions removed."),
+            })
+          }
+        >
+          Clean up old versions
+        </Button>
+      }
+    >
+      {!status ? (
+        <LoadingRows n={3} />
+      ) : versions.length ? (
+        <Table aria-label="Version history">
+          <TableHeader>
+            <TableRow>
+              <TableHead>Status</TableHead>
+              <TableHead>Lock</TableHead>
+              <TableHead className="max-sm:hidden">Origin</TableHead>
+              <TableHead>Installed</TableHead>
+              <TableHead>
+                <span className="sr-only">Packages</span>
+              </TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {versions.map((v) => (
+              <VersionRows
+                key={v.hash}
+                v={v}
+                label={versionLabel(
+                  v.hash,
+                  status.agents?.current?.hash,
+                  status.agents?.previous?.hash,
+                )}
               />
-              {versionLabel(v.hash, status.agents?.current?.hash, status.agents?.previous?.hash)}
-            </strong>
-            <span className="font-mono text-xs">{short(v.hash)}</span>
-            <span className="max-sm:hidden">{describeSource(v.source)}</span>
-            <span className="text-fg-muted">{when(v.installed_at)}</span>
-          </CollapsibleTrigger>
-          <CollapsibleContent className="px-4 pt-1 pb-3">
-            {Object.keys(v.packages ?? {})
-              .sort()
-              .map((n) => (
-                <div key={n} className="font-mono text-xs">
-                  {n} {v.packages?.[n]}
-                </div>
-              ))}
-          </CollapsibleContent>
-        </Collapsible>
-      ))}
-    </Card>
+            ))}
+          </TableBody>
+        </Table>
+      ) : (
+        <EmptyState text="No agent set is installed yet." />
+      )}
+      {dialog}
+    </PanelCard>
+  );
+}
+
+function VersionRows({ v, label }: { v: AgentVersion; label: string }) {
+  const [open, setOpen] = useState(false);
+  const detailId = useId();
+  const pkgs = Object.keys(v.packages ?? {}).sort();
+  return (
+    <>
+      <TableRow>
+        <TableCell data-label="">
+          <strong className="text-fg">{label}</strong>
+        </TableCell>
+        <TableCell data-label="Lock">
+          <span className="font-mono text-xs">{short(v.hash)}</span>
+        </TableCell>
+        <TableCell data-label="Origin" className="max-sm:hidden!">
+          {describeSource(v.source)}
+        </TableCell>
+        <TableCell data-label="Installed">{when(v.installed_at)}</TableCell>
+        <TableCell className="text-right">
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            aria-expanded={open}
+            aria-controls={open ? detailId : undefined}
+            aria-label={`Package versions for ${short(v.hash)}`}
+            onClick={() => setOpen((o) => !o)}
+          >
+            <ChevronRight
+              aria-hidden
+              className={
+                open ? "size-3.5 rotate-90 transition-transform" : "size-3.5 transition-transform"
+              }
+            />
+          </Button>
+        </TableCell>
+      </TableRow>
+      {open ? (
+        <TableRow id={detailId} className="hover:bg-transparent">
+          <TableCell colSpan={5}>
+            {pkgs.length ? (
+              <div className="grid grid-cols-[repeat(auto-fill,minmax(min(240px,100%),1fr))] gap-x-4 gap-y-0.5">
+                {pkgs.map((n) => (
+                  <div key={n} className="flex justify-between gap-3 font-mono text-xs">
+                    <span className="break-all">{n}</span>
+                    <span className="text-fg-muted">{v.packages?.[n]}</span>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <span className="text-xs text-fg-muted">No package versions recorded.</span>
+            )}
+          </TableCell>
+        </TableRow>
+      ) : null}
+    </>
   );
 }
