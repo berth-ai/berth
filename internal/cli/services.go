@@ -8,9 +8,9 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/berth-ai/bert/internal/broker"
-	"github.com/berth-ai/bert/internal/output"
-	"github.com/berth-ai/bert/internal/panel"
+	"github.com/berth-ai/berth/internal/broker"
+	"github.com/berth-ai/berth/internal/output"
+	"github.com/berth-ai/berth/internal/panel"
 )
 
 // runPanel serves the web panel as the unprivileged berth-panel user and

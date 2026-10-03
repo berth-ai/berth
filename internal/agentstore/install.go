@@ -10,8 +10,8 @@ import (
 	"slices"
 	"time"
 
-	"github.com/berth-ai/bert/internal/locksource"
-	"github.com/berth-ai/bert/internal/runner"
+	"github.com/berth-ai/berth/internal/locksource"
+	"github.com/berth-ai/berth/internal/runner"
 )
 
 // StepError is an install failure tagged with its pipeline step.

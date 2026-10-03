@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/berth-ai/bert/internal/testutil"
+	"github.com/berth-ai/berth/internal/testutil"
 )
 
 func hashN(i int) string { return string(rune('a'+i)) + "00000000000" }

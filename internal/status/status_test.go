@@ -8,8 +8,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/berth-ai/bert/internal/agentstore"
-	"github.com/berth-ai/bert/internal/testutil"
+	"github.com/berth-ai/berth/internal/agentstore"
+	"github.com/berth-ai/berth/internal/testutil"
 )
 
 func TestUserTools(t *testing.T) {

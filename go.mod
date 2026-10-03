@@ -1,4 +1,4 @@
-module github.com/berth-ai/bert
+module github.com/berth-ai/berth
 
 go 1.27
 

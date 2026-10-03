@@ -12,7 +12,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/berth-ai/bert/internal/runner"
+	"github.com/berth-ai/berth/internal/runner"
 )
 
 const launchScript = `const { chromium } = require(process.argv[1]);

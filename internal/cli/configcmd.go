@@ -14,9 +14,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/berth-ai/bert/internal/broker"
-	"github.com/berth-ai/bert/internal/config"
-	"github.com/berth-ai/bert/internal/output"
+	"github.com/berth-ai/berth/internal/broker"
+	"github.com/berth-ai/berth/internal/config"
+	"github.com/berth-ai/berth/internal/output"
 )
 
 const maxImportBytes = 64 << 10

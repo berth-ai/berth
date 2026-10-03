@@ -15,8 +15,8 @@ import (
 
 	"github.com/pelletier/go-toml/v2"
 
-	"github.com/berth-ai/bert/internal/agentstore"
-	"github.com/berth-ai/bert/internal/locksource"
+	"github.com/berth-ai/berth/internal/agentstore"
+	"github.com/berth-ai/berth/internal/locksource"
 )
 
 // VersionView is the JSON shape of an installed agent set.

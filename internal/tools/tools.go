@@ -14,7 +14,7 @@ import (
 
 	"github.com/pelletier/go-toml/v2"
 
-	"github.com/berth-ai/bert/internal/status"
+	"github.com/berth-ai/berth/internal/status"
 )
 
 // Tool is one mise tool and the version it is pinned to.

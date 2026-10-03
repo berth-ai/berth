@@ -13,7 +13,7 @@ import (
 	"sort"
 	"time"
 
-	"github.com/berth-ai/bert/internal/locksource"
+	"github.com/berth-ai/berth/internal/locksource"
 )
 
 var (

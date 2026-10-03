@@ -14,10 +14,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/berth-ai/bert/internal/broker"
-	"github.com/berth-ai/bert/internal/config"
-	"github.com/berth-ai/bert/internal/login"
-	"github.com/berth-ai/bert/internal/supervisor"
+	"github.com/berth-ai/berth/internal/broker"
+	"github.com/berth-ai/berth/internal/config"
+	"github.com/berth-ai/berth/internal/login"
+	"github.com/berth-ai/berth/internal/supervisor"
 )
 
 // fakeBroker answers like the real broker for the panel's needs.

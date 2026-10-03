@@ -15,13 +15,13 @@ import (
 	"sync"
 	"time"
 
-	"github.com/berth-ai/bert/internal/agentlayer"
-	"github.com/berth-ai/bert/internal/config"
-	"github.com/berth-ai/bert/internal/locksource"
-	"github.com/berth-ai/bert/internal/login"
-	"github.com/berth-ai/bert/internal/runner"
-	"github.com/berth-ai/bert/internal/status"
-	"github.com/berth-ai/bert/internal/supervisor"
+	"github.com/berth-ai/berth/internal/agentlayer"
+	"github.com/berth-ai/berth/internal/config"
+	"github.com/berth-ai/berth/internal/locksource"
+	"github.com/berth-ai/berth/internal/login"
+	"github.com/berth-ai/berth/internal/runner"
+	"github.com/berth-ai/berth/internal/status"
+	"github.com/berth-ai/berth/internal/supervisor"
 )
 
 const maxBodyBytes = 64 << 10

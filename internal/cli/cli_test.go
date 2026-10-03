@@ -12,9 +12,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/berth-ai/bert/internal/locksource"
-	"github.com/berth-ai/bert/internal/runner"
-	"github.com/berth-ai/bert/internal/testutil"
+	"github.com/berth-ai/berth/internal/locksource"
+	"github.com/berth-ai/berth/internal/runner"
+	"github.com/berth-ai/berth/internal/testutil"
 )
 
 var update = flag.Bool("update", false, "rewrite golden files")

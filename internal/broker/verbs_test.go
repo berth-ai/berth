@@ -14,10 +14,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/berth-ai/bert/internal/config"
-	"github.com/berth-ai/bert/internal/login"
-	"github.com/berth-ai/bert/internal/status"
-	"github.com/berth-ai/bert/internal/supervisor"
+	"github.com/berth-ai/berth/internal/config"
+	"github.com/berth-ai/berth/internal/login"
+	"github.com/berth-ai/berth/internal/status"
+	"github.com/berth-ai/berth/internal/supervisor"
 )
 
 // fakeExec scripts the berth binary.

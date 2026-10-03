@@ -9,7 +9,7 @@ import (
 	"os/exec"
 	"time"
 
-	"github.com/berth-ai/bert/internal/runner"
+	"github.com/berth-ai/berth/internal/runner"
 )
 
 // HomeCommands are the programs home-side verbs run as agent.

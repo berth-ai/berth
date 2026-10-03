@@ -7,7 +7,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/berth-ai/bert/internal/config"
+	"github.com/berth-ai/berth/internal/config"
 )
 
 const (

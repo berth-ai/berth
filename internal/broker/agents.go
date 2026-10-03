@@ -11,9 +11,9 @@ import (
 	"slices"
 	"time"
 
-	"github.com/berth-ai/bert/internal/agentlayer"
-	"github.com/berth-ai/bert/internal/config"
-	"github.com/berth-ai/bert/internal/runner"
+	"github.com/berth-ai/berth/internal/agentlayer"
+	"github.com/berth-ai/berth/internal/config"
+	"github.com/berth-ai/berth/internal/runner"
 )
 
 // mcpGroup serializes MCP registration runs.

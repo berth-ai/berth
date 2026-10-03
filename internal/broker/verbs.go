@@ -12,8 +12,8 @@ import (
 	"regexp"
 	"slices"
 
-	"github.com/berth-ai/bert/internal/config"
-	"github.com/berth-ai/bert/internal/supervisor"
+	"github.com/berth-ai/berth/internal/config"
+	"github.com/berth-ai/berth/internal/supervisor"
 )
 
 // agentsGroup serializes the jobs that change the agent store.

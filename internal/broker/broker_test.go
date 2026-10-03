@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/berth-ai/bert/internal/status"
+	"github.com/berth-ai/berth/internal/status"
 )
 
 func TestListenSocketMode(t *testing.T) {

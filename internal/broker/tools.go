@@ -11,7 +11,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/berth-ai/bert/internal/tools"
+	"github.com/berth-ai/berth/internal/tools"
 )
 
 // toolsGroup serializes jobs that edit the user track.

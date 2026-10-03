@@ -7,13 +7,13 @@ import (
 	"io"
 	"time"
 
-	"github.com/berth-ai/bert/internal/agentlayer"
-	"github.com/berth-ai/bert/internal/agentstore"
-	"github.com/berth-ai/bert/internal/config"
-	"github.com/berth-ai/bert/internal/locksource"
-	"github.com/berth-ai/bert/internal/output"
-	"github.com/berth-ai/bert/internal/runner"
-	"github.com/berth-ai/bert/internal/status"
+	"github.com/berth-ai/berth/internal/agentlayer"
+	"github.com/berth-ai/berth/internal/agentstore"
+	"github.com/berth-ai/berth/internal/config"
+	"github.com/berth-ai/berth/internal/locksource"
+	"github.com/berth-ai/berth/internal/output"
+	"github.com/berth-ai/berth/internal/runner"
+	"github.com/berth-ai/berth/internal/status"
 )
 
 func runVersion(_ context.Context, a *app, args []string) error {

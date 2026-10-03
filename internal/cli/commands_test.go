@@ -10,9 +10,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/berth-ai/bert/internal/agentstore"
-	"github.com/berth-ai/bert/internal/locksource"
-	"github.com/berth-ai/bert/internal/testutil"
+	"github.com/berth-ai/berth/internal/agentstore"
+	"github.com/berth-ai/berth/internal/locksource"
+	"github.com/berth-ai/berth/internal/testutil"
 )
 
 func hashOf(t *testing.T, fixture string) string {

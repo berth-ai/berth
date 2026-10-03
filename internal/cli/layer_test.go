@@ -6,8 +6,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/berth-ai/bert/internal/agentlayer"
-	"github.com/berth-ai/bert/internal/runner"
+	"github.com/berth-ai/berth/internal/agentlayer"
+	"github.com/berth-ai/berth/internal/runner"
 )
 
 func layerConfig(t *testing.T) Config {
