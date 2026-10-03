@@ -28,6 +28,10 @@ func fakeSet(t *testing.T) (Builder, string) {
 			"agent-a": map[string]any{"kind": "agent", "name": "Agent A", "keys": []string{"A_KEY"}},
 			"mcp-b":   map[string]any{"kind": "mcp", "name": "B", "keys": []string{}},
 		},
+		"berthAgents": map[string]any{
+			"schema":  1,
+			"servers": map[string]any{"mcp-b": map[string]any{"id": "bee", "bin": "b-mcp"}},
+		},
 	}
 	raw, _ := json.Marshal(pkg)
 	os.WriteFile(filepath.Join(dir, "package.json"), raw, 0o644)
@@ -66,6 +70,9 @@ func TestPackages(t *testing.T) {
 		pkgs[0].Name != "Agent A" || pkgs[0].Version != "1.0.0" || !slices.Equal(pkgs[0].Bins, []string{"a"}) ||
 		len(pkgs[0].Keys) != 1 || !pkgs[0].Keys[0].Set || pkgs[1].Kind != "mcp" {
 		t.Errorf("packages = %+v", pkgs)
+	}
+	if pkgs[1].MCPID != "bee" || pkgs[0].MCPID != "" {
+		t.Errorf("mcp ids = %q, %q", pkgs[0].MCPID, pkgs[1].MCPID)
 	}
 	if keys, _ := b.KeyNames(); !slices.Equal(keys, []string{"A_KEY"}) {
 		t.Errorf("keys = %v", keys)

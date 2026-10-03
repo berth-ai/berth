@@ -37,6 +37,7 @@ type Package struct {
 	Enabled bool     `json:"enabled"`
 	Bins    []string `json:"bins"`
 	Keys    []Key    `json:"keys"`
+	MCPID   string   `json:"mcp_id,omitempty"` // an MCP server's id in agent configs
 }
 
 // Packages describes the current set with disabled applied: agents first,
@@ -61,6 +62,8 @@ func (b Builder) Packages(disabled []string) ([]Package, error) {
 	if err != nil {
 		return nil, err
 	}
+	// A bad berthAgents block costs only the ids; the converger reports it.
+	desc, _ := locksource.ParseDescriptors(raw, meta)
 	keys, err := ReadKeys(b.KeysPath)
 	if err != nil {
 		return nil, err
@@ -74,6 +77,7 @@ func (b Builder) Packages(disabled []string) ([]Package, error) {
 		pkg := Package{
 			Package: dep, Name: m.Name, Kind: m.Kind, Version: cur.Manifest.Packages[dep],
 			Enabled: !slices.Contains(disabled, dep), Bins: slices.Sorted(maps.Keys(bins)), Keys: []Key{},
+			MCPID: desc.Servers[dep].ID,
 		}
 		for _, k := range m.Keys {
 			pkg.Keys = append(pkg.Keys, Key{Name: k, Set: keys[k] != ""})
