@@ -86,6 +86,16 @@ Berth registers its MCP servers in each agent's own configuration
 and a marked block in `~/.codex/config.toml`) and only changes the entries
 it wrote: servers you add yourself stay as they are.
 
+Skills come from any git repository over HTTPS (private ones through your
+`gh` or `glab` sign-in) or from a short catalog on the panel's Skills page.
+Berth pins each one to a commit, keeps one copy in
+`~/.local/share/berth/skills`, and links it into the skills directory of
+every agent you pick (`~/.claude/skills`, `~/.codex/skills`,
+`~/.gemini/skills`; OpenCode reads Claude Code's). A skill moves to a newer
+commit only when you click Update. Skills are instructions and scripts your
+agents run, so add only sources you trust. Berth never touches a skill
+directory you created yourself.
+
 ## Upgrading the image
 
 ```sh
