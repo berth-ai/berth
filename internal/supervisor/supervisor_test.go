@@ -15,12 +15,14 @@ import (
 
 // fakeModuleRun stands in for berth-module-run. Each service behaves
 // according to files in $FAKE_DIR: NAME.crash exits 3, NAME.clean exits 0,
-// NAME.stubborn ignores TERM, NAME.port is printed by --health.
+// NAME.stubborn ignores TERM, NAME.port is printed by --health; otherwise
+// --health passes once the service has written NAME.ready.
 const fakeModuleRun = `#!/bin/sh
 if [ "$1" = --health ]; then
   [ -f "$FAKE_DIR/$2.unhealthy" ] && exit 1
-  [ -f "$FAKE_DIR/$2.port" ] && cat "$FAKE_DIR/$2.port"
-  exit 0
+  [ -f "$FAKE_DIR/$2.port" ] && { cat "$FAKE_DIR/$2.port"; exit 0; }
+  [ -f "$FAKE_DIR/$2.ready" ]
+  exit
 fi
 name=$1
 echo "start $name" >> "$FAKE_DIR/events"
@@ -31,8 +33,10 @@ echo "hello from $name"
 if [ -f "$FAKE_DIR/$name.stubborn" ]; then
   trap '' TERM
 else
-  trap 'echo "stop $name" >> "$FAKE_DIR/events"; exit 0' TERM
+  trap 'rm -f "$FAKE_DIR/$name.ready"; echo "stop $name" >> "$FAKE_DIR/events"; exit 0' TERM
 fi
+# Healthy only once the env file and the trap are in place.
+touch "$FAKE_DIR/$name.ready"
 while :; do sleep 0.05; done
 `
 
