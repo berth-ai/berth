@@ -2,6 +2,7 @@ package broker
 
 import (
 	"context"
+	"errors"
 	"io"
 	"net"
 	"os"
@@ -9,6 +10,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/salgnt/berth/internal/status"
 )
 
 func TestListenSocketMode(t *testing.T) {
@@ -64,5 +67,14 @@ func TestCommandExec(t *testing.T) {
 	}
 	if _, err := CommandExec(filepath.Join(t.TempDir(), "missing"))(context.Background(), nil, io.Discard, io.Discard); err == nil {
 		t.Error("missing binary: want error")
+	}
+}
+
+func TestAgentsReportErrorIsReported(t *testing.T) {
+	tb := newTestBroker(t)
+	tb.b.Agents = func() (status.Report, error) { return status.Report{}, errors.New("store unreadable") }
+	st := tb.b.Status()
+	if st.Agents != nil || st.AgentsError != "store unreadable" {
+		t.Errorf("status = %+v", st)
 	}
 }
