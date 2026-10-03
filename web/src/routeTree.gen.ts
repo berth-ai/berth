@@ -10,33 +10,141 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as AccountsRouteImport } from './routes/accounts'
+import { Route as AgentsRouteImport } from './routes/agents'
+import { Route as IdeRouteImport } from './routes/ide'
+import { Route as SettingsRouteImport } from './routes/settings'
+import { Route as TerminalRouteImport } from './routes/terminal'
+import { Route as ToolsRouteImport } from './routes/tools'
+import { Route as ActivityIndexRouteImport } from './routes/activity.index'
+import { Route as ActivityIdRouteImport } from './routes/activity.$id'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
   getParentRoute: () => rootRouteImport,
 } as any)
+const AccountsRoute = AccountsRouteImport.update({
+  id: '/accounts',
+  path: '/accounts',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AgentsRoute = AgentsRouteImport.update({
+  id: '/agents',
+  path: '/agents',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const IdeRoute = IdeRouteImport.update({
+  id: '/ide',
+  path: '/ide',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const SettingsRoute = SettingsRouteImport.update({
+  id: '/settings',
+  path: '/settings',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const TerminalRoute = TerminalRouteImport.update({
+  id: '/terminal',
+  path: '/terminal',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ToolsRoute = ToolsRouteImport.update({
+  id: '/tools',
+  path: '/tools',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ActivityIndexRoute = ActivityIndexRouteImport.update({
+  id: '/activity/',
+  path: '/activity/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ActivityIdRoute = ActivityIdRouteImport.update({
+  id: '/activity/$id',
+  path: '/activity/$id',
+  getParentRoute: () => rootRouteImport,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/accounts': typeof AccountsRoute
+  '/agents': typeof AgentsRoute
+  '/ide': typeof IdeRoute
+  '/settings': typeof SettingsRoute
+  '/terminal': typeof TerminalRoute
+  '/tools': typeof ToolsRoute
+  '/activity/$id': typeof ActivityIdRoute
+  '/activity/': typeof ActivityIndexRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/accounts': typeof AccountsRoute
+  '/agents': typeof AgentsRoute
+  '/ide': typeof IdeRoute
+  '/settings': typeof SettingsRoute
+  '/terminal': typeof TerminalRoute
+  '/tools': typeof ToolsRoute
+  '/activity/$id': typeof ActivityIdRoute
+  '/activity': typeof ActivityIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/accounts': typeof AccountsRoute
+  '/agents': typeof AgentsRoute
+  '/ide': typeof IdeRoute
+  '/settings': typeof SettingsRoute
+  '/terminal': typeof TerminalRoute
+  '/tools': typeof ToolsRoute
+  '/activity/$id': typeof ActivityIdRoute
+  '/activity/': typeof ActivityIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/'
+  fullPaths:
+    | '/'
+    | '/accounts'
+    | '/agents'
+    | '/ide'
+    | '/settings'
+    | '/terminal'
+    | '/tools'
+    | '/activity/$id'
+    | '/activity/'
   fileRoutesByTo: FileRoutesByTo
-  to: '/'
-  id: '__root__' | '/'
+  to:
+    | '/'
+    | '/accounts'
+    | '/agents'
+    | '/ide'
+    | '/settings'
+    | '/terminal'
+    | '/tools'
+    | '/activity/$id'
+    | '/activity'
+  id:
+    | '__root__'
+    | '/'
+    | '/accounts'
+    | '/agents'
+    | '/ide'
+    | '/settings'
+    | '/terminal'
+    | '/tools'
+    | '/activity/$id'
+    | '/activity/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  AccountsRoute: typeof AccountsRoute
+  AgentsRoute: typeof AgentsRoute
+  IdeRoute: typeof IdeRoute
+  SettingsRoute: typeof SettingsRoute
+  TerminalRoute: typeof TerminalRoute
+  ToolsRoute: typeof ToolsRoute
+  ActivityIdRoute: typeof ActivityIdRoute
+  ActivityIndexRoute: typeof ActivityIndexRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -48,11 +156,75 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/accounts': {
+      id: '/accounts'
+      path: '/accounts'
+      fullPath: '/accounts'
+      preLoaderRoute: typeof AccountsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/agents': {
+      id: '/agents'
+      path: '/agents'
+      fullPath: '/agents'
+      preLoaderRoute: typeof AgentsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/ide': {
+      id: '/ide'
+      path: '/ide'
+      fullPath: '/ide'
+      preLoaderRoute: typeof IdeRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/settings': {
+      id: '/settings'
+      path: '/settings'
+      fullPath: '/settings'
+      preLoaderRoute: typeof SettingsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/terminal': {
+      id: '/terminal'
+      path: '/terminal'
+      fullPath: '/terminal'
+      preLoaderRoute: typeof TerminalRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/tools': {
+      id: '/tools'
+      path: '/tools'
+      fullPath: '/tools'
+      preLoaderRoute: typeof ToolsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/activity/': {
+      id: '/activity/'
+      path: '/activity'
+      fullPath: '/activity/'
+      preLoaderRoute: typeof ActivityIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/activity/$id': {
+      id: '/activity/$id'
+      path: '/activity/$id'
+      fullPath: '/activity/$id'
+      preLoaderRoute: typeof ActivityIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  AccountsRoute: AccountsRoute,
+  AgentsRoute: AgentsRoute,
+  IdeRoute: IdeRoute,
+  SettingsRoute: SettingsRoute,
+  TerminalRoute: TerminalRoute,
+  ToolsRoute: ToolsRoute,
+  ActivityIdRoute: ActivityIdRoute,
+  ActivityIndexRoute: ActivityIndexRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

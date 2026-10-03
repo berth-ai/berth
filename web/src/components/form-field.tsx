@@ -4,8 +4,6 @@ import { Field, FieldDescription, FieldError, FieldLabel } from "@/components/ui
 import { cn } from "@/lib/utils";
 
 /** fieldProps ties an input to its FormField's hint and error. */
-// fieldProps belongs with the field it wires up; the panel has no fast refresh.
-// oxlint-disable-next-line react/only-export-components
 export function fieldProps(id: string, error?: string) {
   return {
     id,
