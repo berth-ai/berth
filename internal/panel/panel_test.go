@@ -383,7 +383,7 @@ func TestPageAndAssets(t *testing.T) {
 		t.Fatalf("GET / = %d %q", resp.StatusCode, resp.Header.Get("Content-Type"))
 	}
 	assertSecurityHeaders(t, resp)
-	for path, ct := range map[string]string{"/static/panel.js": "text/javascript", "/static/auth.js": "text/javascript", "/static/panel.css": "text/css"} {
+	for path, ct := range map[string]string{"/static/js/app.js": "text/javascript", "/static/panel.css": "text/css"} {
 		resp, _ := e.do(c, "GET", path, "", nil)
 		if resp.StatusCode != 200 || !strings.HasPrefix(resp.Header.Get("Content-Type"), ct) {
 			t.Errorf("GET %s = %d %q", path, resp.StatusCode, resp.Header.Get("Content-Type"))

@@ -5,64 +5,17 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Berth</title>
 <link rel="stylesheet" href="/static/panel.css">
-<script src="/static/panel.js" defer></script>
+<script type="module" src="/static/js/app.js"></script>
 </head>
 <body>
-<header class="top">
-  <h1>Berth <span class="sub">agents</span></h1>
-  <p id="build" class="muted"></p>
-  <button id="logout" type="button" class="secondary">Sign out</button>
-</header>
-
-<main>
-  <p id="banner" class="banner" hidden></p>
-
-  <section class="card" aria-labelledby="current-h">
-    <div class="card-head">
-      <h2 id="current-h">Current agent set</h2>
-      <span id="mode" class="pill"></span>
-    </div>
-    <div id="current"><p class="muted">Loading…</p></div>
-    <ul id="warnings" class="warnings"></ul>
-  </section>
-
-  <section class="card" aria-labelledby="previous-h">
-    <div class="card-head">
-      <h2 id="previous-h">Previous agent set</h2>
-      <button id="rollback" type="button" class="secondary" hidden>Roll back to this set</button>
-    </div>
-    <div id="previous"><p class="muted">Loading…</p></div>
-  </section>
-
-  <section class="card" aria-labelledby="update-h">
-    <div class="card-head">
-      <h2 id="update-h">Update agents</h2>
-      <button id="check" type="button" class="secondary">Check main</button>
-    </div>
-    <p id="check-result" class="muted" hidden></p>
-    <form id="update-form" class="update">
-      <label><input type="radio" name="source" value="main" checked> Latest lock on <code>main</code></label>
-      <label><input type="radio" name="source" value="ref"> Git ref
-        <input id="ref" type="text" name="ref" placeholder="v1.2.3 or a branch" autocomplete="off" spellcheck="false" maxlength="200"></label>
-      <label class="long"><input type="radio" name="source" value="image"> <span>The set shipped with this image, and follow the image from now on</span></label>
-      <div class="actions">
-        <button id="update" type="submit">Update</button>
-      </div>
-    </form>
-    <p class="muted small">Updates install alongside the current set and switch atomically; running agent sessions keep their version.</p>
-  </section>
-
-  <section class="card" aria-labelledby="job-h">
-    <div class="card-head">
-      <h2 id="job-h">Last job</h2>
-      <span id="job-state" class="pill"></span>
-    </div>
-    <div id="job"><p class="muted">No job has run since the container started.</p></div>
-    <details id="log-box" hidden>
-      <summary>Log</summary>
-      <pre id="log"></pre>
-    </details>
-  </section>
-</main>
+<div class="app">
+  <header class="topbar" id="topbar"></header>
+  <nav class="nav" id="nav" aria-label="Main"></nav>
+  <div class="main">
+    <div id="banners"></div>
+    <main id="page" tabindex="-1"></main>
+  </div>
+</div>
+<div id="toasts" class="toasts" aria-live="polite"></div>
 </body>
 </html>
