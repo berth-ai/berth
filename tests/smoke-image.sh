@@ -177,7 +177,10 @@ sleep 2
 pc main -f -d '{"user":"smoke","password":"smoke smoke smoke"}' "$panel/api/login" >/dev/null || fail "login"
 pc main -f "$panel/api/status" | jq -e '.mode == "normal" and .host.panel_port == "7690" and .agents.current != null' >/dev/null ||
   fail "status"
-x main curl -fsS -b "$jar" "$panel/terminal/" | grep -qi ttyd || fail "terminal through the proxy"
+# Read the whole page first: grep -q would close the pipe early, and the
+# SIGPIPE fails the pipeline under pipefail.
+term_page=$(x main curl -fsS -b "$jar" "$panel/terminal/") || fail "terminal through the proxy"
+grep -qi ttyd <<<"$term_page" || fail "terminal through the proxy"
 ws=$(x main curl -s -o /dev/null -w '%{http_code}' --http1.1 --max-time 3 -b "$jar" \
   -H 'Connection: Upgrade' -H 'Upgrade: websocket' -H 'Sec-WebSocket-Version: 13' \
   -H 'Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==' -H 'Sec-WebSocket-Protocol: tty' \
@@ -275,7 +278,9 @@ listens_on_loopback_only main 8080 || fail "code-server listens beyond loopback"
 ide=$(code_of main "$panel/ide/")
 [[ $ide == 200 || $ide == 302 ]] || fail "IDE through the proxy answered $ide"
 if [[ $ide == 302 ]]; then
-  loc=$(x main curl -s -o /dev/null -w '%{redirect_url}' -b "$jar" "$panel/ide/")
+  # Follow it: curl 8.5 computes %{redirect_url} for "./?folder=…" without
+  # the trailing slash, though it requests the right URL.
+  loc=$(x main curl -sL -o /dev/null -w '%{url_effective}' -b "$jar" "$panel/ide/")
   [[ $loc == "$panel/ide/"* ]] || fail "IDE redirects outside /ide/: $loc"
 fi
 x main berth config set runtime.tz=Europe/Rome --json | jq -e '.changes.restarted == ["ttyd","code_server"]' >/dev/null ||
