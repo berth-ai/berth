@@ -22,5 +22,6 @@
     }
   },
   "mode": "normal",
-  "schema": 1
+  "schema": 1,
+  "secrets": {}
 }

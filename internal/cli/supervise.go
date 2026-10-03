@@ -81,6 +81,10 @@ func runSupervise(ctx context.Context, a *app, args []string) error {
 	b.Agents = a.agentsReport
 	b.Host = broker.HostFromEnv(a.cfg.Getenv)
 	b.Log = a.p.Stderr
+	layer := a.layer()
+	b.Layer = &layer
+	b.Agent = a.cfg.Agent
+	b.MCPSetup = a.cfg.MCPSetup
 	cfg := b.Load()
 
 	if err := os.MkdirAll(dirOf(a.cfg.BrokerSocket), 0o755); err != nil {

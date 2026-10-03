@@ -46,7 +46,7 @@ func TestLayerHonoursDisabled(t *testing.T) {
 func TestBootFixesKeysGroup(t *testing.T) {
 	cfg := layerConfig(t)
 	agentlayer.WriteKeys(cfg.KeysPath, map[string]string{"A_KEY": "x"}, -1, -1)
-	var got int = -2
+	got := -2
 	fixOwner = func(path string, gid int) error { got = gid; return nil }
 	t.Cleanup(func() { fixOwner = agentlayer.FixOwner })
 	cfg.Agent = &runner.Identity{UID: 1000, GID: 4242}

@@ -191,9 +191,10 @@ func (b *Broker) serviceRestart(_ context.Context, body []byte) (int, any) {
 
 // configView is the answer to config.get.
 type configView struct {
-	Config config.Config `json:"config"`
-	Mode   string        `json:"mode"`
-	Error  string        `json:"error,omitempty"`
+	Config  config.Config              `json:"config"`
+	Mode    string                     `json:"mode"`
+	Error   string                     `json:"error,omitempty"`
+	Secrets map[string]map[string]bool `json:"secrets"`
 }
 
 func (b *Broker) configGet(_ context.Context, body []byte) (int, any) {
@@ -201,7 +202,7 @@ func (b *Broker) configGet(_ context.Context, body []byte) (int, any) {
 		return badRequest(err)
 	}
 	cfg, mode, modeErr := b.snapshot()
-	return http.StatusOK, configView{Config: cfg, Mode: mode, Error: modeErr}
+	return http.StatusOK, configView{Config: cfg, Mode: mode, Error: modeErr, Secrets: b.secretStates()}
 }
 
 func (b *Broker) configExport(_ context.Context, body []byte) (int, any) {
@@ -217,28 +218,49 @@ func (b *Broker) configExport(_ context.Context, body []byte) (int, any) {
 
 func (b *Broker) configApply(_ context.Context, body []byte) (int, any) {
 	var in struct {
-		Patch        json.RawMessage `json:"patch"`
-		BaseRevision *int            `json:"base_revision"`
+		Patch        json.RawMessage    `json:"patch"`
+		BaseRevision *int               `json:"base_revision"`
+		Secrets      map[string]*string `json:"secrets"`
 	}
 	if err := decode(body, &in); err != nil {
 		return badRequest(err)
 	}
-	if in.BaseRevision == nil {
-		return badRequest(errors.New("base_revision is required"))
-	}
-	if len(in.Patch) == 0 {
-		return badRequest(errors.New("patch is required"))
+	hasPatch := len(in.Patch) > 0 && string(in.Patch) != "null"
+	switch {
+	case !hasPatch && len(in.Secrets) == 0:
+		return badRequest(errors.New("send a patch, secrets, or both"))
+	case hasPatch && in.BaseRevision == nil:
+		return badRequest(errors.New("base_revision is required with a patch"))
+	case len(in.Secrets) > 0 && b.Layer == nil:
+		return badRequest(errors.New("this broker manages no agent keys"))
 	}
 	b.change.Lock()
 	defer b.change.Unlock()
-	if _, mode, _ := b.snapshot(); mode == ModeSetup {
+	cur, mode, _ := b.snapshot()
+	switch mode {
+	case ModeSetup:
 		return fail(http.StatusConflict, "setup_required", "no login exists yet; finish setup first")
-	}
-	if _, mode, _ := b.snapshot(); mode == ModeRecovery {
+	case ModeRecovery:
 		return fail(http.StatusConflict, "recovery", "the config is unusable; revert it or reset it to the defaults first")
 	}
-	old, next, err := b.Store.Apply(in.Patch, *in.BaseRevision)
-	return b.changed(old, next, err)
+	if err := b.checkSecrets(in.Secrets); err != nil {
+		return validationResponse(err)
+	}
+	old, next := cur, cur
+	if hasPatch {
+		var err error
+		if old, next, err = b.Store.Apply(in.Patch, *in.BaseRevision); err != nil {
+			return b.changed(old, next, err)
+		}
+	}
+	if len(in.Secrets) > 0 {
+		if err := b.writeSecrets(in.Secrets); err != nil {
+			return fail(http.StatusInternalServerError, "write_failed", "%v", err)
+		}
+	}
+	code, v := b.changed(old, next, nil)
+	b.refreshAgents(old, next)
+	return code, v
 }
 
 func (b *Broker) configRevert(_ context.Context, body []byte) (int, any) {
@@ -250,8 +272,13 @@ func (b *Broker) configRevert(_ context.Context, body []byte) (int, any) {
 	if _, mode, _ := b.snapshot(); mode == ModeSetup {
 		return fail(http.StatusConflict, "setup_required", "no login exists yet; finish setup first")
 	}
+	before, _, _ := b.snapshot()
 	old, next, err := b.Store.Revert()
-	return b.changed(old, next, err)
+	code, v := b.changed(old, next, err)
+	if code == http.StatusOK {
+		b.refreshAgents(before, next)
+	}
+	return code, v
 }
 
 func (b *Broker) configReset(_ context.Context, body []byte) (int, any) {
@@ -263,8 +290,13 @@ func (b *Broker) configReset(_ context.Context, body []byte) (int, any) {
 	if _, mode, _ := b.snapshot(); mode == ModeSetup {
 		return fail(http.StatusConflict, "setup_required", "no login exists yet; finish setup first")
 	}
+	before, _, _ := b.snapshot()
 	old, next, err := b.Store.Reset()
-	return b.changed(old, next, err)
+	code, v := b.changed(old, next, err)
+	if code == http.StatusOK {
+		b.refreshAgents(before, next)
+	}
+	return code, v
 }
 
 // changed answers a store change. On success it leaves recovery mode and

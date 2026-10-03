@@ -15,8 +15,10 @@ import (
 	"sync"
 	"time"
 
+	"github.com/salgnt/berth/internal/agentlayer"
 	"github.com/salgnt/berth/internal/config"
 	"github.com/salgnt/berth/internal/login"
+	"github.com/salgnt/berth/internal/runner"
 	"github.com/salgnt/berth/internal/status"
 	"github.com/salgnt/berth/internal/supervisor"
 )
@@ -61,6 +63,12 @@ type Broker struct {
 	Log  io.Writer
 	// PeerUID identifies the caller; it defaults to the uid ConnContext stored.
 	PeerUID func(r *http.Request) (uid int, ok bool)
+	// Layer builds /var/lib/berth/bin; nil disables agent toggles and keys.
+	Layer *agentlayer.Builder
+	// Agent is who agent-side jobs run as; nil runs them as the caller.
+	Agent *runner.Identity
+	// MCPSetup is berth-mcp-setup; empty skips MCP registration.
+	MCPSetup string
 
 	change  sync.Mutex // serializes config changes and service restarts
 	mu      sync.Mutex // guards the fields below
@@ -132,13 +140,14 @@ func (b *Broker) snapshot() (config.Config, string, string) {
 
 // StatusReport is the answer to GET /status.
 type StatusReport struct {
-	Mode        string              `json:"mode"`
-	ConfigError string              `json:"config_error,omitempty"`
-	Revision    int                 `json:"revision"`
-	Services    []supervisor.Status `json:"services"`
-	Agents      *status.Report      `json:"agents"`
-	AgentsError string              `json:"agents_error,omitempty"`
-	Host        Host                `json:"host"`
+	Mode        string               `json:"mode"`
+	ConfigError string               `json:"config_error,omitempty"`
+	Revision    int                  `json:"revision"`
+	Services    []supervisor.Status  `json:"services"`
+	Agents      *status.Report       `json:"agents"`
+	AgentsError string               `json:"agents_error,omitempty"`
+	Packages    []agentlayer.Package `json:"packages"`
+	Host        Host                 `json:"host"`
 }
 
 // Status reports the mode, the services and the agent store.
@@ -151,6 +160,13 @@ func (b *Broker) Status() StatusReport {
 			st.AgentsError = err.Error()
 		} else {
 			st.Agents = &rep
+		}
+	}
+	st.Packages = []agentlayer.Package{}
+	if b.Layer != nil {
+		// An error here already shows as agents_error.
+		if pkgs, err := b.Layer.Packages(cfg.Agents.Disabled); err == nil {
+			st.Packages = pkgs
 		}
 	}
 	return st
