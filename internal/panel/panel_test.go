@@ -14,6 +14,8 @@ import (
 	"time"
 
 	"github.com/salgnt/berth/internal/broker"
+	"github.com/salgnt/berth/internal/config"
+	"github.com/salgnt/berth/internal/supervisor"
 )
 
 func TestParseCredential(t *testing.T) {
@@ -52,9 +54,13 @@ func (f *fakeBroker) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusBadGateway)
 		io.WriteString(w, `{"error":{"code":"fetch_failed"}}`)
 	case "/jobs":
-		w.WriteHeader(http.StatusAccepted)
-		io.WriteString(w, `{"job":{"id":1}}`)
+		io.WriteString(w, `{"jobs":[]}`)
 	default:
+		if strings.HasPrefix(r.URL.Path, "/verbs/") {
+			w.WriteHeader(http.StatusAccepted)
+			io.WriteString(w, `{"job":{"id":1}}`)
+			return
+		}
 		io.WriteString(w, `{"job":null}`)
 	}
 }
@@ -181,21 +187,41 @@ func TestReadProxy(t *testing.T) {
 	if resp.StatusCode != http.StatusBadGateway || !strings.Contains(body, "fetch_failed") {
 		t.Errorf("status = %d %s", resp.StatusCode, body)
 	}
-	if got, _ := fb.last(); got != "GET /status?check=1" {
-		t.Errorf("broker saw %q", got)
-	}
-	send(t, srv, req{method: "GET", path: "/api/status"})
 	if got, _ := fb.last(); got != "GET /status" {
 		t.Errorf("broker saw %q", got)
 	}
-	resp, body = send(t, srv, req{method: "GET", path: "/api/job"})
-	if resp.StatusCode != 200 || body != `{"job":null}` || resp.Header.Get("Content-Type") != "application/json" {
+	resp, body = send(t, srv, req{method: "GET", path: "/api/jobs"})
+	if resp.StatusCode != 200 || body != `{"jobs":[]}` || resp.Header.Get("Content-Type") != "application/json" {
+		t.Errorf("jobs = %d %s", resp.StatusCode, body)
+	}
+	if got, _ := fb.last(); got != "GET /jobs" {
+		t.Errorf("broker saw %q", got)
+	}
+	resp, body = send(t, srv, req{method: "GET", path: "/api/jobs/7"})
+	if resp.StatusCode != 200 || body != `{"job":null}` {
 		t.Errorf("job = %d %s", resp.StatusCode, body)
 	}
-	if got, _ := fb.last(); got != "GET /jobs/current" {
+	if got, _ := fb.last(); got != "GET /jobs/7" {
 		t.Errorf("broker saw %q", got)
 	}
 	assertSecurityHeaders(t, resp)
+}
+
+func TestVerbAllowlist(t *testing.T) {
+	srv, fb := newTestPanel(t)
+	h := map[string]string{"Content-Type": "application/json", "X-Berth-Panel": "1"}
+	for _, verb := range []string{"frobnicate", "..%2fstatus", "auth.verify"} {
+		before := len(fb.requests)
+		resp, body := send(t, srv, req{method: "POST", path: "/api/verbs/" + verb, body: `{}`, header: h})
+		if resp.StatusCode != http.StatusNotFound || !strings.Contains(body, "unknown_verb") || len(fb.requests) != before {
+			t.Errorf("%s: %d %s", verb, resp.StatusCode, body)
+		}
+	}
+	for _, path := range []string{"/api/jobs/x", "/api/jobs/1a"} {
+		if resp, _ := send(t, srv, req{method: "GET", path: path}); resp.StatusCode != http.StatusNotFound {
+			t.Errorf("GET %s = %d", path, resp.StatusCode)
+		}
+	}
 }
 
 func TestJobPostCSRF(t *testing.T) {
@@ -238,7 +264,7 @@ func TestJobPostCSRF(t *testing.T) {
 			fb.mu.Lock()
 			n := len(fb.requests)
 			fb.mu.Unlock()
-			resp, _ := send(t, srv, req{method: "POST", path: "/api/jobs", body: `{"action":"rollback"}`, header: tc.header})
+			resp, _ := send(t, srv, req{method: "POST", path: "/api/verbs/rollback", body: `{}`, header: tc.header})
 			if resp.StatusCode != tc.want {
 				t.Fatalf("status = %d, want %d", resp.StatusCode, tc.want)
 			}
@@ -251,14 +277,14 @@ func TestJobPostCSRF(t *testing.T) {
 		})
 	}
 	got, body := fb.last()
-	if got != "POST /jobs" || body != `{"action":"rollback"}` {
+	if got != "POST /verbs/rollback" || body != `{}` {
 		t.Errorf("broker saw %q %q", got, body)
 	}
 }
 
 func TestMethodNotAllowed(t *testing.T) {
 	srv, _ := newTestPanel(t)
-	for _, r := range []req{{method: "GET", path: "/api/jobs"}, {method: "POST", path: "/api/status"}, {method: "DELETE", path: "/api/job"}} {
+	for _, r := range []req{{method: "GET", path: "/api/verbs/update"}, {method: "POST", path: "/api/status"}, {method: "DELETE", path: "/api/jobs"}} {
 		if resp, _ := send(t, srv, r); resp.StatusCode != http.StatusMethodNotAllowed {
 			t.Errorf("%s %s = %d", r.method, r.path, resp.StatusCode)
 		}
@@ -296,33 +322,42 @@ func TestThroughSocket(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	ctx, cancel := context.WithCancel(context.Background())
-	b := broker.New(ctx, func(_ context.Context, args []string, stdout, _ io.Writer) (int, error) {
-		io.WriteString(stdout, `{"args":"`+strings.Join(args, " ")+`","schema":1}`)
-		return 0, nil
-	})
+	jobsCtx, cancel := context.WithCancel(context.Background())
+	jobs := broker.NewJobs(jobsCtx)
+	b := broker.New(&config.Store{Dir: t.TempDir()}, noServices{}, jobs,
+		func(_ context.Context, args []string, stdout, _ io.Writer) (int, error) {
+			io.WriteString(stdout, `{"args":"`+strings.Join(args, " ")+`","schema":1}`)
+			return 0, nil
+		})
+	b.Load()
 	bsrv := &http.Server{Handler: b.Handler(), ReadHeaderTimeout: time.Second}
 	go bsrv.Serve(l)
-	t.Cleanup(func() { bsrv.Close(); cancel(); b.Wait() })
+	t.Cleanup(func() { bsrv.Close(); cancel(); jobs.Wait() })
 
-	s, err := New("me:pw", UnixClient(sock), BrokerURL)
+	s, err := New("me:pw", broker.UnixClient(sock), broker.BaseURL)
 	if err != nil {
 		t.Fatal(err)
 	}
 	srv := httptest.NewServer(s)
 	defer srv.Close()
-	resp, body := send(t, srv, req{method: "GET", path: "/api/status?check=1"})
-	if resp.StatusCode != 200 || !strings.Contains(body, `"args":"status --json --check"`) {
+	resp, body := send(t, srv, req{method: "GET", path: "/api/status"})
+	if resp.StatusCode != 200 || !strings.Contains(body, `"mode":"normal"`) {
 		t.Fatalf("status = %d %s", resp.StatusCode, body)
 	}
-	resp, body = send(t, srv, req{method: "POST", path: "/api/jobs", body: `{"action":"update","image":true}`,
+	resp, body = send(t, srv, req{method: "POST", path: "/api/verbs/update", body: `{"image":true}`,
 		header: map[string]string{"Content-Type": "application/json", "X-Berth-Panel": "1"}})
 	if resp.StatusCode != http.StatusAccepted {
 		t.Fatalf("post = %d %s", resp.StatusCode, body)
 	}
-	b.Wait()
-	_, body = send(t, srv, req{method: "GET", path: "/api/job"})
+	jobs.Wait()
+	_, body = send(t, srv, req{method: "GET", path: "/api/jobs/1"})
 	if !strings.Contains(body, `"state":"succeeded"`) || !strings.Contains(body, `update --json --image`) {
 		t.Errorf("job = %s", body)
 	}
 }
+
+type noServices struct{}
+
+func (noServices) Reconcile([]supervisor.Spec) supervisor.Changes { return supervisor.Changes{} }
+func (noServices) Restart(string) error                           { return nil }
+func (noServices) Status() []supervisor.Status                    { return []supervisor.Status{} }

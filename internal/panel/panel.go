@@ -5,7 +5,6 @@ package panel
 
 import (
 	"bytes"
-	"context"
 	"crypto/sha256"
 	"crypto/subtle"
 	"embed"
@@ -13,17 +12,13 @@ import (
 	"errors"
 	"io"
 	"mime"
-	"net"
 	"net/http"
 	"net/url"
+	"regexp"
 	"strings"
-	"time"
 )
 
-// BrokerURL is the base URL used with UnixClient; the host is ignored.
-const BrokerURL = "http://broker"
-
-const maxBodyBytes = 4 << 10
+const maxBodyBytes = 64 << 10
 
 //go:embed static
 var static embed.FS
@@ -51,19 +46,6 @@ func ParseCredential(cred string) (user, pass string, err error) {
 	return user, pass, nil
 }
 
-// UnixClient returns a client that sends every request to the broker socket.
-func UnixClient(socket string) *http.Client {
-	var d net.Dialer
-	return &http.Client{
-		Timeout: 3 * time.Minute, // above the broker's own status timeout
-		Transport: &http.Transport{
-			DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
-				return d.DialContext(ctx, "unix", socket)
-			},
-		},
-	}
-}
-
 // New returns a panel for credential that forwards API calls to brokerURL.
 func New(credential string, client *http.Client, brokerURL string) (*Server, error) {
 	user, pass, err := ParseCredential(credential)
@@ -79,9 +61,14 @@ func New(credential string, client *http.Client, brokerURL string) (*Server, err
 	}
 	s.mux.HandleFunc("GET /{$}", s.handleIndex)
 	s.mux.HandleFunc("GET /static/{name}", s.handleAsset)
-	s.mux.HandleFunc("GET /api/status", s.handleStatus)
-	s.mux.HandleFunc("GET /api/job", s.handleJob)
-	s.mux.HandleFunc("POST /api/jobs", s.handleStart)
+	s.mux.HandleFunc("GET /api/status", func(w http.ResponseWriter, r *http.Request) {
+		s.forward(w, r, http.MethodGet, "/status", nil)
+	})
+	s.mux.HandleFunc("GET /api/jobs", func(w http.ResponseWriter, r *http.Request) {
+		s.forward(w, r, http.MethodGet, "/jobs", nil)
+	})
+	s.mux.HandleFunc("GET /api/jobs/{id}", s.handleJob)
+	s.mux.HandleFunc("POST /api/verbs/{verb}", s.handleVerb)
 	return s, nil
 }
 
@@ -130,21 +117,40 @@ func (s *Server) handleAsset(w http.ResponseWriter, r *http.Request) {
 	_, _ = w.Write(body)
 }
 
-func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
-	path := "/status"
-	if r.URL.Query().Get("check") == "1" {
-		path += "?check=1"
-	}
-	s.forward(w, r, http.MethodGet, path, nil)
+// browserVerbs are the broker verbs the browser may call. Verbs the panel
+// uses internally (login, setup) never appear here.
+var browserVerbs = map[string]bool{
+	"update":          true,
+	"rollback":        true,
+	"gc":              true,
+	"update.check":    true,
+	"service.restart": true,
+	"config.get":      true,
+	"config.export":   true,
+	"config.apply":    true,
+	"config.revert":   true,
+	"config.reset":    true,
 }
+
+var jobID = regexp.MustCompile(`^[0-9]{1,9}$`)
 
 func (s *Server) handleJob(w http.ResponseWriter, r *http.Request) {
-	s.forward(w, r, http.MethodGet, "/jobs/current", nil)
+	id := r.PathValue("id")
+	if !jobID.MatchString(id) {
+		writeError(w, http.StatusNotFound, "not_found", "no such job")
+		return
+	}
+	s.forward(w, r, http.MethodGet, "/jobs/"+id, nil)
 }
 
-func (s *Server) handleStart(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handleVerb(w http.ResponseWriter, r *http.Request) {
 	if msg := csrfProblem(r); msg != "" {
 		writeError(w, http.StatusForbidden, "forbidden", msg)
+		return
+	}
+	verb := r.PathValue("verb")
+	if !browserVerbs[verb] {
+		writeError(w, http.StatusNotFound, "unknown_verb", "unknown verb")
 		return
 	}
 	body, err := io.ReadAll(io.LimitReader(r.Body, maxBodyBytes+1))
@@ -153,10 +159,10 @@ func (s *Server) handleStart(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if len(body) > maxBodyBytes {
-		writeError(w, http.StatusRequestEntityTooLarge, "invalid_request", "request too large")
+		writeError(w, http.StatusRequestEntityTooLarge, "too_large", "request too large")
 		return
 	}
-	s.forward(w, r, http.MethodPost, "/jobs", body)
+	s.forward(w, r, http.MethodPost, "/verbs/"+verb, body)
 }
 
 // csrfProblem explains why r may come from another site, or returns "".

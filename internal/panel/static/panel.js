@@ -107,30 +107,24 @@ function renderSet(container, set) {
 }
 
 function renderStatus(st) {
-  const b = st.build || {};
+  const agents = st.agents || {};
+  if (st.mode === "recovery") {
+    banner("Recovery mode: " + (st.config_error || "the config is unusable") +
+      ". Run berth config revert or berth config reset as root.");
+  }
+  if (st.agents_error) banner("Could not read the agent store: " + st.agents_error);
+  const b = agents.build || {};
   $("build").textContent = b.version
     ? "berth " + b.version + (b.commit ? " (" + short(b.commit) + ")" : "") + (b.arch ? " · " + b.arch : "")
     : "";
-  $("mode").textContent = st.follow_image ? "follows the image" : "pinned";
-  $("mode").title = st.follow_image
+  $("mode").textContent = agents.follow_image ? "follows the image" : "pinned";
+  $("mode").title = agents.follow_image
     ? "Restarts install the agent set shipped with a newer image."
     : "Restarts keep this agent set.";
-  renderSet($("current"), st.current);
-  renderSet($("previous"), st.previous);
-  $("rollback").hidden = !st.previous;
-
-  const tools = $("tools");
-  tools.replaceChildren();
-  const list = st.user_tools || [];
-  if (list.length === 0) {
-    const p = el("p", null, "muted");
-    p.append("None. Add one with ", el("code", "mise use -g <tool>@<version>"), ".");
-    tools.append(p);
-  } else {
-    tools.append(definitionList(list.map((t) => [t.name, t.version, "mono"])));
-  }
-  const warnings = $("warnings");
-  warnings.replaceChildren(...(st.warnings || []).map((w) => el("li", w)));
+  renderSet($("current"), agents.current);
+  renderSet($("previous"), agents.previous);
+  $("rollback").hidden = !agents.previous;
+  $("warnings").replaceChildren(...(agents.warnings || []).map((w) => el("li", w)));
 }
 
 async function loadStatus() {
@@ -144,6 +138,14 @@ async function loadStatus() {
   return r.body;
 }
 
+function post(verb, input) {
+  return api("/api/verbs/" + verb, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "X-Berth-Panel": "1" },
+    body: JSON.stringify(input || {}),
+  });
+}
+
 async function check() {
   const out = $("check-result");
   const button = $("check");
@@ -151,14 +153,13 @@ async function check() {
   out.hidden = false;
   out.className = "muted";
   out.textContent = "Checking the agent lock on main…";
-  const r = await api("/api/status?check=1");
+  const r = await post("update.check");
   button.disabled = false;
   if (!r.ok || !r.body || !r.body.check) {
     out.className = "error";
     out.textContent = "Check failed: " + errorText(r.body, "HTTP " + r.status);
     return;
   }
-  renderStatus(r.body);
   const c = r.body.check;
   if (c.update_available) {
     out.className = "";
@@ -177,7 +178,7 @@ function summarize(job) {
     return errorText(res, "failed") + exit;
   }
   const hash = res.current ? res.current.hash : "none";
-  if (job.action === "rollback") return "Now on " + hash + ".";
+  if (job.verb === "rollback") return "Now on " + hash + ".";
   if (res.changed === false) return "Already on " + hash + "; nothing to do.";
   if (res.installed) return "Installed and activated " + hash + ".";
   return "Activated " + hash + ".";
@@ -220,12 +221,20 @@ function setRunning(running) {
   $("rollback").disabled = running;
 }
 
+async function latestJob() {
+  const list = await api("/api/jobs");
+  if (!list.ok || !list.body) return list;
+  const newest = (list.body.jobs || [])[0];
+  if (!newest) return { ok: true, body: { job: null } };
+  return api("/api/jobs/" + newest.id);
+}
+
 async function poll() {
   if (polling) return;
   polling = true;
   try {
     for (;;) {
-      const r = await api("/api/job");
+      const r = await latestJob();
       if (!r.ok || !r.body) {
         banner("Could not read the job: " + errorText(r.body, "HTTP " + r.status));
         return;
@@ -243,11 +252,9 @@ async function poll() {
 }
 
 async function startJob(request) {
-  const r = await api("/api/jobs", {
-    method: "POST",
-    headers: { "Content-Type": "application/json", "X-Berth-Panel": "1" },
-    body: JSON.stringify(request),
-  });
+  const verb = request.verb;
+  delete request.verb;
+  const r = await post(verb, request);
   if (r.status === 409) {
     banner("Another job is already running.");
   } else if (!r.ok) {
@@ -285,12 +292,12 @@ function armed(button, prompt, action) {
 
 function updateRequest() {
   const source = document.querySelector('input[name="source"]:checked').value;
-  if (source === "image") return { action: "update", image: true };
+  if (source === "image") return { verb: "update", image: true };
   if (source === "ref") {
     const ref = $("ref").value.trim();
-    return ref ? { action: "update", ref } : null;
+    return ref ? { verb: "update", ref } : null;
   }
-  return { action: "update" };
+  return { verb: "update", ref: "main" };
 }
 
 function init() {
@@ -315,7 +322,7 @@ function init() {
   $("ref").addEventListener("focus", () => {
     document.querySelector('input[name="source"][value="ref"]').checked = true;
   });
-  $("rollback").addEventListener("click", armed($("rollback"), () => "Confirm rollback", () => startJob({ action: "rollback" })));
+  $("rollback").addEventListener("click", armed($("rollback"), () => "Confirm rollback", () => startJob({ verb: "rollback" })));
   $("check").addEventListener("click", check);
   loadStatus();
   poll();
