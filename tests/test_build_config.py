@@ -201,7 +201,7 @@ class WorkflowTest(unittest.TestCase):
         for job in ("lint:", "go-test:", "shell-test:"):
             self.assertIn(f"\n  {job}", text)
         self.assertIn("name: image-${{ matrix.arch }}", text)
-        self.assertIn("runner: ubuntu-24.04-arm", text)
+        self.assertIn("- arch: amd64\n            runner: ubuntu-24.04\n", text)
 
     def test_no_moving_image_tags(self):
         for name, text in self.all_workflows().items():
@@ -225,7 +225,7 @@ class ReleaseTest(unittest.TestCase):
         self.assertIn("provenance: mode=max", self.text)
         self.assertIn("sbom: true", self.text)
         self.assertIn("push-by-digest=true", self.text)
-        self.assertIn("runner: ubuntu-24.04-arm", self.text)
+        self.assertIn("- arch: amd64\n            runner: ubuntu-24.04\n", self.text)
 
     def test_write_permissions_scoped_to_jobs(self):
         top = self.text.split("\njobs:")[0]
