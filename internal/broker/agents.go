@@ -184,7 +184,7 @@ func (b *Broker) refreshAgents(old, next config.Config, tokens bool) {
 			return
 		}
 	}
-	if b.Layer == nil || len(b.MCPSetup) == 0 || !(disabled || settings || tokens) {
+	if b.Layer == nil || len(b.MCPSetup) == 0 || !disabled && !settings && !tokens {
 		return
 	}
 	b.startMCPSetup(time.Duration(next.Agents.MCPTimeout) * time.Second)
