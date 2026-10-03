@@ -76,10 +76,15 @@ func (e Exec) Run(ctx context.Context, c Cmd) error {
 	cmd.Env = append(os.Environ(), c.Env...)
 	cmd.Stdout, cmd.Stderr = e.Stdout, e.Stderr
 	cmd.WaitDelay = 5 * time.Second
+	// Each command leads its own process group, and a timeout or cancel kills
+	// the whole group: a child that holds the output pipe (git under mise,
+	// say) would otherwise outlive the command and stall Wait.
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	cmd.Cancel = func() error { return syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL) }
 	if c.AsAgent && e.Agent != nil {
-		cmd.SysProcAttr = &syscall.SysProcAttr{Credential: &syscall.Credential{
+		cmd.SysProcAttr.Credential = &syscall.Credential{
 			Uid: e.Agent.UID, Gid: e.Agent.GID, Groups: []uint32{},
-		}}
+		}
 		cmd.Env = agentEnv(os.Environ(), c.Env, e.Agent)
 	}
 	err := cmd.Run()

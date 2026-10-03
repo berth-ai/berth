@@ -45,6 +45,21 @@ func TestExecTimeout(t *testing.T) {
 	}
 }
 
+func TestExecTimeoutKillsChildren(t *testing.T) {
+	// A grandchild that holds the output pipe must not keep Run waiting
+	// past the timeout.
+	var out bytes.Buffer
+	start := time.Now()
+	err := Exec{Stdout: &out, Stderr: &out}.Run(context.Background(),
+		Cmd{Path: "sh", Args: []string{"-c", "sleep 5; echo done"}, Timeout: 100 * time.Millisecond})
+	if err == nil || !strings.Contains(err.Error(), "timed out") {
+		t.Fatalf("err = %v", err)
+	}
+	if time.Since(start) > 2*time.Second {
+		t.Fatalf("Run returned after %s", time.Since(start))
+	}
+}
+
 func TestExecAsAgentWithoutIdentityRunsAsSelf(t *testing.T) {
 	var out bytes.Buffer
 	if err := (Exec{Stdout: &out}).Run(context.Background(), Cmd{Path: "id", Args: []string{"-u"}, AsAgent: true}); err != nil {
