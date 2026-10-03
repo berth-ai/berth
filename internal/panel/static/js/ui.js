@@ -363,7 +363,7 @@ export function table(columns, rows) {
   return h("div", { class: "table-wrap" }, h("table", null,
     h("thead", null, h("tr", null, columns.map((c) => h("th", { class: c.num ? "num" : null, text: c.label })))),
     h("tbody", null, rows.map((cells) => h("tr", null, cells.map((cell, i) =>
-      h("td", { class: columns[i].num ? "num" : null, "data-label": columns[i].label }, cell)))))));
+      h("td", { class: columns[i].num ? "num" : null, "data-label": columns[i].label || null }, cell)))))));
 }
 
 export function facts(pairs) {
