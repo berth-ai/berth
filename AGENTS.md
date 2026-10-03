@@ -10,7 +10,7 @@ of what is done; do not keep status checklists in the repo.
 - `build/`: build-time helpers, bind-mounted during `docker build`, never shipped.
 - `agents/`: the agent lockfile. `tools/mise.toml`: the base toolchain.
 - `tests/`: Python `unittest` for shell and build config; `tests/smoke-image.sh` for images.
-- `web/`: the panel UI (React, Vite, pnpm), from `SalGnt/template-web`. `pnpm build` fills `web/dist`, which `package web` embeds; `internal/panel/devserver` runs the panel against a fake broker for UI work.
+- `web/`: the panel UI (React, Vite, pnpm), from `SalGnt/template-web`. `pnpm build` fills `web/dist`, which `package web` embeds; `internal/panel/devserver` runs the panel against a fake broker for UI work. `web/DESIGN.md` is the panel's design system; read it before any UI change.
 
 ## Checks before every commit
 
