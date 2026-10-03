@@ -8,5 +8,12 @@
     "@playwright/mcp": "0.0.83",
     "@upstash/context7-mcp": "4.1.1",
     "opencode-ai": "1.18.33"
+  },
+  "berth": {
+    "@anthropic-ai/claude-code": { "kind": "agent", "name": "Claude Code", "keys": ["ANTHROPIC_API_KEY"] },
+    "@openai/codex": { "kind": "agent", "name": "Codex", "keys": ["OPENAI_API_KEY"] },
+    "opencode-ai": { "kind": "agent", "name": "OpenCode", "keys": [] },
+    "@playwright/mcp": { "kind": "mcp", "name": "Playwright MCP", "keys": [] },
+    "@upstash/context7-mcp": { "kind": "mcp", "name": "Context7", "keys": ["CONTEXT7_API_KEY"] }
   }
 }

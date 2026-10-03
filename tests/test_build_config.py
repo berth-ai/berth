@@ -15,6 +15,20 @@ def read(rel):
 
 
 class AgentsLockTest(unittest.TestCase):
+    def test_every_dependency_has_berth_metadata(self):
+        pkg = json.loads(read("agents/package.json"))
+        meta = pkg["berth"]
+        self.assertEqual(sorted(meta), sorted(pkg["dependencies"]))
+        seen = set()
+        for name, entry in meta.items():
+            self.assertEqual(sorted(entry), ["keys", "kind", "name"], name)
+            self.assertIn(entry["kind"], ("agent", "mcp"), name)
+            self.assertTrue(entry["name"], name)
+            for key in entry["keys"]:
+                self.assertRegex(key, r"^[A-Z][A-Z0-9_]{0,63}$", name)
+                self.assertNotIn(key, seen)
+                seen.add(key)
+
     def test_exact_versions_only(self):
         deps = json.loads(read("agents/package.json"))["dependencies"]
         self.assertEqual(sorted(deps), sorted([
