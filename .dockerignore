@@ -7,5 +7,6 @@
 !agents/package.json
 !agents/package-lock.json
 !tools/mise.toml
+!tools/presets/
 !build/
 internal/**/testdata/
