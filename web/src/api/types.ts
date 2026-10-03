@@ -61,6 +61,8 @@ export interface AgentPackage {
   bins: string[] | null;
   keys: PackageKey[] | null;
   mcp_id?: string;
+  skills_dir?: string;
+  skills_via?: string[];
 }
 
 export type McpAuth = "none" | "bearer" | "oauth";
@@ -68,6 +70,16 @@ export type McpAuth = "none" | "bearer" | "oauth";
 export interface McpServer {
   url: string;
   auth: McpAuth;
+  enabled: boolean;
+}
+
+export interface Skill {
+  repo: string;
+  path: string;
+  ref: string;
+  commit: string;
+  description: string;
+  agents: string[] | null;
   enabled: boolean;
 }
 
@@ -108,6 +120,8 @@ export interface Config {
     servers: Record<string, McpServer> | null;
     available: Record<string, string[]> | null;
   };
+  // An older broker omits it.
+  skills?: Record<string, Skill> | null;
 }
 
 export interface ConfigView {
@@ -147,7 +161,7 @@ export interface Job {
   started_at: string;
   finished_at: string | null;
   exit_code: number | null;
-  result: { error?: JobError } | null;
+  result: { error?: JobError & { field?: string }; changed?: boolean; skill?: string } | null;
   log?: string;
   log_truncated: boolean;
   device?: Device;

@@ -50,12 +50,12 @@ export function readImport(text: string, base: Config): ParsedImport {
     return { ok: false, error: "That file is not JSON." };
   }
   const cfg = isObject(doc) && isObject(doc.config) ? doc.config : doc;
-  if (!isObject(cfg) || (cfg.schema !== 1 && cfg.schema !== 2))
+  if (!isObject(cfg) || ![1, 2, 3].includes(cfg.schema as number))
     return { ok: false, error: "That file is not a Berth config export." };
   const patch = { ...cfg };
   delete patch.schema;
   delete patch.revision;
-  const rows = [...PATHS, "agents.ref", "agents.disabled", "mcp.servers", "mcp.available"]
+  const rows = [...PATHS, "agents.ref", "agents.disabled", "mcp.servers", "mcp.available", "skills"]
     .filter(
       (p) =>
         getPath(cfg, p) !== undefined &&

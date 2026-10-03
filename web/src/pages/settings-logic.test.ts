@@ -60,7 +60,7 @@ describe("predict", () => {
 describe("readImport", () => {
   it("rejects files that are not exports", () => {
     expect(readImport("not json", base)).toEqual({ ok: false, error: "That file is not JSON." });
-    expect(readImport('{"schema":3}', base)).toEqual({
+    expect(readImport('{"schema":4}', base)).toEqual({
       ok: false,
       error: "That file is not a Berth config export.",
     });
@@ -87,5 +87,20 @@ describe("readImport", () => {
     const base2: Config = { ...base, schema: 2, mcp: { servers: {}, available: {} } };
     const parsed = readImport(JSON.stringify({ ...base2, mcp }), base2);
     expect(parsed).toMatchObject({ ok: true, rows: [{ path: "mcp.servers" }] });
+  });
+
+  it("accepts schema 3 exports and lists skill changes", () => {
+    const pdf = {
+      repo: "https://github.com/anthropics/skills",
+      path: "skills/pdf",
+      ref: "main",
+      commit: "0123456789abcdef0123456789abcdef01234567",
+      description: "PDF tools",
+      agents: null,
+      enabled: true,
+    };
+    const base3: Config = { ...base, schema: 3, mcp: { servers: {}, available: {} }, skills: {} };
+    const parsed = readImport(JSON.stringify({ ...base3, skills: { pdf } }), base3);
+    expect(parsed).toMatchObject({ ok: true, rows: [{ path: "skills" }] });
   });
 });
