@@ -13,8 +13,10 @@ import (
 	"net/http"
 	"strconv"
 	"sync"
+	"time"
 
 	"github.com/salgnt/berth/internal/config"
+	"github.com/salgnt/berth/internal/login"
 	"github.com/salgnt/berth/internal/status"
 	"github.com/salgnt/berth/internal/supervisor"
 )
@@ -53,7 +55,10 @@ type Broker struct {
 	Agents func() (status.Report, error)
 	// PanelEnv is added to the panel service's settings.
 	PanelEnv map[string]string
-	Log      io.Writer
+	Logins   login.Store
+	// Host is shown in status and used for the setup link.
+	Host Host
+	Log  io.Writer
 	// PeerUID identifies the caller; it defaults to the uid ConnContext stored.
 	PeerUID func(r *http.Request) (uid int, ok bool)
 
@@ -62,26 +67,42 @@ type Broker struct {
 	cfg     config.Config
 	mode    string
 	modeErr string
+	token   string
+
+	verifyMu   sync.Mutex
+	lastVerify time.Time
 }
 
-// New returns a broker in normal mode with the default config.
-func New(store *config.Store, services Services, jobs *Jobs, exec Exec) *Broker {
-	return &Broker{Store: store, Services: services, Jobs: jobs, Exec: exec, PeerUID: peerFromContext, cfg: config.Defaults(), mode: ModeNormal}
+// New returns a broker in normal mode with the default config and the
+// default host values.
+func New(store *config.Store, logins login.Store, services Services, jobs *Jobs, exec Exec) *Broker {
+	return &Broker{Store: store, Logins: logins, Services: services, Jobs: jobs, Exec: exec,
+		Host: HostFromEnv(func(string) string { return "" }),
+		cfg:  config.Defaults(), mode: ModeNormal, PeerUID: peerFromContext}
 }
 
-// Load reads the config and picks the mode: recovery when it is unusable,
-// with only the panel running until the config is reverted or reset.
+// Load reads the login and the config and picks the mode: setup without a
+// login, recovery with an unusable config, normal otherwise.
 func (b *Broker) Load() config.Config {
 	cfg, err := b.Store.Load()
+	hasLogin, loginErr := b.Logins.Exists()
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	if err != nil {
-		b.cfg, b.mode, b.modeErr = config.Defaults(), ModeRecovery, err.Error()
-		b.logf("RECOVERY MODE: %v; only the panel runs until the config is reverted or reset", err)
-		return b.cfg
-	}
 	b.cfg, b.mode, b.modeErr = cfg, ModeNormal, ""
-	return cfg
+	if err != nil {
+		b.cfg, b.modeErr = config.Defaults(), err.Error()
+	}
+	switch {
+	case loginErr != nil:
+		b.mode, b.modeErr = ModeRecovery, "panel login: "+loginErr.Error()
+		b.logf("RECOVERY MODE: cannot read the panel login: %v", loginErr)
+	case !hasLogin:
+		b.enterSetup()
+	case err != nil:
+		b.mode = ModeRecovery
+		b.logf("RECOVERY MODE: %v; only the panel runs until the config is reverted or reset", err)
+	}
+	return b.cfg
 }
 
 // Reconcile starts or adjusts the services for the current config and mode.
@@ -117,12 +138,13 @@ type StatusReport struct {
 	Services    []supervisor.Status `json:"services"`
 	Agents      *status.Report      `json:"agents"`
 	AgentsError string              `json:"agents_error,omitempty"`
+	Host        Host                `json:"host"`
 }
 
 // Status reports the mode, the services and the agent store.
 func (b *Broker) Status() StatusReport {
 	cfg, mode, modeErr := b.snapshot()
-	st := StatusReport{Mode: mode, ConfigError: modeErr, Revision: cfg.Revision, Services: b.Services.Status()}
+	st := StatusReport{Mode: mode, ConfigError: modeErr, Revision: cfg.Revision, Services: b.Services.Status(), Host: b.Host}
 	if b.Agents != nil {
 		rep, err := b.Agents()
 		if err != nil {
@@ -156,6 +178,10 @@ func (b *Broker) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /status", func(w http.ResponseWriter, _ *http.Request) {
 		writeJSON(w, http.StatusOK, b.Status())
+	})
+	mux.HandleFunc("GET /mode", func(w http.ResponseWriter, _ *http.Request) {
+		_, mode, _ := b.snapshot()
+		writeJSON(w, http.StatusOK, map[string]string{"mode": mode})
 	})
 	mux.HandleFunc("GET /jobs", func(w http.ResponseWriter, _ *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]any{"jobs": b.Jobs.List()})

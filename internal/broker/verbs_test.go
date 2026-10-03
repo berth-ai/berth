@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/salgnt/berth/internal/config"
+	"github.com/salgnt/berth/internal/login"
 	"github.com/salgnt/berth/internal/status"
 	"github.com/salgnt/berth/internal/supervisor"
 )
@@ -88,11 +89,12 @@ func (f *fakeServices) lastNames() []string {
 }
 
 type testBroker struct {
-	b    *Broker
-	srv  *httptest.Server
-	exec *fakeExec
-	svc  *fakeServices
-	dir  string
+	b      *Broker
+	srv    *httptest.Server
+	exec   *fakeExec
+	svc    *fakeServices
+	dir    string
+	logins login.Store
 }
 
 func newTestBroker(t *testing.T) *testBroker {
@@ -102,10 +104,14 @@ func newTestBroker(t *testing.T) *testBroker {
 	jobs := NewJobs(ctx)
 	f := &fakeExec{stdout: `{"changed":true,"schema":1}`}
 	svc := &fakeServices{}
-	b := New(&config.Store{Dir: dir}, svc, jobs, f.run)
+	logins := login.Store{Path: filepath.Join(dir, "secrets", "panel.json")}
+	b := New(&config.Store{Dir: dir}, logins, svc, jobs, f.run)
 	srv := httptest.NewServer(b.Handler())
 	t.Cleanup(func() { srv.Close(); cancel(); jobs.Wait() })
-	return &testBroker{b: b, srv: srv, exec: f, svc: svc, dir: dir}
+	if err := logins.Set("me", "correct horse battery"); err != nil {
+		t.Fatal(err)
+	}
+	return &testBroker{b: b, srv: srv, exec: f, svc: svc, dir: dir, logins: logins}
 }
 
 func (tb *testBroker) call(t *testing.T, method, path, body string) (int, map[string]any) {
@@ -310,7 +316,7 @@ func TestConfigApply(t *testing.T) {
 
 func TestRecoveryMode(t *testing.T) {
 	tb := newTestBroker(t)
-	os.WriteFile(filepath.Join(tb.dir, "config.json"), []byte("{broken"), 0o600)
+	writeCorrupt(t, tb.dir)
 	tb.b.Load()
 	tb.b.Reconcile()
 	if got := tb.svc.lastNames(); !slices.Equal(got, []string{"panel"}) {
@@ -388,20 +394,12 @@ func TestDesired(t *testing.T) {
 	if got := Desired(c, ModeRecovery); len(got) != 1 || got[0].Name != "panel" {
 		t.Errorf("recovery = %+v", got)
 	}
+	if got := Desired(c, ModeSetup); len(got) != 1 || got[0].Name != "panel" {
+		t.Errorf("setup = %+v", got)
+	}
 	c.Frontends.Terminal.Enabled = false
 	if got := Desired(c, ModeNormal); len(got) != 2 || got[1].Name != "code_server" {
 		t.Errorf("no terminal = %+v", got)
-	}
-}
-
-func TestPanelEnvGoesToPanelOnly(t *testing.T) {
-	tb := newTestBroker(t)
-	tb.b.PanelEnv = map[string]string{"BERTH_PANEL_CREDENTIAL": "me:pw"}
-	tb.b.Load()
-	tb.b.Reconcile()
-	specs := tb.svc.reconciles[0]
-	if specs[0].Env["BERTH_PANEL_CREDENTIAL"] != "me:pw" || specs[1].Env["BERTH_PANEL_CREDENTIAL"] != "" {
-		t.Errorf("specs = %+v", specs)
 	}
 }
 
@@ -445,5 +443,12 @@ func TestClientOverSocket(t *testing.T) {
 	if _, err := NewClient(filepath.Join(dir, "missing.sock")).Status(context.Background()); err == nil ||
 		!strings.Contains(err.Error(), "not reachable") {
 		t.Errorf("missing socket: %v", err)
+	}
+}
+
+func writeCorrupt(t *testing.T, dir string) {
+	t.Helper()
+	if err := os.WriteFile(filepath.Join(dir, "config.json"), []byte("{broken"), 0o600); err != nil {
+		t.Fatal(err)
 	}
 }

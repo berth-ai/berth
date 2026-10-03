@@ -38,9 +38,10 @@ func (b *Broker) verbs() map[string]verbFunc {
 		"config.apply":    b.configApply,
 		"config.revert":   b.configRevert,
 		"config.reset":    b.configReset,
-		"auth.reset": func(context.Context, []byte) (int, any) {
-			return http.StatusNotImplemented, errorJSON("internal", "not yet")
-		},
+		"auth.verify":     b.authVerify,
+		"auth.change":     b.authChange,
+		"setup.complete":  b.setupComplete,
+		"auth.reset":      b.authReset,
 	}
 }
 
@@ -230,6 +231,9 @@ func (b *Broker) configApply(_ context.Context, body []byte) (int, any) {
 	}
 	b.change.Lock()
 	defer b.change.Unlock()
+	if _, mode, _ := b.snapshot(); mode == ModeSetup {
+		return fail(http.StatusConflict, "setup_required", "no login exists yet; finish setup first")
+	}
 	if _, mode, _ := b.snapshot(); mode == ModeRecovery {
 		return fail(http.StatusConflict, "recovery", "the config is unusable; revert it or reset it to the defaults first")
 	}
@@ -243,6 +247,9 @@ func (b *Broker) configRevert(_ context.Context, body []byte) (int, any) {
 	}
 	b.change.Lock()
 	defer b.change.Unlock()
+	if _, mode, _ := b.snapshot(); mode == ModeSetup {
+		return fail(http.StatusConflict, "setup_required", "no login exists yet; finish setup first")
+	}
 	old, next, err := b.Store.Revert()
 	return b.changed(old, next, err)
 }
@@ -253,6 +260,9 @@ func (b *Broker) configReset(_ context.Context, body []byte) (int, any) {
 	}
 	b.change.Lock()
 	defer b.change.Unlock()
+	if _, mode, _ := b.snapshot(); mode == ModeSetup {
+		return fail(http.StatusConflict, "setup_required", "no login exists yet; finish setup first")
+	}
 	old, next, err := b.Store.Reset()
 	return b.changed(old, next, err)
 }
