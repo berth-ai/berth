@@ -55,3 +55,8 @@ export function describeChanges(ch: Changes | null | undefined): string {
   if (!parts.length) return "Saved; nothing restarted.";
   return `Saved; ${parts.join("; ")}.`;
 }
+
+/** count words a number with its noun: "1 agent", "3 agents". */
+export function count(n: number, one: string, many: string): string {
+  return `${n} ${n === 1 ? one : many}`;
+}

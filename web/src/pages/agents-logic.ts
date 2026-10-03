@@ -1,4 +1,4 @@
-import type { AgentPackage, UpdateCheck } from "@/api/types";
+import type { AgentPackage, PackageKey, UpdateCheck } from "@/api/types";
 import { short } from "@/lib/format";
 import type { Tone } from "@/lib/notify";
 
@@ -22,4 +22,8 @@ export function versionLabel(hash: string, current?: string, previous?: string):
   if (hash === current) return "Current";
   if (hash === previous) return "Previous";
   return "Kept";
+}
+
+export function keyBadge(k: PackageKey): "set" | "not_set" {
+  return k.set ? "set" : "not_set";
 }

@@ -10,6 +10,7 @@ describe("StatusBadge", () => {
     ["in_progress", "Running"],
     ["signed_out", "Signed out"],
     ["not_installed", "Not installed"],
+    ["checking", "Checking"],
     ["something-new", "Unknown"],
   ])("shows %s as a word", (state, word) => {
     render(<StatusBadge state={state} />);

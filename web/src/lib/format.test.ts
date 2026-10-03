@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { describeChanges, describeSource, duration, short, since } from "./format";
+import { count, describeChanges, describeSource, duration, short, since } from "./format";
 
 describe("format", () => {
   const now = Date.parse("2026-10-03T12:00:00Z");
@@ -31,5 +31,13 @@ describe("format", () => {
     expect(describeChanges({ started: ["code_server"], restarted: ["ttyd"], stopped: null })).toBe(
       "Saved; started the ide; restarted the terminal.",
     );
+  });
+});
+
+describe("count", () => {
+  it("picks the singular only for one", () => {
+    expect(count(0, "agent", "agents")).toBe("0 agents");
+    expect(count(1, "agent", "agents")).toBe("1 agent");
+    expect(count(12, "tool", "tools")).toBe("12 tools");
   });
 });

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { AgentPackage } from "@/api/types";
-import { checkResult, disabledAfter, versionLabel } from "./agents-logic";
+import { checkResult, disabledAfter, keyBadge, versionLabel } from "./agents-logic";
 
 const pkg = (name: string, enabled: boolean): AgentPackage => ({
   package: name,
@@ -36,5 +36,12 @@ describe("agents logic", () => {
     expect(versionLabel("h1", "h1", "h2")).toBe("Current");
     expect(versionLabel("h2", "h1", "h2")).toBe("Previous");
     expect(versionLabel("h3", "h1", "h2")).toBe("Kept");
+  });
+});
+
+describe("keyBadge", () => {
+  it("maps a key onto a badge state", () => {
+    expect(keyBadge({ name: "A", set: true })).toBe("set");
+    expect(keyBadge({ name: "A", set: false })).toBe("not_set");
   });
 });
