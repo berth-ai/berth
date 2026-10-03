@@ -3,6 +3,8 @@ package config
 import (
 	"encoding/json"
 	"errors"
+	"slices"
+	"strings"
 	"testing"
 )
 
@@ -74,5 +76,48 @@ func TestPatchDoesNotModifyInput(t *testing.T) {
 	}
 	if len(base.Agents.Disabled) != 1 {
 		t.Errorf("input changed: %v", base.Agents.Disabled)
+	}
+}
+
+func TestPatchMCPMaps(t *testing.T) {
+	c := Defaults()
+	c, err := Patch(c, json.RawMessage(`{"mcp":{"servers":{"linear":{"url":"https://mcp.example.com/mcp"}},"available":{"linear":["a-cli"]}}}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s := c.MCP.Servers["linear"]; s.URL != "https://mcp.example.com/mcp" || s.Auth != AuthNone || !s.Enabled {
+		t.Errorf("new server = %+v", s)
+	}
+	c, err = Patch(c, json.RawMessage(`{"mcp":{"servers":{"linear":{"auth":"bearer","enabled":false}},"available":{"linear":["a-cli","b-cli"]}}}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s := c.MCP.Servers["linear"]; s.URL != "https://mcp.example.com/mcp" || s.Auth != AuthBearer || s.Enabled {
+		t.Errorf("merged server = %+v", s)
+	}
+	if !slices.Equal(c.MCP.Available["linear"], []string{"a-cli", "b-cli"}) {
+		t.Errorf("available = %v", c.MCP.Available)
+	}
+	c, err = Patch(c, json.RawMessage(`{"mcp":{"servers":{"linear":null},"available":{"linear":null}}}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(c.MCP.Servers) != 0 || len(c.MCP.Available) != 0 {
+		t.Errorf("after delete = %+v", c.MCP)
+	}
+}
+
+func TestPatchMCPErrors(t *testing.T) {
+	for patch, field := range map[string]string{
+		`{"mcp":{"servers":{"x":"https://a.example"}}}`: "mcp.servers.x",
+		`{"mcp":{"servers":{"x":{"surprise":1}}}}`:      "mcp.servers.x.surprise",
+		`{"mcp":{"available":{"x":"a-cli"}}}`:           "mcp.available.x",
+		`{"mcp":{"surprise":{}}}`:                       "mcp.surprise",
+	} {
+		_, err := Patch(Defaults(), json.RawMessage(patch))
+		var ve *ValidationError
+		if !errors.As(err, &ve) || !strings.HasPrefix(ve.Fields[0].Field, field) {
+			t.Errorf("%s: err = %v, want field %s", patch, err, field)
+		}
 	}
 }

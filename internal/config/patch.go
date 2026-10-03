@@ -54,6 +54,14 @@ func toMap(c Config) map[string]any {
 	return m
 }
 
+// userMaps are settings whose keys the user chooses. A patch may add keys
+// there and null removes one. A new entry starts from the template; nil
+// means entries are plain values (lists), replaced whole.
+var userMaps = map[string]map[string]any{
+	"mcp.servers":   {"url": "", "auth": AuthNone, "enabled": true},
+	"mcp.available": nil,
+}
+
 func merge(dst, def, patch map[string]any, prefix string, v *validator) {
 	for _, key := range slices.Sorted(maps.Keys(patch)) {
 		field := key
@@ -72,11 +80,36 @@ func merge(dst, def, patch map[string]any, prefix string, v *validator) {
 		case val == nil:
 			dst[key] = def[key]
 		case curIsObj && valIsObj:
-			merge(curObj, def[key].(map[string]any), valObj, field, v)
+			if tmpl, ok := userMaps[field]; ok {
+				mergeUserMap(curObj, tmpl, valObj, field, v)
+			} else {
+				merge(curObj, def[key].(map[string]any), valObj, field, v)
+			}
 		case curIsObj:
 			v.add(field, "must be an object")
 		default:
 			dst[key] = val
+		}
+	}
+}
+
+func mergeUserMap(dst, tmpl, patch map[string]any, prefix string, v *validator) {
+	for _, key := range slices.Sorted(maps.Keys(patch)) {
+		field, val := prefix+"."+key, patch[key]
+		switch obj, isObj := val.(map[string]any); {
+		case val == nil:
+			delete(dst, key)
+		case tmpl == nil:
+			dst[key] = val // decoding checks the type
+		case !isObj:
+			v.add(field, "must be an object")
+		default:
+			cur, ok := dst[key].(map[string]any)
+			if !ok {
+				cur = maps.Clone(tmpl)
+				dst[key] = cur
+			}
+			merge(cur, tmpl, obj, field, v)
 		}
 	}
 }
