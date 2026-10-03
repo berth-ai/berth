@@ -126,13 +126,17 @@ COPY --from=go-build /out/berth /usr/local/bin/berth
 COPY rootfs/ /
 COPY agents/package.json agents/package-lock.json /usr/share/berth/agents/
 
-# The agent user replaces Ubuntu's default uid-1000 user. /workspaces is
-# created here and never chowned at runtime.
+# The agent user replaces Ubuntu's default uid-1000 user. berth-panel runs the
+# web panel and alone shares the broker socket's group. /workspaces is created
+# here and never chowned at runtime.
 RUN userdel --remove ubuntu 2>/dev/null || true \
  && groupadd --gid 1000 agent \
  && useradd --uid 1000 --gid 1000 --create-home --home-dir /home/agent --shell /usr/bin/zsh agent \
+ && groupadd --system berth-panel \
+ && useradd --system --gid berth-panel --no-create-home --home-dir /nonexistent --shell /usr/sbin/nologin berth-panel \
  && install -d -o 1000 -g 1000 /workspaces \
  && install -d -m 0755 /opt/agents /run/berth \
+ && install -d -m 0755 /var/lib/berth \
  && printf '\n# Berth\nsource /etc/berth/zshenv\n' >>/etc/zsh/zshenv \
  && printf '\n# Berth\nsource /etc/berth/zshrc\n' >>/etc/zsh/zshrc
 
@@ -152,7 +156,7 @@ ENV BERTH_REPO=${BERTH_REPO} \
     XDG_CONFIG_DIRS=/etc/berth/defaults/xdg:/etc/xdg \
     PATH=/opt/agents/current/bin:/opt/mise/wrappers:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 
-EXPOSE 7681 8080 7690
+EXPOSE 7690
 HEALTHCHECK --interval=30s --timeout=10s --start-period=600s --start-interval=2s --retries=3 \
   CMD ["berth-healthcheck"]
 ENTRYPOINT ["tini", "--", "berth-entrypoint"]

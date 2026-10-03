@@ -15,7 +15,7 @@ The agents are the product; the frontends are optional modules.
 ```sh
 curl -fsSLO https://raw.githubusercontent.com/SalGnt/berth/main/compose.yaml
 curl -fsSL -o .env https://raw.githubusercontent.com/SalGnt/berth/main/.env.example
-$EDITOR .env        # set BIND_ADDRESS and at least one frontend credential
+$EDITOR .env        # set BIND_ADDRESS and PANEL_CREDENTIAL
 mkdir -p workspaces # before the first start, so it is yours and not root's
 docker compose up -d
 docker compose ps   # wait for "healthy"
@@ -24,17 +24,25 @@ docker compose ps   # wait for "healthy"
 The first start installs the agent CLIs into the `berth-agents` volume, which
 takes a few minutes. Later starts are fast.
 
-## Frontends
+## Frontends and settings
 
-| Frontend | Enable with | Port |
-| --- | --- | --- |
-| Browser terminal (ttyd + tmux) | `WEB_TERMINAL_CREDENTIAL=user:password` | `TTYD_PORT` (7681) |
-| Browser IDE (code-server) | `CODE_SERVER_PASSWORD=...` | `CODE_SERVER_PORT` (8080) |
-| Web panel (agent status, update, rollback) | `PANEL_CREDENTIAL=user:password` | `PANEL_PORT` (7690) |
-| Shell | always | `docker compose exec -u agent berth zsh` |
+The web panel is always on and is the only published port (`PANEL_PORT`,
+7690). The browser terminal (ttyd + tmux) is on by default, and the browser
+IDE (code-server) is off. Both listen only inside the container; the panel's
+proxy for them arrives in the next release. Until then, use
+`docker compose exec -u agent berth zsh`.
 
-With no frontend enabled, Berth idles and `docker exec` still works. Ports are
-published only on `BIND_ADDRESS`; always use a private address.
+Settings live in the `berth-config` volume and change without restarting the
+container. Only the services a change affects restart:
+
+```sh
+docker compose exec berth berth config get
+docker compose exec berth berth config set frontends.ide.enabled=true runtime.tz=Europe/Rome
+docker compose exec berth berth config revert   # back to the previous revision
+```
+
+If the config file becomes unreadable, Berth starts only the panel and
+`berth config reset` (or `revert`) recovers.
 
 ## Agents
 
@@ -64,8 +72,9 @@ docker compose pull && docker compose up -d
 ```
 
 Your home (agent logins, `gh`/`glab` auth, dotfiles, your own tools) and the
-agent store live in named volumes and survive recreation. Never run
-`docker compose down -v` to upgrade: it deletes both volumes.
+agent store and Berth's settings live in the `berth-home`, `berth-agents` and
+`berth-config` volumes and survive recreation. Never run
+`docker compose down -v` to upgrade: it deletes all three volumes.
 
 ## Tools and shell
 
@@ -80,31 +89,37 @@ agent store live in named volumes and survive recreation. Never run
 
 ## Configuration
 
+The `.env` file holds only what Docker needs on the host:
+
 | Variable | Default | Meaning |
 | --- | --- | --- |
 | `BERTH_VERSION` | required | Image tag to run |
-| `BIND_ADDRESS` | required | Host address the ports are published on |
+| `BIND_ADDRESS` | required | Host address the panel port is published on |
+| `PANEL_PORT` | 7690 | Host port mapped to the panel |
 | `PUID` / `PGID` | 1000 / 1000 | Identity of the `agent` user |
 | `WORKSPACES_DIR` | `./workspaces` | Host path mounted at `/workspaces` |
-| `WEB_TERMINAL_CREDENTIAL` | unset | `user:password`; enables ttyd |
-| `TTYD_PORT` | 7681 | ttyd port |
-| `CODE_SERVER_PASSWORD` | unset | Enables code-server |
-| `CODE_SERVER_PORT` | 8080 | code-server port |
-| `PANEL_CREDENTIAL` | unset | `user:password`; enables the web panel |
-| `PANEL_PORT` | 7690 | Web panel port |
-| `AGENTS_BOOT_TIMEOUT` | 600 | Seconds allowed for installing agents at boot |
-| `AGENTS_KEEP` | 3 | Old agent sets kept besides current and previous |
-| `MCP_SETUP_TIMEOUT` | 120 | Seconds allowed for MCP registration |
-| `TZ` | `UTC` | Time zone |
+| `PANEL_CREDENTIAL` | unset | `user:password` for the panel login (temporary) |
+
+Every other setting is changed with `berth config` and kept in the
+`berth-config` volume:
+
+| Setting | Default | Meaning |
+| --- | --- | --- |
+| `frontends.terminal.enabled` | `true` | Run the browser terminal |
+| `frontends.ide.enabled` | `false` | Run the browser IDE |
+| `agents.ref` | `main` | Git ref `berth update` installs from by default |
+| `agents.keep` | 3 | Old agent sets kept besides current and previous |
+| `agents.boot_timeout` | 600 | Seconds allowed for installing agents at boot |
+| `agents.mcp_timeout` | 120 | Seconds allowed for MCP registration |
+| `runtime.tz` | `UTC` | Time zone |
 
 ## Security
 
-- All services and agents run as the unprivileged `agent` user, with `no-new-privileges`.
-- Each frontend's credential is hidden from the other frontends.
-- The web panel runs as `agent`. Agent updates need root, so the panel asks
-  a small root broker that listens only on a unix socket, has no network
-  port and no credential, and runs only `berth status`, `update` and
-  `rollback`.
+- The frontends and agents run as the unprivileged `agent` user, with `no-new-privileges`.
+- Services get only the settings they need; tokens passed to the container stay with the supervisor.
+- The panel runs as its own `berth-panel` user. Privileged work goes through
+  a root broker inside `berth supervise`, on a unix socket only `berth-panel`
+  can reach. The broker runs a fixed set of verbs.
 - The agent store and base toolchain are read-only to `agent`, and agent
   auto-updaters are disabled.
 - Playwright's Chromium runs with `--no-sandbox`, because the kernel sandbox

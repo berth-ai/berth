@@ -1,5 +1,5 @@
 # Berth: one container, reachable only on BIND_ADDRESS.
-# Copy .env.example to .env, set BIND_ADDRESS and at least one frontend credential.
+# Copy .env.example to .env and set BIND_ADDRESS and PANEL_CREDENTIAL.
 name: berth
 
 services:
@@ -12,18 +12,19 @@ services:
     security_opt:
       - no-new-privileges:true
     ports:
-      - "${BIND_ADDRESS:?set BIND_ADDRESS to a private address}:${TTYD_PORT:-7681}:${TTYD_PORT:-7681}"
-      - "${BIND_ADDRESS:?set BIND_ADDRESS to a private address}:${CODE_SERVER_PORT:-8080}:${CODE_SERVER_PORT:-8080}"
-      - "${BIND_ADDRESS:?set BIND_ADDRESS to a private address}:${PANEL_PORT:-7690}:${PANEL_PORT:-7690}"
+      - "${BIND_ADDRESS:?set BIND_ADDRESS to a private address}:${PANEL_PORT:-7690}:7690"
     volumes:
       - berth-home:/home/agent
       - berth-agents:/opt/agents
+      - berth-config:/var/lib/berth
       - ${WORKSPACES_DIR:-./workspaces}:/workspaces
 
 # Explicit names, so renaming the project directory cannot orphan them.
-# Never use `docker compose down -v` to upgrade: it deletes both.
+# Never use `docker compose down -v` to upgrade: it deletes them all.
 volumes:
   berth-home:
     name: berth-home
   berth-agents:
     name: berth-agents
+  berth-config:
+    name: berth-config

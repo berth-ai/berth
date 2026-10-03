@@ -105,28 +105,30 @@ class DockerfileTest(unittest.TestCase):
         self.assertIn("/usr/sbin:/usr/bin:/sbin:/bin", text)
         self.assertNotIn("VOLUME", text)
         self.assertIn("passwd", text)
+        self.assertIn("EXPOSE 7690\n", text)
+        self.assertIn("useradd --system --gid berth-panel", text)
+        self.assertIn("install -d -m 0755 /var/lib/berth", text)
 
 
 class ComposeTest(unittest.TestCase):
     def test_compose_contract(self):
         text = read("compose.yaml")
         self.assertIn("image: ghcr.io/salgnt/berth:${BERTH_VERSION:?", text)
-        self.assertIn("${BIND_ADDRESS:?", text)
-        self.assertIn("${TTYD_PORT:-7681}:${TTYD_PORT:-7681}", text)
-        self.assertIn("${CODE_SERVER_PORT:-8080}:${CODE_SERVER_PORT:-8080}", text)
-        self.assertIn("${PANEL_PORT:-7690}:${PANEL_PORT:-7690}", text)
+        self.assertIn('"${BIND_ADDRESS:?set BIND_ADDRESS to a private address}:${PANEL_PORT:-7690}:7690"', text)
+        self.assertEqual(len(re.findall(r'^\s+- "\$\{BIND_ADDRESS', text, re.M)), 1, "only the panel port is published")
         self.assertIn("no-new-privileges:true", text)
-        for vol in ("berth-home", "berth-agents"):
+        for vol in ("berth-home", "berth-agents", "berth-config"):
             self.assertIn(f"name: {vol}", text)
+        self.assertIn("berth-config:/var/lib/berth", text)
         self.assertNotIn("0.0.0.0", text)
 
     def test_env_example_documents_every_variable(self):
         env = read(".env.example")
-        for var in ("BERTH_VERSION", "BIND_ADDRESS", "PUID", "PGID", "WORKSPACES_DIR",
-                    "WEB_TERMINAL_CREDENTIAL", "TTYD_PORT", "CODE_SERVER_PASSWORD", "CODE_SERVER_PORT",
-                    "PANEL_CREDENTIAL", "PANEL_PORT",
-                    "AGENTS_BOOT_TIMEOUT", "AGENTS_KEEP", "MCP_SETUP_TIMEOUT", "TZ"):
+        for var in ("BERTH_VERSION", "BIND_ADDRESS", "PUID", "PGID", "WORKSPACES_DIR", "PANEL_PORT", "PANEL_CREDENTIAL"):
             self.assertRegex(env, rf"(?m)^{var}=", var)
+        for gone in ("WEB_TERMINAL_CREDENTIAL", "TTYD_PORT", "CODE_SERVER_PASSWORD", "CODE_SERVER_PORT",
+                     "AGENTS_BOOT_TIMEOUT", "AGENTS_KEEP", "MCP_SETUP_TIMEOUT", "TZ"):
+            self.assertNotRegex(env, rf"(?m)^{gone}=", gone)
         self.assertRegex(env, r"# renovate: datasource=docker depName=ghcr.io/salgnt/berth\nBERTH_VERSION=\d+\.\d+\.\d+\n")
 
 
