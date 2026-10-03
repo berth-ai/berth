@@ -9,6 +9,9 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/berth-ai/berth/internal/agentlayer"
+	"github.com/berth-ai/berth/internal/config"
 )
 
 const fixturePkg = `{
@@ -63,7 +66,8 @@ func newFixture(t *testing.T) *fixture {
 	legacyAgents = []string{"a-cli", "c-cli", "o-cli"}
 	t.Cleanup(func() { legacyAgents = saved })
 	f := &fixture{t: t, log: &bytes.Buffer{}}
-	f.s = Syncer{Current: cur, Layer: filepath.Join(root, "bin"), Home: filepath.Join(root, "home"), Log: f.log}
+	f.s = Syncer{Current: cur, Layer: filepath.Join(root, "bin"), Home: filepath.Join(root, "home"), Log: f.log,
+		Settings: filepath.Join(root, "mcp.json"), Keys: filepath.Join(root, "agents.env")}
 	must(t, os.MkdirAll(f.s.Layer, 0o755))
 	must(t, os.MkdirAll(f.s.Home, 0o755))
 	for _, bin := range fixtureDeps {
@@ -408,5 +412,133 @@ func TestOnlyLegacyAgentsAreSeeded(t *testing.T) {
 	f.sync()
 	if !strings.Contains(f.read(aFile), `"command": "my-own"`) {
 		t.Errorf("a new agent's user server was claimed:\n%s", f.read(aFile))
+	}
+}
+
+func (f *fixture) settings(m config.MCP) {
+	if m.Servers == nil {
+		m.Servers = map[string]config.MCPServer{}
+	}
+	if m.Available == nil {
+		m.Available = map[string][]string{}
+	}
+	must(f.t, config.WriteMCPFile(f.s.Settings, m, -1, -1))
+}
+
+func (f *fixture) keys(k map[string]string) {
+	must(f.t, agentlayer.WriteKeys(f.s.Keys, k, -1, -1))
+}
+
+var linear = map[string]config.MCPServer{
+	"linear": {URL: "https://mcp.example.com/mcp", Auth: config.AuthBearer, Enabled: true},
+}
+
+func TestRemoteServerReachesEveryAgent(t *testing.T) {
+	f := newFixture(t)
+	f.settings(config.MCP{Servers: linear})
+	f.keys(map[string]string{"MCP_LINEAR_TOKEN": "tok"})
+	f.sync()
+	if got := f.servers(aFile, "mcpServers"); !slices.Equal(got, []string{"context7", "linear", "playwright"}) {
+		t.Errorf("A servers = %v", got)
+	}
+	for rel, want := range map[string]string{
+		aFile: `"Authorization": "Bearer tok"`,
+		oFile: `"type": "remote"`,
+		cFile: `http_headers = { "Authorization" = "Bearer tok" }`,
+	} {
+		if !strings.Contains(f.read(rel), want) {
+			t.Errorf("%s lacks %q:\n%s", rel, want, f.read(rel))
+		}
+	}
+	for _, rel := range []string{aFile, oFile, cFile} {
+		if fi, _ := os.Stat(f.path(rel)); fi.Mode().Perm() != 0o600 {
+			t.Errorf("%s mode = %v", rel, fi.Mode().Perm())
+		}
+	}
+}
+
+func TestBearerWithoutTokenHasNoHeaders(t *testing.T) {
+	f := newFixture(t)
+	f.settings(config.MCP{Servers: linear})
+	f.sync()
+	if strings.Contains(f.read(aFile), "Authorization") || !strings.Contains(f.read(aFile), `"url": "https://mcp.example.com/mcp"`) {
+		t.Errorf("A config:\n%s", f.read(aFile))
+	}
+}
+
+func TestTokenIgnoredUnlessBearer(t *testing.T) {
+	f := newFixture(t)
+	f.settings(config.MCP{Servers: map[string]config.MCPServer{
+		"linear": {URL: "https://mcp.example.com/mcp", Auth: config.AuthOAuth, Enabled: true},
+	}})
+	f.keys(map[string]string{"MCP_LINEAR_TOKEN": "tok"})
+	f.sync()
+	if strings.Contains(f.read(aFile), "Authorization") {
+		t.Errorf("A config:\n%s", f.read(aFile))
+	}
+}
+
+func TestAvailableNarrowsAndRemoves(t *testing.T) {
+	f := newFixture(t)
+	f.settings(config.MCP{Servers: linear})
+	f.sync()
+	f.settings(config.MCP{Servers: linear, Available: map[string][]string{
+		"playwright": {"a-cli"},
+		"linear":     {"c-cli", "gone-cli"},
+	}})
+	f.sync()
+	if got := f.servers(aFile, "mcpServers"); !slices.Equal(got, []string{"context7", "playwright"}) {
+		t.Errorf("A servers = %v", got)
+	}
+	if got := f.servers(oFile, "mcp"); !slices.Equal(got, []string{"context7"}) {
+		t.Errorf("O servers = %v", got)
+	}
+	toml := f.read(cFile)
+	if strings.Contains(toml, "mcp_servers.playwright") || !strings.Contains(toml, "mcp_servers.linear") {
+		t.Errorf("C config:\n%s", toml)
+	}
+}
+
+func TestOnlyUninstalledAgentsMeansNowhere(t *testing.T) {
+	f := newFixture(t)
+	f.settings(config.MCP{Servers: linear, Available: map[string][]string{"linear": {"gone-cli"}}})
+	f.sync()
+	if slices.Contains(f.servers(aFile, "mcpServers"), "linear") {
+		t.Error("linear registered with A")
+	}
+}
+
+func TestDisabledRemoteServerIsRemoved(t *testing.T) {
+	f := newFixture(t)
+	f.settings(config.MCP{Servers: linear})
+	f.sync()
+	off := linear["linear"]
+	off.Enabled = false
+	f.settings(config.MCP{Servers: map[string]config.MCPServer{"linear": off}})
+	f.sync()
+	if slices.Contains(f.servers(aFile, "mcpServers"), "linear") {
+		t.Error("disabled linear still registered")
+	}
+}
+
+func TestRemoteClashWithLockIDIsSkipped(t *testing.T) {
+	f := newFixture(t)
+	f.settings(config.MCP{Servers: map[string]config.MCPServer{
+		"playwright": {URL: "https://mcp.example.com/mcp", Auth: config.AuthNone, Enabled: true},
+	}})
+	f.sync()
+	if !strings.Contains(f.log.String(), "MCP server playwright clashes with a built-in server; skipping it") {
+		t.Errorf("log = %s", f.log)
+	}
+	if strings.Contains(f.read(aFile), "mcp.example.com") {
+		t.Errorf("remote replaced the lock server:\n%s", f.read(aFile))
+	}
+}
+
+func TestNewerSettingsSchemaFails(t *testing.T) {
+	f := newFixture(t)
+	must(t, os.WriteFile(f.s.Settings, []byte(`{"schema":2}`), 0o644))
+	if err := f.s.Run(); err == nil || !strings.Contains(err.Error(), "schema 2") {
+		t.Errorf("err = %v", err)
 	}
 }

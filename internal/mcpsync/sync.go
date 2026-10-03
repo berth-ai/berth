@@ -15,7 +15,9 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/berth-ai/berth/internal/agentlayer"
 	"github.com/berth-ai/berth/internal/agentstore"
+	"github.com/berth-ai/berth/internal/config"
 	"github.com/berth-ai/berth/internal/locksource"
 )
 
@@ -31,6 +33,8 @@ type Syncer struct {
 	Layer      string // the wrapper layer, /var/lib/berth/bin
 	Home       string // the agent user's home
 	ConfigHome string // $XDG_CONFIG_HOME; empty means Home/.config
+	Settings   string // mcp.json, the user's MCP settings; empty means defaults
+	Keys       string // agents.env, which holds bearer tokens; empty means none
 	Log        io.Writer
 
 	// beforeRename runs between writing a temp file and replacing path;
@@ -59,7 +63,19 @@ func (s Syncer) Run() error {
 	if err != nil {
 		return err
 	}
-	servers := s.enabledServers(desc)
+	settings := config.Defaults().MCP
+	if s.Settings != "" {
+		if settings, err = config.ReadMCPFile(s.Settings); err != nil {
+			return err
+		}
+	}
+	keys := map[string]string{}
+	if s.Keys != "" {
+		if keys, err = agentlayer.ReadKeys(s.Keys); err != nil {
+			return err
+		}
+	}
+	servers := s.desired(desc, settings, keys)
 
 	statePath := StatePath(s.Home)
 	st, err := loadState(statePath)
@@ -85,7 +101,7 @@ func (s Syncer) Run() error {
 			// registered its servers there.
 			owned = slices.Clone(legacyIDs)
 		}
-		ids, err := s.syncFile(path, *t, servers, owned)
+		ids, err := s.syncFile(path, *t, availableTo(servers, settings.Available, dep), owned)
 		if err != nil {
 			s.logf("failed to converge MCP servers for %s: %v", name, err)
 			failed = append(failed, name)
@@ -131,6 +147,46 @@ func (s Syncer) enabledServers(d locksource.Descriptors) []server {
 		}
 	}
 	slices.SortFunc(out, func(a, b server) int { return strings.Compare(a.ID, b.ID) })
+	return out
+}
+
+// desired lists every enabled server, local ones from the lock and remote
+// ones from settings, by id. A remote server whose id a lock server uses is
+// left out.
+func (s Syncer) desired(d locksource.Descriptors, m config.MCP, keys map[string]string) []server {
+	out := s.enabledServers(d)
+	lock := map[string]bool{}
+	for _, sd := range d.Servers {
+		lock[sd.ID] = true
+	}
+	for _, id := range slices.Sorted(maps.Keys(m.Servers)) {
+		rs := m.Servers[id]
+		switch {
+		case !rs.Enabled:
+		case lock[id]:
+			s.logf("MCP server %s clashes with a built-in server; skipping it", id)
+		default:
+			sv := server{ID: id, URL: rs.URL}
+			if tok := keys[config.MCPTokenName(id)]; rs.Auth == config.AuthBearer && tok != "" {
+				sv.Headers = map[string]string{"Authorization": "Bearer " + tok}
+			}
+			out = append(out, sv)
+		}
+	}
+	slices.SortFunc(out, func(a, b server) int { return strings.Compare(a.ID, b.ID) })
+	return out
+}
+
+// availableTo keeps the servers that reach agent dep: those without a list,
+// and those whose list names dep.
+func availableTo(servers []server, avail map[string][]string, dep string) []server {
+	var out []server
+	for _, sv := range servers {
+		if list, ok := avail[sv.ID]; ok && !slices.Contains(list, dep) {
+			continue
+		}
+		out = append(out, sv)
+	}
 	return out
 }
 
