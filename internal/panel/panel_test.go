@@ -536,3 +536,20 @@ type noServices struct{}
 func (noServices) Reconcile([]supervisor.Spec) supervisor.Changes { return supervisor.Changes{} }
 func (noServices) Restart(string) error                           { return nil }
 func (noServices) Status() []supervisor.Status                    { return []supervisor.Status{} }
+
+// After berth config reset-login, finishing setup again must sign out every
+// session from before the reset.
+func TestSetupSignsOutOldSessions(t *testing.T) {
+	e := newEnv(t, "normal")
+	old := e.client()
+	e.login(old)
+	e.fb.mu.Lock()
+	e.fb.mode = "setup"
+	e.fb.mu.Unlock()
+	if resp, _ := e.do(e.client(), "POST", "/api/setup", `{"token":"tok","user":"me","password":"correct horse battery"}`, nil); resp.StatusCode != 200 {
+		t.Fatalf("setup = %d", resp.StatusCode)
+	}
+	if resp, _ := e.do(old, "GET", "/api/status", "", nil); resp.StatusCode != 401 {
+		t.Errorf("session from before the reset = %d", resp.StatusCode)
+	}
+}

@@ -268,6 +268,9 @@ func (s *Server) handleSetup(w http.ResponseWriter, r *http.Request) {
 		_ = json.Unmarshal(out, &res)
 		s.limiter.succeed(client)
 		s.modes.invalidate()
+		// A new login (first run or after reset-login) signs out every
+		// session made with the old one.
+		s.sessions.reset()
 		http.SetCookie(w, sessionCookie(r, s.sessions.create(res.User), int(sessionMax.Seconds())))
 	}
 	writeRaw(w, code, out)
