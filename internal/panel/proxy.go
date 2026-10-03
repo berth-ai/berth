@@ -3,6 +3,8 @@ package panel
 import (
 	"fmt"
 	"html"
+	"io"
+	"io/fs"
 	"net/http"
 	"net/http/httputil"
 	"net/url"
@@ -12,7 +14,8 @@ import (
 // newProxy forwards to target, HTTP and WebSocket alike. strip removes a
 // path prefix the upstream does not expect. Upstreams never see the panel's
 // session cookie. Their pages may be framed by the panel and by nothing else.
-func newProxy(name string, target *url.URL, strip string) http.Handler {
+// down answers when the upstream is not reachable.
+func newProxy(name string, target *url.URL, strip string, down func(http.ResponseWriter, string)) http.Handler {
 	return &httputil.ReverseProxy{
 		Rewrite: func(pr *httputil.ProxyRequest) {
 			pr.SetURL(target)
@@ -28,7 +31,7 @@ func newProxy(name string, target *url.URL, strip string) http.Handler {
 			return nil
 		},
 		ErrorHandler: func(w http.ResponseWriter, _ *http.Request, _ error) {
-			unavailable(w, name)
+			down(w, name)
 		},
 	}
 }
@@ -53,13 +56,18 @@ func dropCookie(h http.Header, name string) {
 	}
 }
 
-func unavailable(w http.ResponseWriter, name string) {
+func (s *Server) unavailable(w http.ResponseWriter, name string) {
 	h := w.Header()
 	setProxiedHeaders(h)
 	h.Set("Cache-Control", "no-store")
 	h.Set("Content-Security-Policy", "default-src 'self'; frame-ancestors 'self'; base-uri 'none'")
 	h.Set("Content-Type", "text/html; charset=utf-8")
 	w.WriteHeader(http.StatusBadGateway)
-	page, _ := static.ReadFile("static/unavailable.html")
-	fmt.Fprintf(w, string(page), html.EscapeString(name))
+	page, err := fs.ReadFile(s.assets, "unavailable.html")
+	if err != nil {
+		_, _ = fmt.Fprintf(w, "The %s is not running.", html.EscapeString(name))
+		return
+	}
+	// ReplaceAll, not fmt: a built page may contain other % signs.
+	_, _ = io.WriteString(w, strings.ReplaceAll(string(page), "%[1]s", html.EscapeString(name)))
 }

@@ -71,6 +71,7 @@ type Server struct {
 	sessions *sessions
 	limiter  *limiter
 	modes    *modeCache
+	assets   fs.FS
 }
 
 // New returns a panel that forwards to the broker at brokerURL through
@@ -84,6 +85,7 @@ func New(client *http.Client, brokerURL string, up Upstreams) *Server {
 		limiter:  newLimiter(time.Now),
 	}
 	s.modes = &modeCache{ttl: time.Second, now: time.Now, fetch: s.fetchMode}
+	s.assets, _ = fs.Sub(static, "static")
 	s.mux.HandleFunc("GET /{$}", s.page("index.html"))
 	s.mux.HandleFunc("GET /login", s.page("login.html"))
 	s.mux.HandleFunc("GET /setup", s.page("setup.html"))
@@ -101,12 +103,19 @@ func New(client *http.Client, brokerURL string, up Upstreams) *Server {
 	s.mux.HandleFunc("GET /api/jobs/{id}", s.handleJob)
 	s.mux.HandleFunc("POST /api/verbs/{verb}", s.handleVerb)
 	if up.Terminal != nil {
-		s.mux.Handle("/terminal/", newProxy("terminal", up.Terminal, ""))
+		s.mux.Handle("/terminal/", newProxy("terminal", up.Terminal, "", s.unavailable))
 	}
 	if up.IDE != nil {
-		s.mux.Handle("/ide/", newProxy("IDE", up.IDE, "/ide"))
+		s.mux.Handle("/ide/", newProxy("IDE", up.IDE, "/ide", s.unavailable))
 	}
 	return s
+}
+
+// UseAssets serves the frontend from fsys instead of the embedded build:
+// pages at its root, files for /static/ under their own paths. The dev
+// server points it at web/dist on disk; tests use a fixture.
+func (s *Server) UseAssets(fsys fs.FS) {
+	s.assets = fsys
 }
 
 // open paths need no session; setup paths stay reachable in setup mode.
@@ -168,7 +177,11 @@ func (s *Server) deny(w http.ResponseWriter, r *http.Request, code int, errCode,
 
 func (s *Server) page(name string) http.HandlerFunc {
 	return func(w http.ResponseWriter, _ *http.Request) {
-		body, _ := static.ReadFile("static/" + name)
+		body, err := fs.ReadFile(s.assets, name)
+		if err != nil {
+			http.Error(w, "the panel UI is not built; run pnpm build in web/", http.StatusServiceUnavailable)
+			return
+		}
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		_, _ = w.Write(body)
 	}
@@ -181,12 +194,16 @@ func (s *Server) handleAsset(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	body, err := static.ReadFile("static/" + name)
+	body, err := fs.ReadFile(s.assets, name)
 	if err != nil {
 		http.NotFound(w, r)
 		return
 	}
 	w.Header().Set("Content-Type", ct)
+	// Built files carry a content hash in their name and never change.
+	if strings.HasPrefix(name, "assets/") {
+		w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
+	}
 	_, _ = w.Write(body)
 }
 
