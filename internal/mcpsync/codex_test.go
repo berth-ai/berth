@@ -112,3 +112,20 @@ func TestCodexKeepsForeignTablesInsideBlock(t *testing.T) {
 		t.Errorf("second edit changed the file:\n%s", again)
 	}
 }
+
+func TestCodexRemoteTable(t *testing.T) {
+	out, _ := codex(t, "", []server{
+		{ID: "linear", URL: `https://mcp.example.com/m?q="x"`, Headers: map[string]string{"Authorization": "Bearer t"}},
+		{ID: "open", URL: "https://a.example/mcp"},
+	}, nil)
+	want := blockStart + "\n" +
+		"[mcp_servers.linear]\n" +
+		`url = "https://mcp.example.com/m?q=\"x\""` + "\n" +
+		`http_headers = { "Authorization" = "Bearer t" }` + "\n" +
+		"[mcp_servers.open]\n" +
+		`url = "https://a.example/mcp"` + "\n" +
+		blockEnd + "\n"
+	if out != want {
+		t.Errorf("got:\n%s\nwant:\n%s", out, want)
+	}
+}

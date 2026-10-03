@@ -126,3 +126,20 @@ func TestOpenCodeEntry(t *testing.T) {
 		t.Error("codex-toml is not a JSON style")
 	}
 }
+
+func TestRemoteEntries(t *testing.T) {
+	sv := server{ID: "linear", URL: `https://mcp.example.com/m?q="x"\y&z`, Headers: map[string]string{"Authorization": "Bearer t"}}
+	for style, want := range map[string]string{
+		locksource.StyleClaude:   `{"type":"http","url":"https://mcp.example.com/m?q=\"x\"\\y&z","headers":{"Authorization":"Bearer t"}}`,
+		locksource.StyleOpenCode: `{"type":"remote","url":"https://mcp.example.com/m?q=\"x\"\\y&z","headers":{"Authorization":"Bearer t"},"enabled":true}`,
+	} {
+		es, err := jsonEntries(style, []server{sv})
+		if err != nil || string(es[0].val) != want {
+			t.Errorf("%s: %s, %v", style, es[0].val, err)
+		}
+	}
+	es, _ := jsonEntries(locksource.StyleClaude, []server{{ID: "open", URL: "https://a.example/mcp"}})
+	if string(es[0].val) != `{"type":"http","url":"https://a.example/mcp"}` {
+		t.Errorf("no headers: %s", es[0].val)
+	}
+}

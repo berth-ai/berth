@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"maps"
 	"regexp"
 	"slices"
 	"strings"
@@ -110,7 +111,7 @@ func editCodex(data []byte, servers []server, owned []string) ([]byte, []string,
 			skipped = append(skipped, s.ID)
 			continue
 		}
-		block = append(block, "[mcp_servers."+s.ID+"]", "command = "+tomlString(s.Command), "args = "+tomlArray(s.Args))
+		block = append(block, codexTable(s)...)
 	}
 	if len(block) > 0 {
 		block = append(append([]string{blockStart}, block...), blockEnd)
@@ -138,6 +139,23 @@ func editCodex(data []byte, servers []server, owned []string) ([]byte, []string,
 		return data, skipped, nil
 	}
 	return out, skipped, nil
+}
+
+// codexTable renders one server's [mcp_servers.<id>] table.
+func codexTable(s server) []string {
+	lines := []string{"[mcp_servers." + s.ID + "]"}
+	if s.URL == "" {
+		return append(lines, "command = "+tomlString(s.Command), "args = "+tomlArray(s.Args))
+	}
+	lines = append(lines, "url = "+tomlString(s.URL))
+	if len(s.Headers) > 0 {
+		var kv []string
+		for _, k := range slices.Sorted(maps.Keys(s.Headers)) {
+			kv = append(kv, tomlString(k)+" = "+tomlString(s.Headers[k]))
+		}
+		lines = append(lines, "http_headers = { "+strings.Join(kv, ", ")+" }")
+	}
+	return lines
 }
 
 // tomlString quotes s as a TOML basic string.
