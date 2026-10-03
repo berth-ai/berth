@@ -27,21 +27,16 @@ import {
 } from "@/components/ui/select";
 import { errorText } from "@/lib/errors";
 
-/** ToolDialog adds a tool from the mise registry, or installs another
- * version of one (tool set). It closes once the job has started. */
+/** ToolDialog adds a tool from the mise registry. It closes once the job has started. */
 export function ToolDialog({
-  tool,
-  current,
   onClose,
   onStarted,
 }: {
-  tool?: string;
-  current?: string;
   onClose: () => void;
   onStarted: (tool: string, version: string, job: Promise<Job | null>) => void;
 }) {
-  const [name, setName] = useState(tool ?? "");
-  const [picked, setPicked] = useState(tool ?? "");
+  const [name, setName] = useState("");
+  const [picked, setPicked] = useState("");
   const [version, setVersion] = useState<string | null>(null);
   const [versionError, setVersionError] = useState("");
   const registry = useRegistry(true);
@@ -66,7 +61,7 @@ export function ToolDialog({
     <Dialog open onOpenChange={(open) => (open ? undefined : onClose())}>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>{tool ? `Upgrade ${tool}` : "Add a tool"}</DialogTitle>
+          <DialogTitle>Add a tool</DialogTitle>
         </DialogHeader>
         <FormField
           id={nameId}
@@ -81,7 +76,6 @@ export function ToolDialog({
               setName(v);
               if (registry.data?.tools.includes(v)) setPicked(v);
             }}
-            disabled={Boolean(tool)}
           >
             <AutocompleteInput
               {...fieldProps(nameId, nameError)}
@@ -112,7 +106,7 @@ export function ToolDialog({
             <SelectContent>
               {list.map((v) => (
                 <SelectItem key={v} value={v} className="font-mono text-xs">
-                  {v === current ? `${v} (installed)` : v}
+                  {v}
                 </SelectItem>
               ))}
             </SelectContent>
@@ -122,7 +116,7 @@ export function ToolDialog({
           <Button variant="outline" onClick={onClose}>
             Cancel
           </Button>
-          <Button onClick={submit}>{tool ? "Install version" : "Add tool"}</Button>
+          <Button onClick={submit}>Add tool</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
