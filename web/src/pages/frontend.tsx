@@ -26,14 +26,13 @@ export function FrontendPage({
           <ChevronLeft aria-hidden className="size-3.25" strokeWidth={1.6} />
           Panel
         </Link>
-        <strong>{label}</strong>
+        <strong className="min-w-0 truncate">{label}</strong>
         {status.data ? <StatusBadge state={svc ? svc.state : "disabled"} small /> : null}
-        <span className="flex-1" />
         <a
           href={path}
           target="_blank"
           rel="noopener"
-          className={buttonVariants({ variant: "outline", size: "sm" })}
+          className={buttonVariants({ variant: "outline", size: "sm", className: "ml-auto" })}
         >
           <ExternalLink aria-hidden className="size-3.25" strokeWidth={1.6} />
           Open in new tab
