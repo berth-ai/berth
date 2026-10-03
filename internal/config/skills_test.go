@@ -2,6 +2,7 @@ package config
 
 import (
 	"encoding/json"
+	"errors"
 	"strings"
 	"testing"
 )
@@ -66,8 +67,8 @@ func TestValidateSkills(t *testing.T) {
 				}
 				return
 			}
-			ve, ok := err.(*ValidationError)
-			if !ok || len(ve.Fields) != 1 || ve.Fields[0].Field != tc.field {
+			var ve *ValidationError
+			if !errors.As(err, &ve) || len(ve.Fields) != 1 || ve.Fields[0].Field != tc.field {
 				t.Fatalf("Validate = %v, want one error on %s", err, tc.field)
 			}
 		})
@@ -106,8 +107,8 @@ func TestPatchIncompleteSkillFailsValidation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	ve, ok := c.Validate().(*ValidationError)
-	if !ok {
+	var ve *ValidationError
+	if !errors.As(c.Validate(), &ve) {
 		t.Fatal("an incomplete skill validated")
 	}
 	got := map[string]bool{}

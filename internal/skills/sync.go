@@ -263,7 +263,7 @@ func swap(tmp, final string) error {
 	}
 	if err := os.Rename(tmp, final); err != nil {
 		if hadOld {
-			os.Rename(old, final)
+			_ = os.Rename(old, final) // best effort: put the previous copy back
 		}
 		return err
 	}

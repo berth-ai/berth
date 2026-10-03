@@ -62,7 +62,7 @@ func (g Git) run(ctx context.Context, gitDir string, stdout io.Writer, args ...s
 	err := cmd.Run()
 	if err != nil {
 		if g.Log != nil && stderr.Len() > 0 {
-			g.Log.Write(stderr.Bytes())
+			_, _ = g.Log.Write(stderr.Bytes())
 		}
 		return &gitError{stderr: strings.TrimSpace(stderr.String()), err: err}
 	}
@@ -88,7 +88,7 @@ func lock(dir string, wait bool) (func(), error) {
 		return nil, err
 	}
 	return func() {
-		syscall.Flock(int(f.Fd()), syscall.LOCK_UN)
+		_ = syscall.Flock(int(f.Fd()), syscall.LOCK_UN)
 		f.Close()
 	}, nil
 }
