@@ -40,7 +40,7 @@ func withAgents(t *testing.T, tb *testBroker) string {
 		KeysPath: filepath.Join(tb.dir, "secrets", "agents.env")}
 	mcp := filepath.Join(tb.dir, "mcp-setup")
 	os.WriteFile(mcp, []byte("#!/bin/sh\necho registered >> \""+tb.dir+"/mcp.log\"\n"), 0o755)
-	tb.b.MCPSetup = mcp
+	tb.b.MCPSetup = []string{mcp}
 	tb.b.Load()
 	return tb.b.Layer.KeysPath
 }

@@ -68,8 +68,8 @@ type Broker struct {
 	Layer *agentlayer.Builder
 	// Agent is who agent-side jobs run as; nil runs them as the caller.
 	Agent *runner.Identity
-	// MCPSetup is berth-mcp-setup; empty skips MCP registration.
-	MCPSetup string
+	// MCPSetup is the MCP converger's argv; empty skips MCP registration.
+	MCPSetup []string
 	// Fetch reads the agent lock on a ref for update.check.
 	Fetch func(ctx context.Context, ref string) (*locksource.Lock, error)
 	// Home holds the programs home-side verbs run as agent.

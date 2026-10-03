@@ -103,11 +103,11 @@ func (b *Broker) refreshAgents(old, next config.Config) {
 		b.logf("WARNING: agent layer: %v", err)
 		return
 	}
-	if b.MCPSetup == "" {
+	if len(b.MCPSetup) == 0 {
 		return
 	}
 	timeout := time.Duration(next.Agents.MCPTimeout) * time.Second
-	if _, err := b.Jobs.Start("mcp.setup", mcpGroup, nil, b.agentWork(b.MCPSetup, nil, timeout)); err != nil {
+	if _, err := b.Jobs.Start("mcp.setup", mcpGroup, nil, b.agentWork(b.MCPSetup[0], b.MCPSetup[1:], timeout)); err != nil {
 		b.logf("WARNING: MCP setup not started: %v", err)
 	}
 }

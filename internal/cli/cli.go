@@ -28,7 +28,7 @@ type Config struct {
 	BuildInfo   string
 	MiseConfig  string
 	ProcRoot    string
-	MCPSetup    string
+	MCPSetup    []string // argv of the MCP converger; empty skips it
 	GitHub      locksource.GitHub
 	Keep        int
 	LockTimeout time.Duration
@@ -79,7 +79,7 @@ func defaultConfig(getenv func(string) string, b Build, isRoot bool, lookup func
 		BuildInfo:   "/usr/share/berth/build-info.json",
 		MiseConfig:  "/home/agent/.config/mise/config.toml",
 		ProcRoot:    "/proc",
-		MCPSetup:    "/usr/local/bin/berth-mcp-setup",
+		MCPSetup:    []string{"/usr/local/bin/berth", "mcp", "sync"},
 		GitHub:      locksource.GitHub{Repo: repo, Token: getenv("GITHUB_TOKEN")},
 		LockTimeout: 30 * time.Second,
 		IsRoot:      isRoot,
@@ -147,6 +147,7 @@ var commands = map[string]command{
 	"health":    {"health [--json]                      report whether every enabled service runs", runHealth},
 	"version":   {"version                              print the berth version", runVersion},
 	"supervise": {"supervise                            run the container's services (the entrypoint starts it)", runSupervise},
+	"mcp":       {"mcp sync                             register MCP servers with the agents (internal)", runMCP},
 	"panel":     {"panel                                serve the web panel (the panel module starts it)", runPanel},
 }
 

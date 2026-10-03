@@ -47,7 +47,7 @@ func TestUpdateFromLockDir(t *testing.T) {
 	marker := filepath.Join(t.TempDir(), "mcp-ran")
 	script := filepath.Join(t.TempDir(), "mcp-setup")
 	os.WriteFile(script, []byte("#!/bin/sh\ntouch "+marker+"\n"), 0o755)
-	cfg.MCPSetup = script
+	cfg.MCPSetup = []string{script}
 
 	out, errOut, code := run(t, cfg, "update", "--lock-dir", testutil.LockDir("lock-v1"), "--json")
 	if code != 0 {
@@ -55,7 +55,7 @@ func TestUpdateFromLockDir(t *testing.T) {
 	}
 	golden(t, "update_lockdir", out)
 	if _, err := os.Stat(marker); err != nil {
-		t.Fatal("berth-mcp-setup did not run after update")
+		t.Fatal("MCP sync did not run after update")
 	}
 	out, _, code = run(t, cfg, "update", "--lock-dir", testutil.LockDir("lock-v1"), "--json")
 	if code != 0 {

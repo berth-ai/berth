@@ -91,7 +91,6 @@ class Harness:
             self.fake(tool, f'echo "{tool} $*" >> "$FAKE_LOG/identity"\n')
         self.fake("stat", 'echo "${FAKE_HOME_OWNER:-1000:1000}"\n')
         self.fake("berth", 'echo "$*" >> "$FAKE_LOG/berth"\nexit "${FAKE_BERTH_STATUS:-0}"\n')
-        self.fake("berth-mcp-setup", 'sleep "${FAKE_MCP_SLEEP:-0}"\necho ran >> "$FAKE_LOG/mcp"\n')
         for service in ("ttyd", "code-server"):
             self.fake(service, SERVICE_FAKE)
 

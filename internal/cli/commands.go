@@ -173,11 +173,11 @@ func (a *app) rebuildLayer() {
 
 // setupMCP converges MCP registrations; failures are logged, never fatal.
 func (a *app) setupMCP(ctx context.Context, timeout time.Duration) {
-	if a.cfg.MCPSetup == "" {
+	if len(a.cfg.MCPSetup) == 0 {
 		return
 	}
-	err := a.cfg.Runner.Run(ctx, runner.Cmd{Path: a.cfg.MCPSetup, AsAgent: true, Timeout: timeout})
-	if err != nil {
+	cmd := runner.Cmd{Path: a.cfg.MCPSetup[0], Args: a.cfg.MCPSetup[1:], AsAgent: true, Timeout: timeout}
+	if err := a.cfg.Runner.Run(ctx, cmd); err != nil {
 		a.p.Logf("warning: MCP setup failed: %v", err)
 	}
 }
