@@ -51,6 +51,7 @@ type Lock struct {
 	Hash        string
 	Source      Source
 	Meta        map[string]Meta
+	Descriptors Descriptors
 }
 
 // Hash names a version: the first 12 hex digits of sha256(package-lock.json).
@@ -101,7 +102,11 @@ func Parse(pkg, lock []byte, src Source) (*Lock, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &Lock{PackageJSON: pkg, PackageLock: lock, Deps: p.Dependencies, Hash: Hash(lock), Source: src, Meta: meta}, nil
+	desc, err := ParseDescriptors(pkg, meta)
+	if err != nil {
+		return nil, err
+	}
+	return &Lock{PackageJSON: pkg, PackageLock: lock, Deps: p.Dependencies, Hash: Hash(lock), Source: src, Meta: meta, Descriptors: desc}, nil
 }
 
 // FromDir reads package.json and package-lock.json from dir.
