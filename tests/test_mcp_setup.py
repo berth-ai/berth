@@ -22,7 +22,8 @@ class McpSetupTest(unittest.TestCase):
         p.chmod(0o755)
 
     def run_setup(self):
-        return self.h.run(MCP_SETUP, env={"XDG_CONFIG_HOME": str(self.h.home / ".config")})
+        return self.h.run(MCP_SETUP, env={"XDG_CONFIG_HOME": str(self.h.home / ".config"),
+                                          "BERTH_AGENTS_DIR": str(self.h.agents)})
 
     def test_registers_with_every_agent(self):
         for name in ("claude", "codex", "opencode"):

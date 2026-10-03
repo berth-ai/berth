@@ -1,0 +1,58 @@
+#!/usr/bin/env bash
+# berth-module-run NAME           run module NAME's service as its user
+# berth-module-run --health NAME  print the port to probe for NAME, or fail
+# Started by berth supervise, which decides whether a module runs and passes
+# its settings as BERTH_<MODULE>_<KEY> variables.
+set -euo pipefail
+
+BERTH_LIB_DIR=${BERTH_LIB_DIR:-/usr/local/lib/berth}
+# shellcheck source-path=SCRIPTDIR source=../lib/berth/lib.sh
+source "$BERTH_LIB_DIR/lib.sh"
+
+# module_user NAME prints the user module NAME runs as. The panel has its own
+# user, so nothing running as agent can reach its sessions or the broker.
+module_user() {
+  case $1 in
+    panel) echo berth-panel ;;
+    *) echo agent ;;
+  esac
+}
+
+# load_module NAME sources the module file that defines NAME.
+load_module() {
+  local file
+  for file in "$BERTH_SERVICES_DIR"/*.sh; do
+    [[ -e $file ]] || continue
+    [[ $(module_name "$file") == "$1" ]] || continue
+    # shellcheck source=/dev/null
+    source "$file"
+    declare -F "$1_start" >/dev/null || die "module $file must define $1_start"
+    return 0
+  done
+  die "no module named $1 in $BERTH_SERVICES_DIR"
+}
+
+main() {
+  local health=0 name user
+  if [[ ${1:-} == --health ]]; then
+    health=1
+    shift
+  fi
+  name=${1:-}
+  [[ $name =~ ^[a-z][a-z0-9_]*$ ]] || die "usage: berth-module-run [--health] NAME (got '$name')"
+  load_module "$name"
+  if ((health)); then
+    declare -F "${name}_health" >/dev/null || exit 0
+    "${name}_health"
+    exit
+  fi
+  user=$(module_user "$name")
+  if [[ ${BERTH_MODULE_USER:-} != "$user" ]]; then
+    export BERTH_MODULE_USER=$user
+    exec gosu "$user" "$0" "$name"
+  fi
+  "${name}_start"
+  die "${name}_start returned instead of exec'ing the service"
+}
+
+main "$@"

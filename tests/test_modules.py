@@ -1,61 +1,82 @@
 import unittest
 
-from shellharness import Harness, needs_bash
+from shellharness import MODULE_RUN, Harness, needs_bash
 
 
 @needs_bash
-class ModuleLibraryTest(unittest.TestCase):
+class ModuleNameTest(unittest.TestCase):
+    def test_module_name(self):
+        h = Harness(self)
+        r = h.bash('module_name /x/20-code-server.sh; module_name /x/10-ttyd.sh; module_name /x/plain.sh')
+        self.assertEqual(r.stdout, "code_server\nttyd\nplain\n", r.stderr)
+
+
+@needs_bash
+class ModuleRunTest(unittest.TestCase):
     def setUp(self):
         self.h = Harness(self)
 
-    def test_module_name(self):
-        r = self.h.bash('module_name /x/20-code-server.sh; module_name /x/10-ttyd.sh; module_name /x/plain.sh')
-        self.assertEqual(r.stdout, "code_server\nttyd\nplain\n", r.stderr)
+    def test_ttyd_runs_as_agent_on_loopback(self):
+        r = self.h.run(MODULE_RUN, "ttyd", env={"TZ": "Europe/Rome"})
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(self.h.read_log("gosu").split()[0:2], ["agent", str(MODULE_RUN)])
+        self.assertEqual(self.h.read_log("ttyd.argv").splitlines(),
+                         ["-W", "-i", "lo", "-p", "7681", "-b", "/terminal", "-w", "/workspaces",
+                          "tmux", "new", "-A", "-s", "main"])
+        self.assertIn("TZ=Europe/Rome", self.h.read_log("ttyd.env").splitlines())
 
-    def test_load_modules_collects_names_and_secrets_in_order(self):
+    def test_code_server_runs_as_agent_without_auth(self):
+        r = self.h.run(MODULE_RUN, "code_server")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertTrue(self.h.read_log("gosu").startswith("agent "))
+        self.assertEqual(self.h.read_log("code-server.argv").splitlines(),
+                         ["--bind-addr", "127.0.0.1:8080", "--auth", "none", "--abs-proxy-base-path", "/ide",
+                          "--disable-telemetry", "--disable-update-check", "/workspaces"])
+        self.assertFalse([l for l in self.h.read_log("code-server.env").splitlines() if l.startswith("PASSWORD=")])
+
+    def test_panel_runs_as_berth_panel(self):
+        self.h.fake("berth", 'echo "$*" >> "$FAKE_LOG/berth"\n')
+        r = self.h.run(MODULE_RUN, "panel")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertTrue(self.h.read_log("gosu").startswith("berth-panel "))
+        self.assertEqual(self.h.read_log("berth"), "panel\n")
+
+    def test_health(self):
+        for name, port in (("ttyd", "7681"), ("code_server", "8080"), ("panel", "7690")):
+            with self.subTest(name=name):
+                r = self.h.run(MODULE_RUN, "--health", name)
+                self.assertEqual((r.returncode, r.stdout), (0, port + "\n"), r.stderr)
+        self.assertEqual(self.h.read_log("gosu"), "", "health probes must not drop privileges")
+
+    def test_health_without_function_is_healthy(self):
         d = self.h.tmp / "services"
         d.mkdir()
-        (d / "20-beta-two.sh").write_text("beta_two_enabled() { :; }\nbeta_two_start() { :; }\n")
-        (d / "10-alpha.sh").write_text(
-            "alpha_enabled() { :; }\nalpha_start() { :; }\nalpha_secrets() { echo A_ONE; echo A_TWO; }\n")
-        r = self.h.bash('load_modules; echo "${BERTH_MODULES[*]}|${BERTH_ALL_SECRETS[*]}"',
-                        env={"BERTH_SERVICES_DIR": str(d)})
-        self.assertEqual(r.stdout, "alpha beta_two|A_ONE A_TWO\n", r.stderr)
+        (d / "50-plain.sh").write_text("plain_start() { exec true; }\n")
+        r = self.h.run(MODULE_RUN, "--health", "plain", env={"BERTH_SERVICES_DIR": str(d)})
+        self.assertEqual((r.returncode, r.stdout), (0, ""), r.stderr)
 
-    def test_load_modules_rejects_incomplete_module(self):
+    def test_rejects_unknown_and_invalid_names(self):
+        for name in ("nope", "../etc", "Ttyd", ""):
+            with self.subTest(name=name):
+                r = self.h.run(MODULE_RUN, name)
+                self.assertNotEqual(r.returncode, 0)
+                self.assertEqual(self.h.read_log("gosu"), "")
+
+    def test_start_must_exec(self):
         d = self.h.tmp / "services"
         d.mkdir()
-        (d / "10-broken.sh").write_text("broken_enabled() { :; }\n")
-        r = self.h.bash("load_modules", env={"BERTH_SERVICES_DIR": str(d)})
-        self.assertNotEqual(r.returncode, 0)
+        (d / "50-lazy.sh").write_text("lazy_start() { :; }\n")
+        r = self.h.run(MODULE_RUN, "lazy", env={"BERTH_SERVICES_DIR": str(d)})
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("returned instead of exec", r.stderr)
+
+    def test_module_without_start_fails(self):
+        d = self.h.tmp / "services"
+        d.mkdir()
+        (d / "50-broken.sh").write_text("broken_health() { echo 1; }\n")
+        r = self.h.run(MODULE_RUN, "broken", env={"BERTH_SERVICES_DIR": str(d)})
+        self.assertEqual(r.returncode, 1)
         self.assertIn("broken_start", r.stderr)
-
-    def test_valid_port(self):
-        for value, ok in (("7681", True), ("1", True), ("65535", True), ("0", False),
-                          ("65536", False), ("08", True), ("80a", False), ("", False)):
-            with self.subTest(value=value):
-                r = self.h.bash(f'valid_port PORT "{value}"')
-                self.assertEqual(r.returncode == 0, ok, r.stderr)
-
-    def test_start_service_scrubs_other_modules_secrets(self):
-        r = self.h.bash(
-            'BERTH_ALL_SECRETS=(MINE THEIRS)\n'
-            'mine_secrets() { echo MINE; }\n'
-            'start_service mine sh -c \'echo "mine=${MINE:-} theirs=${THEIRS:-}"\'\n'
-            'wait "${BERTH_PIDS[0]}"; echo "names=${BERTH_PID_NAMES[*]}"',
-            env={"MINE": "m", "THEIRS": "t"})
-        self.assertEqual(r.stdout, "mine=m theirs=\nnames=mine\n", r.stderr)
-        self.assertEqual(self.h.read_log("gosu").split()[0], "agent")
-
-    def test_start_root_service_scrubs_every_secret_and_skips_gosu(self):
-        r = self.h.bash(
-            'BERTH_ALL_SECRETS=(MINE THEIRS)\n'
-            'mine_secrets() { echo MINE; }\n'
-            'start_root_service mine sh -c \'echo "mine=${MINE:-} theirs=${THEIRS:-} keep=${KEEP:-}"\'\n'
-            'wait "${BERTH_PIDS[0]}"; echo "names=${BERTH_PID_NAMES[*]}"',
-            env={"MINE": "m", "THEIRS": "t", "KEEP": "k"})
-        self.assertEqual(r.stdout, "mine= theirs= keep=k\nnames=mine\n", r.stderr)
-        self.assertEqual(self.h.read_log("gosu"), "")
 
 
 if __name__ == "__main__":

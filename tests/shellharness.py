@@ -13,6 +13,7 @@ REPO = Path(__file__).resolve().parent.parent
 ROOTFS = REPO / "rootfs"
 LIB_DIR = ROOTFS / "usr/local/lib/berth"
 BIN_DIR = ROOTFS / "usr/local/bin"
+MODULE_RUN = BIN_DIR / "berth-module-run"
 SERVICES_DIR = ROOTFS / "etc/berth/services.d"
 
 
@@ -42,12 +43,7 @@ needs_jq = unittest.skipUnless(shutil.which("jq"), "needs jq")
 SERVICE_FAKE = r"""
 name=$(basename "$0")
 printf '%s\n' "$@" > "$FAKE_LOG/$name.argv"
-env | sort > "$FAKE_LOG/$name.env.tmp" && mv "$FAKE_LOG/$name.env.tmp" "$FAKE_LOG/$name.env"
-trap 'echo TERM >> "$FAKE_LOG/$name.signals"; exit 0' TERM
-case "${FAKE_EXIT_SERVICE:-}" in
-  "$name":*) sleep 0.3; exit "${FAKE_EXIT_SERVICE#*:}" ;;
-esac
-while :; do sleep 0.05; done
+env | sort > "$FAKE_LOG/$name.env"
 """
 
 
@@ -70,9 +66,7 @@ class Harness:
             "LC_ALL": "C",
             "BERTH_LIB_DIR": str(LIB_DIR),
             "BERTH_SERVICES_DIR": str(SERVICES_DIR),
-            "BERTH_RUN_DIR": str(self.run_dir),
             "BERTH_HOME": str(self.home),
-            "BERTH_AGENTS_DIR": str(self.agents),
             "FAKE_LOG": str(self.logdir),
         }
         self._procs = []
@@ -88,7 +82,11 @@ class Harness:
     def _default_fakes(self):
         self.fake("gosu", 'echo "$*" >> "$FAKE_LOG/gosu"\nshift\nexec "$@"\n')
         self.fake("timeout", 'echo "$*" >> "$FAKE_LOG/timeout"\nshift\nexec "$@"\n')
-        self.fake("id", 'case "$1" in -u) echo "${FAKE_UID:-1000}" ;; -g) echo "${FAKE_GID:-1000}" ;; *) exec /usr/bin/id "$@" ;; esac\n')
+        self.fake("id", 'case "$1" in\n'
+                  '  -u) if [ "$2" = berth-panel ]; then echo "${FAKE_PANEL_UID:-990}"; else echo "${FAKE_UID:-1000}"; fi ;;\n'
+                  '  -g) if [ "$2" = berth-panel ]; then echo "${FAKE_PANEL_GID:-990}"; else echo "${FAKE_GID:-1000}"; fi ;;\n'
+                  '  *) exec /usr/bin/id "$@" ;;\n'
+                  'esac\n')
         for tool in ("groupmod", "usermod", "chown"):
             self.fake(tool, f'echo "{tool} $*" >> "$FAKE_LOG/identity"\n')
         self.fake("stat", 'echo "${FAKE_HOME_OWNER:-1000:1000}"\n')
