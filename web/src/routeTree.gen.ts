@@ -13,6 +13,7 @@ import { Route as IndexRouteImport } from './routes/index'
 import { Route as AccountsRouteImport } from './routes/accounts'
 import { Route as AgentsRouteImport } from './routes/agents'
 import { Route as IdeRouteImport } from './routes/ide'
+import { Route as McpRouteImport } from './routes/mcp'
 import { Route as SettingsRouteImport } from './routes/settings'
 import { Route as TerminalRouteImport } from './routes/terminal'
 import { Route as ToolsRouteImport } from './routes/tools'
@@ -37,6 +38,11 @@ const AgentsRoute = AgentsRouteImport.update({
 const IdeRoute = IdeRouteImport.update({
   id: '/ide',
   path: '/ide',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const McpRoute = McpRouteImport.update({
+  id: '/mcp',
+  path: '/mcp',
   getParentRoute: () => rootRouteImport,
 } as any)
 const SettingsRoute = SettingsRouteImport.update({
@@ -70,6 +76,7 @@ export interface FileRoutesByFullPath {
   '/accounts': typeof AccountsRoute
   '/agents': typeof AgentsRoute
   '/ide': typeof IdeRoute
+  '/mcp': typeof McpRoute
   '/settings': typeof SettingsRoute
   '/terminal': typeof TerminalRoute
   '/tools': typeof ToolsRoute
@@ -81,6 +88,7 @@ export interface FileRoutesByTo {
   '/accounts': typeof AccountsRoute
   '/agents': typeof AgentsRoute
   '/ide': typeof IdeRoute
+  '/mcp': typeof McpRoute
   '/settings': typeof SettingsRoute
   '/terminal': typeof TerminalRoute
   '/tools': typeof ToolsRoute
@@ -93,6 +101,7 @@ export interface FileRoutesById {
   '/accounts': typeof AccountsRoute
   '/agents': typeof AgentsRoute
   '/ide': typeof IdeRoute
+  '/mcp': typeof McpRoute
   '/settings': typeof SettingsRoute
   '/terminal': typeof TerminalRoute
   '/tools': typeof ToolsRoute
@@ -106,6 +115,7 @@ export interface FileRouteTypes {
     | '/accounts'
     | '/agents'
     | '/ide'
+    | '/mcp'
     | '/settings'
     | '/terminal'
     | '/tools'
@@ -117,6 +127,7 @@ export interface FileRouteTypes {
     | '/accounts'
     | '/agents'
     | '/ide'
+    | '/mcp'
     | '/settings'
     | '/terminal'
     | '/tools'
@@ -128,6 +139,7 @@ export interface FileRouteTypes {
     | '/accounts'
     | '/agents'
     | '/ide'
+    | '/mcp'
     | '/settings'
     | '/terminal'
     | '/tools'
@@ -140,6 +152,7 @@ export interface RootRouteChildren {
   AccountsRoute: typeof AccountsRoute
   AgentsRoute: typeof AgentsRoute
   IdeRoute: typeof IdeRoute
+  McpRoute: typeof McpRoute
   SettingsRoute: typeof SettingsRoute
   TerminalRoute: typeof TerminalRoute
   ToolsRoute: typeof ToolsRoute
@@ -175,6 +188,13 @@ declare module '@tanstack/react-router' {
       path: '/ide'
       fullPath: '/ide'
       preLoaderRoute: typeof IdeRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/mcp': {
+      id: '/mcp'
+      path: '/mcp'
+      fullPath: '/mcp'
+      preLoaderRoute: typeof McpRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/settings': {
@@ -220,6 +240,7 @@ const rootRouteChildren: RootRouteChildren = {
   AccountsRoute: AccountsRoute,
   AgentsRoute: AgentsRoute,
   IdeRoute: IdeRoute,
+  McpRoute: McpRoute,
   SettingsRoute: SettingsRoute,
   TerminalRoute: TerminalRoute,
   ToolsRoute: ToolsRoute,

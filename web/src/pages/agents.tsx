@@ -4,18 +4,15 @@ import { applyConfig } from "@/api/config";
 import { refreshStatus, useConfig, useStatus } from "@/api/queries";
 import { verb } from "@/api/request";
 import { runJob } from "@/api/run-job";
-import type { AgentPackage, Job, Status, UpdateCheck } from "@/api/types";
+import type { Job, Status, UpdateCheck } from "@/api/types";
 import { BusyButton } from "@/components/busy-button";
 import { useConfirm } from "@/components/confirm";
 import { EmptyState } from "@/components/empty-state";
 import { FormField, fieldProps } from "@/components/form-field";
 import { InlineAlert } from "@/components/inline-alert";
 import { LoadingRows } from "@/components/loading";
-import { OnOffSwitch } from "@/components/on-off-switch";
-import { CardGrid, Page, PageHeader, SectionTitle } from "@/components/page";
+import { Page, PageHeader, SectionTitle } from "@/components/page";
 import { PanelCard } from "@/components/panel-card";
-import { SecretField } from "@/components/secret-field";
-import { StatusBadge } from "@/components/status-badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
@@ -24,7 +21,8 @@ import { errorText, fieldErrors } from "@/lib/errors";
 import { describeSource, short, when } from "@/lib/format";
 import { notify, type Tone } from "@/lib/notify";
 import { useTitle } from "@/lib/use-title";
-import { checkResult, disabledAfter, versionLabel } from "./agents-logic";
+import { checkResult, versionLabel } from "./agents-logic";
+import { PackageSection } from "./package-table";
 
 // Agents: update source and actions, per-package toggles and keys, history.
 export function AgentsPage() {
@@ -35,13 +33,17 @@ export function AgentsPage() {
     <Page>
       <PageHeader
         title="Agents"
-        description="Pinned agent CLIs and MCP servers. Switch each on or off and give them API keys."
+        description="Pinned agent CLIs. Updates install a new locked set; the previous one is kept for rollback."
       />
       <SourceCard />
-      <SectionTitle>Agents</SectionTitle>
-      <PackageGrid all={pkgs} kind="agent" empty="No agents installed yet." />
-      <SectionTitle>MCP servers</SectionTitle>
-      <PackageGrid all={pkgs} kind="mcp" empty="No MCP servers installed yet." />
+      <PackageSection
+        title="Agents"
+        kind="agent"
+        nameHeader="Agent"
+        noun={["agent", "agents"]}
+        all={pkgs}
+        empty="No agents installed yet."
+      />
       <SectionTitle>History</SectionTitle>
       <History status={status.data} />
     </Page>
@@ -200,86 +202,6 @@ function SourceForm({ initialRef }: { initialRef: string }) {
         {result ? <InlineAlert tone={result.tone}>{result.text}</InlineAlert> : null}
       </div>
       {dialog}
-    </PanelCard>
-  );
-}
-
-function PackageGrid({
-  all,
-  kind,
-  empty,
-}: {
-  all: AgentPackage[] | undefined;
-  kind: string;
-  empty: string;
-}) {
-  if (!all) return <LoadingRows n={2} />;
-  const list = all.filter((p) => p.kind === kind);
-  if (!list.length) return <EmptyState text={empty} />;
-  return (
-    <CardGrid>
-      {list.map((p) => (
-        <PackageCard key={p.package} p={p} all={all} />
-      ))}
-    </CardGrid>
-  );
-}
-
-function PackageCard({ p, all }: { p: AgentPackage; all: AgentPackage[] }) {
-  const [pending, setPending] = useState<boolean | null>(null);
-  const toggle = async (on: boolean) => {
-    setPending(on);
-    try {
-      await applyConfig({ agents: { disabled: disabledAfter(all, p.package, on) } });
-      notify(`${p.name}${on ? " is on." : " is off."} MCP registrations update in the background.`);
-      await refreshStatus();
-    } catch (err) {
-      notify(errorText(err), "bad");
-    }
-    setPending(null);
-  };
-  const keys = p.keys ?? [];
-  const saveKey = (name: string, value: string | null, done: string) => async () => {
-    try {
-      await applyConfig(null, { [name]: value });
-    } catch (err) {
-      return fieldErrors(err)[`secrets.${name}`] || errorText(err);
-    }
-    notify(done);
-    void refreshStatus();
-    return null;
-  };
-  return (
-    <PanelCard
-      title={p.name}
-      badge={<StatusBadge state={p.enabled ? "on" : "off"} />}
-      actions={
-        <OnOffSwitch
-          checked={pending ?? p.enabled}
-          disabled={pending !== null}
-          label={`${p.enabled ? "Turn off" : "Turn on"} ${p.name}`}
-          onCheckedChange={(on) => void toggle(on)}
-        />
-      }
-    >
-      <p className="text-fg-muted">
-        <span className="font-mono text-xs">
-          {p.package} {p.version}
-        </span>
-      </p>
-      {keys.length ? (
-        keys.map((k) => (
-          <SecretField
-            key={k.name}
-            name={k.name}
-            isSet={k.set}
-            onSave={(value) => saveKey(k.name, value, `${k.name} saved.`)()}
-            onRemove={saveKey(k.name, null, `${k.name} removed.`)}
-          />
-        ))
-      ) : (
-        <p className="text-xs text-fg-muted">Needs no API key.</p>
-      )}
     </PanelCard>
   );
 }
