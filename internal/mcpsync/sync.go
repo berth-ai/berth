@@ -62,22 +62,14 @@ func (s Syncer) Run() error {
 	servers := s.enabledServers(desc)
 
 	statePath := StatePath(s.Home)
-	st, seeded, err := loadState(statePath)
+	st, err := loadState(statePath)
 	if err != nil {
 		s.logf("%v; starting over", err)
-		st, seeded = map[string][]string{}, true
-	}
-	agents := slices.Sorted(maps.Keys(desc.Agents))
-	if seeded {
-		for _, dep := range agents {
-			if t := desc.Agents[dep].MCP; t != nil {
-				st[s.resolve(t.File)] = slices.Clone(legacyIDs)
-			}
-		}
+		st = map[string][]string{}
 	}
 
 	var failed []string
-	for _, dep := range agents {
+	for _, dep := range slices.Sorted(maps.Keys(desc.Agents)) {
 		t, name := desc.Agents[dep].MCP, meta[dep].Name
 		if t == nil {
 			continue
@@ -87,7 +79,13 @@ func (s Syncer) Run() error {
 			continue
 		}
 		path := s.resolve(t.File)
-		ids, err := s.syncFile(path, *t, servers, st[path])
+		owned, synced := st[path]
+		if !synced && slices.Contains(legacyAgents, dep) {
+			// Berth never synced this file; berth-mcp-setup may have
+			// registered its servers there.
+			owned = slices.Clone(legacyIDs)
+		}
+		ids, err := s.syncFile(path, *t, servers, owned)
 		if err != nil {
 			s.logf("failed to converge MCP servers for %s: %v", name, err)
 			failed = append(failed, name)

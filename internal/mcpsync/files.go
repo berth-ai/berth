@@ -12,31 +12,35 @@ import (
 )
 
 // legacyIDs are the servers berth-mcp-setup registered before Berth kept
-// any state.
+// any state; a legacy agent's file that Berth has not synced owns them.
 var legacyIDs = []string{"context7", "playwright"}
+
+// legacyAgents are the agents berth-mcp-setup registered servers with; only
+// their files can hold its entries.
+var legacyAgents = []string{"@anthropic-ai/claude-code", "@openai/codex", "opencode-ai"}
 
 // StatePath is where Berth records, per config file, the ids it wrote.
 func StatePath(home string) string {
 	return filepath.Join(home, ".local", "state", "berth", "mcp.json")
 }
 
-// loadState reads the state file. seeded is true when there was none: the
-// old script may then have registered its servers anywhere.
-func loadState(path string) (st map[string][]string, seeded bool, err error) {
+// loadState reads the state file; a missing file is an empty state.
+func loadState(path string) (map[string][]string, error) {
+	st := map[string][]string{}
 	data, err := os.ReadFile(path)
 	if errors.Is(err, fs.ErrNotExist) {
-		return map[string][]string{}, true, nil
+		return st, nil
 	}
 	if err != nil {
-		return nil, false, err
+		return nil, err
 	}
 	if err := json.Unmarshal(data, &st); err != nil {
-		return nil, false, fmt.Errorf("%s: %w", path, err)
+		return nil, fmt.Errorf("%s: %w", path, err)
 	}
 	if st == nil {
 		st = map[string][]string{}
 	}
-	return st, false, nil
+	return st, nil
 }
 
 // saveState writes st when it differs from what is on disk.

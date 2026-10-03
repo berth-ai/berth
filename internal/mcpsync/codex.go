@@ -45,20 +45,36 @@ func editCodex(data []byte, servers []server, owned []string) ([]byte, []string,
 		lines = lines[:len(lines)-1]
 	}
 
-	// Cut the old block out, leaving a marker where it started.
-	var kept []string
-	inBlock, placed := false, false
+	// Cut the old block out, leaving a marker where it started. Codex's own
+	// edits can land between the markers (it appends tables before trailing
+	// comments), so only Berth's tables go; anything else moves after the
+	// block.
+	berths := func(id string) bool {
+		return slices.Contains(owned, id) || slices.ContainsFunc(servers, func(s server) bool { return s.ID == id })
+	}
+	var kept, foreign []string
+	inBlock, placed, ours := false, false, true
 	for _, l := range lines {
 		switch t := strings.TrimSpace(l); {
 		case !inBlock && t == blockStart:
-			inBlock = true
+			inBlock, ours = true, true
 			if !placed {
 				kept = append(kept, marker)
 				placed = true
 			}
 		case inBlock && t == blockEnd:
 			inBlock = false
-		case !inBlock:
+			kept = append(kept, foreign...)
+			foreign = nil
+		case inBlock:
+			if strings.HasPrefix(t, "[") {
+				id := tableID(t)
+				ours = id != "" && berths(id)
+			}
+			if !ours {
+				foreign = append(foreign, l)
+			}
+		default:
 			kept = append(kept, l)
 		}
 	}

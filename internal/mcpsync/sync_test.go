@@ -58,6 +58,10 @@ func newFixture(t *testing.T) *fixture {
 		must(t, os.WriteFile(filepath.Join(dir, "package.json"), []byte(`{"name":"`+dep+`","bin":{"`+dep+`":"cli.js"}}`), 0o644))
 	}
 	must(t, os.WriteFile(filepath.Join(cur, "package.json"), []byte(fixturePkg), 0o644))
+	// The fixture's agents stand in for the ones berth-mcp-setup managed.
+	saved := legacyAgents
+	legacyAgents = []string{"a-cli", "c-cli", "o-cli"}
+	t.Cleanup(func() { legacyAgents = saved })
 	f := &fixture{t: t, log: &bytes.Buffer{}}
 	f.s = Syncer{Current: cur, Layer: filepath.Join(root, "bin"), Home: filepath.Join(root, "home"), Log: f.log}
 	must(t, os.MkdirAll(f.s.Layer, 0o755))
@@ -178,8 +182,11 @@ func TestUserEntriesSurvive(t *testing.T) {
 
 func TestUserServerWithBerthIDIsSkipped(t *testing.T) {
 	f := newFixture(t)
+	// Berth has synced this file before (with nothing owned) when the user
+	// adds their own playwright.
 	must(t, os.MkdirAll(filepath.Dir(StatePath(f.s.Home)), 0o755))
-	must(t, os.WriteFile(StatePath(f.s.Home), []byte("{}\n"), 0o600))
+	st, _ := json.Marshal(map[string][]string{f.path(aFile): {}})
+	must(t, os.WriteFile(StatePath(f.s.Home), st, 0o600))
 	f.write(aFile, `{"mcpServers":{"playwright":{"command":"my-own"}}}`)
 	f.sync()
 	if !strings.Contains(f.read(aFile), `"command": "my-own"`) {
@@ -371,5 +378,35 @@ func TestConfigHome(t *testing.T) {
 	f.sync()
 	if _, err := os.Stat(filepath.Join(f.s.ConfigHome, "o", "o.json")); err != nil {
 		t.Errorf("XDG_CONFIG_HOME ignored: %v", err)
+	}
+}
+
+func TestLockWithoutDescriptorsKeepsLegacyOwnership(t *testing.T) {
+	f := newFixture(t)
+	f.write(aFile, `{"mcpServers":{"context7":{"command":"/old"}}}`)
+	pkg := filepath.Join(f.s.Current, "package.json")
+	var p map[string]any
+	must(t, json.Unmarshal([]byte(fixturePkg), &p))
+	delete(p, "berthAgents")
+	old, _ := json.Marshal(p)
+	must(t, os.WriteFile(pkg, old, 0o644))
+	f.sync()
+	must(t, os.WriteFile(pkg, []byte(fixturePkg), 0o644))
+	f.disable("k-mcp")
+	f.sync()
+	if got := f.servers(aFile, "mcpServers"); !slices.Equal(got, []string{"playwright"}) {
+		t.Errorf("A servers = %v, want the legacy context7 removed", got)
+	}
+}
+
+func TestOnlyLegacyAgentsAreSeeded(t *testing.T) {
+	f := newFixture(t)
+	saved := legacyAgents
+	legacyAgents = []string{"c-cli", "o-cli"} // a-cli plays a new agent, like Gemini
+	t.Cleanup(func() { legacyAgents = saved })
+	f.write(aFile, `{"mcpServers":{"playwright":{"command":"my-own"}}}`)
+	f.sync()
+	if !strings.Contains(f.read(aFile), `"command": "my-own"`) {
+		t.Errorf("a new agent's user server was claimed:\n%s", f.read(aFile))
 	}
 }

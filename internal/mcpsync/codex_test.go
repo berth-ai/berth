@@ -100,3 +100,15 @@ func TestTOMLString(t *testing.T) {
 		t.Errorf("empty array = %s", got)
 	}
 }
+
+func TestCodexKeepsForeignTablesInsideBlock(t *testing.T) {
+	in := "# >>> berth mcp (managed; edits are overwritten)\n[mcp_servers.playwright]\ncommand = \"/old\"\nargs = []\n[projects.\"/w/x\"]\ntrust_level = \"trusted\"\n[mcp_servers.mine]\ncommand = \"m\"\n# <<< berth mcp\n"
+	want := pwBlock + "[projects.\"/w/x\"]\ntrust_level = \"trusted\"\n[mcp_servers.mine]\ncommand = \"m\"\n"
+	out, skipped := codex(t, in, []server{cpw}, []string{"playwright"})
+	if out != want || len(skipped) != 0 {
+		t.Errorf("got\n%s\nwant\n%s\nskipped %v", out, want, skipped)
+	}
+	if again, _ := codex(t, out, []server{cpw}, []string{"playwright"}); again != out {
+		t.Errorf("second edit changed the file:\n%s", again)
+	}
+}
