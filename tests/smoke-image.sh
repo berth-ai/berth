@@ -181,11 +181,11 @@ pc main -f "$panel/api/status" | jq -e '.mode == "normal" and .host.panel_port =
 # SIGPIPE fails the pipeline under pipefail.
 term_page=$(x main curl -fsS -b "$jar" "$panel/terminal/") || fail "terminal through the proxy"
 grep -qi ttyd <<<"$term_page" || fail "terminal through the proxy"
-ws=$(x main curl -s -o /dev/null -w '%{http_code}' --http1.1 --max-time 3 -b "$jar" \
+ws_code=$(x main curl -s -o /dev/null -w '%{http_code}' --http1.1 --max-time 3 -b "$jar" \
   -H 'Connection: Upgrade' -H 'Upgrade: websocket' -H 'Sec-WebSocket-Version: 13' \
   -H 'Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==' -H 'Sec-WebSocket-Protocol: tty' \
   -H "Origin: $panel" "$panel/terminal/ws" || true)
-[[ $ws == 101 ]] || fail "terminal WebSocket through the proxy answered $ws"
+[[ $ws_code == 101 ]] || fail "terminal WebSocket through the proxy answered $ws_code"
 [[ $(x main curl -s -o /dev/null -w '%{http_code}' --http1.1 --max-time 3 -b "$jar" -H 'Connection: Upgrade' \
   -H 'Upgrade: websocket' -H 'Sec-WebSocket-Version: 13' -H 'Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==' \
   -H 'Origin: http://evil.example' "$panel/terminal/ws" || true) == 403 ]] || fail "cross-origin WebSocket accepted"
