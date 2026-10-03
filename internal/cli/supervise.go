@@ -12,6 +12,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/salgnt/berth/internal/agentlayer"
 	"github.com/salgnt/berth/internal/broker"
 	"github.com/salgnt/berth/internal/config"
 	"github.com/salgnt/berth/internal/login"
@@ -134,11 +135,26 @@ func (a *app) boot(ctx context.Context, cfg config.Config, bg *sync.WaitGroup) {
 				"The panel starts for diagnosis; run berth update and read the log above.")
 		}
 	}
+	a.fixKeysOwner()
+	a.rebuildLayer()
 	bg.Add(1)
 	go func() {
 		defer bg.Done()
 		a.setupMCP(ctx, time.Duration(cfg.Agents.MCPTimeout)*time.Second)
 	}()
+}
+
+// fixOwner is a test seam for agentlayer.FixOwner.
+var fixOwner = agentlayer.FixOwner
+
+// fixKeysOwner gives agents.env to the agent group after PGID remapping.
+func (a *app) fixKeysOwner() {
+	if a.cfg.Agent == nil {
+		return
+	}
+	if err := fixOwner(a.cfg.KeysPath, int(a.cfg.Agent.GID)); err != nil {
+		a.p.Logf("WARNING: cannot re-own %s: %v", a.cfg.KeysPath, err)
+	}
 }
 
 // agentsReport is the agent store part of the broker's status. It reads no

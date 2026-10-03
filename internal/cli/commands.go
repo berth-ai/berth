@@ -7,7 +7,9 @@ import (
 	"io"
 	"time"
 
+	"github.com/salgnt/berth/internal/agentlayer"
 	"github.com/salgnt/berth/internal/agentstore"
+	"github.com/salgnt/berth/internal/config"
 	"github.com/salgnt/berth/internal/locksource"
 	"github.com/salgnt/berth/internal/output"
 	"github.com/salgnt/berth/internal/runner"
@@ -140,11 +142,33 @@ func (a *app) apply(ctx context.Context, lock *locksource.Lock, follow bool) (*u
 	if err := a.store.WriteState(agentstore.State{FollowImage: follow}); err != nil {
 		return nil, output.Errorf(output.ExitFailure, "flip_failed", "flip", "%v", err)
 	}
+	a.rebuildLayer()
 	cur, prev, err := a.views()
 	if err != nil {
 		return nil, output.Errorf(output.ExitFailure, "internal", "flip", "%v", err)
 	}
 	return &updateResult{Changed: changed, Installed: installed, FollowImage: follow, Current: cur, Previous: prev}, nil
+}
+
+// layer is the wrapper layer under ConfigDir.
+func (a *app) layer() agentlayer.Builder {
+	return agentlayer.Builder{Root: a.cfg.ConfigDir, Store: a.store, KeysPath: a.cfg.KeysPath}
+}
+
+// rebuildLayer refreshes /var/lib/berth/bin for the current set and the
+// configured disabled packages. Failures are logged: the agent set itself
+// changed successfully.
+func (a *app) rebuildLayer() {
+	if a.cfg.ConfigDir == "" {
+		return
+	}
+	c, err := (&config.Store{Dir: a.cfg.ConfigDir}).Load()
+	if err != nil {
+		c = config.Defaults()
+	}
+	if _, err := a.layer().Build(c.Agents.Disabled); err != nil {
+		a.p.Logf("warning: agent layer: %v", err)
+	}
 }
 
 // setupMCP converges MCP registrations; failures are logged, never fatal.
@@ -169,7 +193,7 @@ type rollbackResult struct {
 	Previous *status.VersionView `json:"previous"`
 }
 
-func runRollback(_ context.Context, a *app, args []string) error {
+func runRollback(ctx context.Context, a *app, args []string) error {
 	fs := newFlagSet("rollback")
 	jsonOut := fs.Bool("json", false, "print JSON")
 	pos, err := parseArgs(fs, args)
@@ -197,6 +221,8 @@ func runRollback(_ context.Context, a *app, args []string) error {
 		if err := a.store.WriteState(agentstore.State{FollowImage: false}); err != nil {
 			return output.Errorf(output.ExitFailure, "flip_failed", "flip", "%v", err)
 		}
+		a.rebuildLayer()
+		a.setupMCP(ctx, a.cfg.MCPTimeout)
 		cur, prev, err := a.views()
 		if err != nil {
 			return output.Errorf(output.ExitFailure, "internal", "rollback", "%v", err)

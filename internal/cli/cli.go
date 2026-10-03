@@ -46,6 +46,7 @@ type Config struct {
 	BerthPath    string
 	ModuleRun    string
 	ConfigDir    string
+	KeysPath     string // agents.env, the API keys the wrappers load
 	MCPTimeout   time.Duration
 	Panel        *runner.Identity // the berth-panel user; set when running as root
 	PanelErr     error            // set when running as root and berth-panel does not exist
@@ -90,6 +91,7 @@ func defaultConfig(getenv func(string) string, b Build, isRoot bool, lookup func
 		BerthPath:    "/usr/local/bin/berth",
 		ModuleRun:    "/usr/local/bin/berth-module-run",
 		ConfigDir:    "/var/lib/berth",
+		KeysPath:     "/var/lib/berth/secrets/agents.env",
 		PanelListen:  "0.0.0.0:7690",
 		LoginPath:    "/var/lib/berth/secrets/panel.json",
 		Getenv:       getenv,
