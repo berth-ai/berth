@@ -1,0 +1,19 @@
+{
+  "$schema": "./node_modules/oxlint/configuration_schema.json",
+  "plugins": ["react", "typescript", "oxc"],
+  "rules": {
+    "react/rules-of-hooks": "error",
+    "react/only-export-components": ["warn", { "allowConstantExport": true }],
+    "react/no-danger": "error",
+    "@tanstack/query/exhaustive-deps": "error",
+    "@tanstack/query/stable-query-client": "error"
+  },
+  "jsPlugins": [{ "name": "@tanstack/query", "specifier": "@tanstack/eslint-plugin-query" }],
+  "ignorePatterns": ["dist/**", "src/routeTree.gen.ts", "playwright-report/**", "test-results/**"],
+  "overrides": [
+    {
+      "files": ["src/routes/**/*.tsx", "src/components/ui/**"],
+      "rules": { "react/only-export-components": "off" }
+    }
+  ]
+}
