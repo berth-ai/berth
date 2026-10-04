@@ -1,11 +1,12 @@
 # Berth: PATH order for every zsh. Enabled agents (the wrapper layer) and the
-# pinned base toolchain come first; user-track mise tools and ~/.local/bin
-# come last and never shadow them.
+# pinned base toolchain come first and are never shadowed; user-track mise
+# tools come next, ahead of the system's own copies (python3, say);
+# ~/.local/bin comes last.
 typeset -gU path
 path=(
   /var/lib/berth/bin
   /opt/mise/wrappers
+  ${XDG_DATA_HOME:-$HOME/.local/share}/mise/shims
   $path
   $HOME/.local/bin
-  ${XDG_DATA_HOME:-$HOME/.local/share}/mise/shims
 )

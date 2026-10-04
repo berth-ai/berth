@@ -1,6 +1,21 @@
 # Berth: system zshrc hook. Loads Berth's defaults unless ~/.zshrc exists.
 typeset -g BERTH_ETC=${BERTH_ETC:-/etc/berth}
 source $BERTH_ETC/zshenv # re-assert PATH order after /etc/zsh/zprofile
+
+# A tool added from the panel works at the next prompt, even in a shell that
+# already looked its name up: rehash whenever the mise shims change.
+zmodload -F zsh/stat b:zstat
+typeset -g _berth_shims=
+_berth_rehash() {
+  local -a st
+  zstat -A st +mtime -- ${XDG_DATA_HOME:-$HOME/.local/share}/mise/shims 2>/dev/null || st=(none)
+  [[ $st[1] == "$_berth_shims" ]] && return
+  [[ -n $_berth_shims ]] && rehash
+  _berth_shims=$st[1]
+}
+autoload -Uz add-zsh-hook
+add-zsh-hook precmd _berth_rehash
+_berth_rehash
 if [[ ! -f ${XDG_CONFIG_HOME:-$HOME/.config}/starship.toml ]]; then
   export STARSHIP_CONFIG=$BERTH_ETC/defaults/starship.toml
 fi

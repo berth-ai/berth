@@ -30,7 +30,20 @@ class ShellDefaultsTest(unittest.TestCase):
         path = self.zsh('source "$BERTH_ETC/zshenv"; print -l $path').splitlines()
         self.assertEqual(path[:2], ["/var/lib/berth/bin", "/opt/mise/wrappers"])
         shims = str(self.home / ".local/share/mise/shims")
-        self.assertGreater(path.index(shims), path.index("/usr/bin"))
+        self.assertEqual(path[2], shims)
+        self.assertGreater(path.index(str(self.home / ".local/bin")), path.index("/usr/bin"))
+
+    def test_new_shim_is_found_at_the_next_prompt(self):
+        shims = self.home / ".local/share/mise/shims"
+        tool = shims / "python3"
+        out = self.zsh(
+            'source "$BERTH_ETC/zshrc"; print -r -- $commands[python3]; '
+            f'mkdir -p {shims}; print "#!/bin/sh" > {tool}; chmod +x {tool}; '
+            'print -r -- $commands[python3]; _berth_rehash; print -r -- $commands[python3]'
+        ).splitlines()
+        self.assertNotEqual(out[0], str(tool))
+        self.assertEqual(out[1], out[0])  # zsh still has the old lookup cached
+        self.assertEqual(out[2], str(tool))
 
     def test_defaults_load_without_user_zshrc(self):
         out = self.zsh('source "$BERTH_ETC/zshrc"; print -r -- "$HISTFILE|$STARSHIP_CONFIG"')
