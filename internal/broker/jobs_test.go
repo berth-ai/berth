@@ -1,11 +1,13 @@
 package broker
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
+	"strings"
 	"testing"
 	"time"
 )
@@ -158,5 +160,92 @@ func TestLogKeepsTail(t *testing.T) {
 	got, truncated := tb.snapshot()
 	if got != "456789ab" || !truncated {
 		t.Errorf("tail = %q truncated=%v", got, truncated)
+	}
+}
+
+// echoInput copies one line of input to the log, then waits for release.
+func echoInput(release chan struct{}) InputWork {
+	return func(ctx context.Context, in io.Reader, out io.Writer) (int, json.RawMessage, error) {
+		line, err := bufio.NewReader(in).ReadString('\n')
+		if err != nil {
+			return 1, nil, nil
+		}
+		fmt.Fprintf(out, "got %s", line)
+		select {
+		case <-release:
+		case <-ctx.Done():
+			return -1, nil, ctx.Err()
+		}
+		return 0, nil, nil
+	}
+}
+
+func TestInputReachesTheJob(t *testing.T) {
+	j := newTestJobs(t)
+	release := make(chan struct{})
+	job, err := j.StartInput("agent.login", "agent-login", nil, echoInput(release))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := j.Input(job.ID, []byte("code-123\n")); err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(5 * time.Second)
+	for got, _ := j.Get(job.ID); !strings.Contains(got.Log, "got code-123"); got, _ = j.Get(job.ID) {
+		if time.Now().After(deadline) {
+			t.Fatalf("log = %q", got.Log)
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	close(release)
+	waitJob(t, j, job.ID, StateSucceeded)
+}
+
+func TestInputAfterFinish(t *testing.T) {
+	j := newTestJobs(t)
+	job, _ := j.StartInput("agent.login", "agent-login", nil, func(context.Context, io.Reader, io.Writer) (int, json.RawMessage, error) {
+		return 0, nil, nil
+	})
+	waitJob(t, j, job.ID, StateSucceeded)
+	done := make(chan error, 1)
+	go func() { done <- j.Input(job.ID, []byte("late\n")) }()
+	select {
+	case err := <-done:
+		if !errors.Is(err, ErrJobDone) {
+			t.Errorf("Input after finish = %v", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("Input to a finished job blocked")
+	}
+	release := make(chan struct{})
+	defer close(release)
+	plain, _ := j.Start("update", "agents", nil, blocking(release, "", 0, `{}`))
+	if err := j.Input(plain.ID, []byte("x\n")); !errors.Is(err, ErrNoInput) {
+		t.Errorf("Input to a job without input = %v", err)
+	}
+	if err := j.Input(999, []byte("x\n")); !errors.Is(err, ErrNoJob) {
+		t.Errorf("Input to an unknown job = %v", err)
+	}
+}
+
+func TestCancel(t *testing.T) {
+	j := newTestJobs(t)
+	// echoInput blocks reading input; Cancel must still end it.
+	job, _ := j.StartInput("agent.login", "agent-login", []string{"a"}, echoInput(make(chan struct{})))
+	if err := j.Cancel(job.ID); err != nil {
+		t.Fatal(err)
+	}
+	got := waitJob(t, j, job.ID, StateFailed)
+	if string(got.Result) != `{"error":{"code":"cancelled","message":"cancelled"}}` {
+		t.Errorf("result = %s", got.Result)
+	}
+	if err := j.Cancel(job.ID); !errors.Is(err, ErrJobDone) {
+		t.Errorf("second Cancel = %v", err)
+	}
+	if err := j.Cancel(999); !errors.Is(err, ErrNoJob) {
+		t.Errorf("Cancel unknown = %v", err)
+	}
+	if _, err := j.StartInput("agent.login", "agent-login", nil, echoInput(make(chan struct{}))); err != nil {
+		t.Errorf("the group stayed busy after a cancel: %v", err)
 	}
 }

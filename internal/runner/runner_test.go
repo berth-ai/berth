@@ -85,3 +85,11 @@ func TestAgentEnvKeepsOnlyAllowlistedVariables(t *testing.T) {
 		t.Fatalf("got %q\nwant %q", got, want)
 	}
 }
+
+func TestExecStdin(t *testing.T) {
+	var out bytes.Buffer
+	err := Exec{Stdout: &out}.Run(context.Background(), Cmd{Path: "cat", Stdin: strings.NewReader("pasted\n")})
+	if err != nil || out.String() != "pasted\n" {
+		t.Fatalf("out = %q, err = %v", out.String(), err)
+	}
+}

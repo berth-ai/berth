@@ -50,6 +50,7 @@ type Cmd struct {
 	Env     []string
 	AsAgent bool
 	Timeout time.Duration
+	Stdin   io.Reader // nil reads from the null device
 }
 
 // Runner runs commands.
@@ -75,6 +76,7 @@ func (e Exec) Run(ctx context.Context, c Cmd) error {
 	cmd.Dir = c.Dir
 	cmd.Env = append(os.Environ(), c.Env...)
 	cmd.Stdout, cmd.Stderr = e.Stdout, e.Stderr
+	cmd.Stdin = c.Stdin
 	cmd.WaitDelay = 5 * time.Second
 	// Each command leads its own process group, and a timeout or cancel kills
 	// the whole group: a child that holds the output pipe (git under mise,
