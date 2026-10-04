@@ -57,6 +57,17 @@ func (c Checker) Check(ctx context.Context, dir string, bins []string) error {
 	return nil
 }
 
+// Bins checks only that every bin answers --version or --help: a registry
+// agent ships no Playwright.
+func (c Checker) Bins(ctx context.Context, dir string, bins []string) error {
+	for _, bin := range bins {
+		if err := c.answers(ctx, dir, bin); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func (c Checker) answers(ctx context.Context, dir, bin string) error {
 	var last error
 	for _, flag := range []string{"--version", "--help"} {

@@ -170,3 +170,13 @@ func TestUnreadableMetadataIsIncomplete(t *testing.T) {
 		})
 	}
 }
+
+func TestStateKeepsImageHash(t *testing.T) {
+	s := newStore(t)
+	if err := s.WriteState(State{FollowImage: false, ImageHash: "0123456789ab"}); err != nil {
+		t.Fatal(err)
+	}
+	if st, err := s.ReadState(); err != nil || st.FollowImage || st.ImageHash != "0123456789ab" {
+		t.Errorf("state = %+v, %v", st, err)
+	}
+}

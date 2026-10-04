@@ -5,6 +5,7 @@ import (
 	"errors"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -178,5 +179,42 @@ func TestCheckServerBins(t *testing.T) {
 	bad := locksource.Descriptors{Servers: map[string]locksource.ServerDescriptor{"b-mcp": {ID: "b", Bin: "other"}}}
 	if err := checkServerBins(dir, bad); err == nil || !strings.Contains(err.Error(), `"other"`) {
 		t.Errorf("err = %v, want a missing-bin error naming \"other\"", err)
+	}
+}
+
+// noBrowserLock is a one-agent lock without Playwright, like a registry entry.
+func noBrowserLock(t *testing.T) *locksource.Lock {
+	t.Helper()
+	pkg := []byte(`{"dependencies":{"fake-agent":"1.0.0"},"berth":{"fake-agent":{"kind":"agent","name":"Fake","keys":[]}}}`)
+	lock := []byte(`{"lockfileVersion":3,"packages":{"":{"dependencies":{"fake-agent":"1.0.0"}}}}`)
+	l, err := locksource.Parse(pkg, lock, locksource.Source{Origin: locksource.OriginImage, FetchedAt: t0})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return l
+}
+
+func TestInstallNoBrowsers(t *testing.T) {
+	testutil.FakeTools(t)
+	if _, _, err := installer(newStore(t)).Install(context.Background(), noBrowserLock(t)); err == nil {
+		t.Error("a lock without Playwright installed without NoBrowsers")
+	}
+	in := installer(newStore(t))
+	in.NoBrowsers = true
+	in.Smoke = smoke.Checker{Runner: in.Runner, Timeout: 30 * time.Second}.Bins
+	v, installed, err := in.Install(context.Background(), noBrowserLock(t))
+	if err != nil || !installed {
+		t.Fatalf("install: %v %v", installed, err)
+	}
+	if _, err := os.Stat(filepath.Join(v.Dir, "ms-playwright")); !errors.Is(err, os.ErrNotExist) {
+		t.Error("Chromium was installed")
+	}
+	wrapper, _ := os.ReadFile(filepath.Join(v.Dir, "bin", "fake-agent"))
+	if strings.Contains(string(wrapper), "PLAYWRIGHT_BROWSERS_PATH") {
+		t.Errorf("wrapper sets the browsers path:\n%s", wrapper)
+	}
+	out, err := exec.Command(filepath.Join(v.Dir, "bin", "fake-agent")).Output()
+	if err != nil || !strings.HasPrefix(string(out), "fake-agent 1.0.0") {
+		t.Errorf("bin: %q %v", out, err)
 	}
 }

@@ -2,11 +2,13 @@ package smoke
 
 import (
 	"context"
+	"io"
 	"os"
 	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/berth-ai/berth/internal/runner"
 )
@@ -66,5 +68,19 @@ func TestCheckFailures(t *testing.T) {
 	err := (Checker{Runner: &recorder{}}).Check(ctx, dir, nil)
 	if err == nil || !strings.Contains(err.Error(), "1.62.0, 1.63.0") {
 		t.Fatalf("duplicate core: %v", err)
+	}
+}
+
+func TestBinsChecksOnlyTheBins(t *testing.T) {
+	dir := t.TempDir()
+	os.MkdirAll(filepath.Join(dir, "bin"), 0o755)
+	os.WriteFile(filepath.Join(dir, "bin", "ok"), []byte("#!/bin/sh\nexit 0\n"), 0o755)
+	os.WriteFile(filepath.Join(dir, "bin", "bad"), []byte("#!/bin/sh\nexit 3\n"), 0o755)
+	c := Checker{Runner: runner.Exec{Stdout: io.Discard, Stderr: io.Discard}, Timeout: 10 * time.Second}
+	if err := c.Bins(context.Background(), dir, []string{"ok"}); err != nil {
+		t.Errorf("ok: %v", err) // no node_modules/playwright, and none needed
+	}
+	if err := c.Bins(context.Background(), dir, []string{"ok", "bad"}); err == nil || !strings.Contains(err.Error(), "bad answers neither") {
+		t.Errorf("bad: %v", err)
 	}
 }

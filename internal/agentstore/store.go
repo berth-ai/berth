@@ -44,9 +44,12 @@ type Version struct {
 	Manifest Manifest
 }
 
-// State records whether boot-time ensure follows the image seed.
+// State records whether boot-time ensure follows the image seed. ImageHash
+// is the image's hash when a rollback stepped away from it: an added agent
+// stays rolled back until the image pins a different hash.
 type State struct {
-	FollowImage bool `json:"follow_image"`
+	FollowImage bool   `json:"follow_image"`
+	ImageHash   string `json:"image_hash,omitempty"`
 }
 
 // Store is the agent store rooted at Root.

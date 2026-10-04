@@ -27,13 +27,15 @@ func (e *StepError) Unwrap() error { return e.Err }
 
 // Installer builds complete versions. Agent is the unprivileged owner of the
 // tmp dir and the user install scripts run as; nil when berth is not root.
+// NoBrowsers installs a registry agent: no Playwright and no Chromium.
 type Installer struct {
-	Store  Store
-	Runner runner.Runner
-	Smoke  func(ctx context.Context, dir string, bins []string) error
-	Agent  *runner.Identity
-	Now    func() time.Time
-	Logf   func(format string, args ...any)
+	Store      Store
+	Runner     runner.Runner
+	Smoke      func(ctx context.Context, dir string, bins []string) error
+	Agent      *runner.Identity
+	Now        func() time.Time
+	Logf       func(format string, args ...any)
+	NoBrowsers bool
 }
 
 // Install makes versions/<lock.Hash> complete. It returns the version and
@@ -71,29 +73,31 @@ func (in Installer) build(ctx context.Context, final, tmp string, lock *locksour
 		return &StepError{Step: "prepare", Err: err}
 	}
 	in.logf("installing agent set %s", lock.Hash)
-	env := []string{
-		"npm_config_cache=" + filepath.Join(tmp, ".npm-cache"),
-		"PLAYWRIGHT_BROWSERS_PATH=" + filepath.Join(tmp, "ms-playwright"),
+	env := []string{"npm_config_cache=" + filepath.Join(tmp, ".npm-cache")}
+	if !in.NoBrowsers {
+		env = append(env, "PLAYWRIGHT_BROWSERS_PATH="+filepath.Join(tmp, "ms-playwright"))
 	}
 	npmCI := runner.Cmd{Path: "npm", Args: []string{"ci", "--omit=dev", "--no-audit", "--no-fund"}, Dir: tmp, Env: env, AsAgent: true}
 	if err := in.Runner.Run(ctx, npmCI); err != nil {
 		return &StepError{Step: "install", Err: err}
 	}
-	// Playwright usually arrives hoisted from @playwright/mcp, which pins its
-	// own (often pre-release) version; it need not be a direct dependency.
-	playwrightCLI := filepath.Join("node_modules", "playwright", "cli.js")
-	if _, err := os.Stat(filepath.Join(tmp, playwrightCLI)); err != nil {
-		return &StepError{Step: "install", Err: errors.New("node_modules/playwright is missing; the agent lock must pull in Playwright (for example through @playwright/mcp)")}
-	}
-	browsers := runner.Cmd{Path: "node", Args: []string{playwrightCLI, "install", "chromium"}, Dir: tmp, Env: env, AsAgent: true}
-	if err := in.Runner.Run(ctx, browsers); err != nil {
-		return &StepError{Step: "install", Err: err}
+	if !in.NoBrowsers {
+		// Playwright usually arrives hoisted from @playwright/mcp, which pins its
+		// own (often pre-release) version; it need not be a direct dependency.
+		playwrightCLI := filepath.Join("node_modules", "playwright", "cli.js")
+		if _, err := os.Stat(filepath.Join(tmp, playwrightCLI)); err != nil {
+			return &StepError{Step: "install", Err: errors.New("node_modules/playwright is missing; the agent lock must pull in Playwright (for example through @playwright/mcp)")}
+		}
+		browsers := runner.Cmd{Path: "node", Args: []string{playwrightCLI, "install", "chromium"}, Dir: tmp, Env: env, AsAgent: true}
+		if err := in.Runner.Run(ctx, browsers); err != nil {
+			return &StepError{Step: "install", Err: err}
+		}
 	}
 	if err := os.RemoveAll(filepath.Join(tmp, ".npm-cache")); err != nil {
 		return &StepError{Step: "install", Err: err}
 	}
 	deps := slices.Sorted(maps.Keys(lock.Deps))
-	bins, err := WriteWrappers(tmp, deps)
+	bins, err := WriteWrappers(tmp, deps, !in.NoBrowsers)
 	if err != nil {
 		return &StepError{Step: "seal", Err: err}
 	}
