@@ -96,6 +96,20 @@ commit only when you click Update. Skills are instructions and scripts your
 agents run, so add only sources you trust. Berth never touches a skill
 directory you created yourself.
 
+Agents can also use your Claude, ChatGPT, Google or GitHub Copilot
+subscription instead of an API key. Sign each one in from the Agents page:
+it shows a code to enter on the vendor's site, or a link whose page gives
+you a code to paste back. The credentials stay in the agent's own files in
+your home volume, and backups do not include them. From the command line:
+
+```sh
+docker compose exec berth berth login status                  # who is signed in where
+docker compose exec berth berth login logout @openai/codex chatgpt
+```
+
+An API key set on the Agents page or in your shell still wins where the
+agent prefers keys (Claude Code does).
+
 ## Upgrading the image
 
 ```sh
