@@ -16,9 +16,9 @@ import (
 )
 
 // Schema is the config schema this binary understands. Schema 1 had no mcp
-// section and schema 2 no skills section; such files still load, with
-// their defaults.
-const Schema = 3
+// section, schema 2 no skills section and schema 3 no agents.added; such
+// files still load, with their defaults.
+const Schema = 4
 
 // Config is the content of /var/lib/berth/config.json.
 type Config struct {
@@ -42,10 +42,12 @@ type Toggle struct {
 	Enabled bool `json:"enabled"`
 }
 
-// Agents holds the agent track's settings.
+// Agents holds the agent track's settings. Added lists the npm packages a
+// user added from the image's registry.
 type Agents struct {
 	Ref         string   `json:"ref"`
 	Disabled    []string `json:"disabled"`
+	Added       []string `json:"added"`
 	Keep        int      `json:"keep"`
 	BootTimeout int      `json:"boot_timeout"`
 	MCPTimeout  int      `json:"mcp_timeout"`
@@ -81,7 +83,7 @@ func Defaults() Config {
 	return Config{
 		Schema:    Schema,
 		Frontends: Frontends{Terminal: Toggle{Enabled: true}},
-		Agents:    Agents{Ref: "main", Disabled: []string{}, Keep: 3, BootTimeout: 600, MCPTimeout: 120},
+		Agents:    Agents{Ref: "main", Disabled: []string{}, Added: []string{}, Keep: 3, BootTimeout: 600, MCPTimeout: 120},
 		Runtime:   Runtime{TZ: "UTC"},
 		MCP:       MCP{Servers: map[string]MCPServer{}, Available: map[string][]string{}},
 		Skills:    map[string]Skill{},
@@ -143,6 +145,17 @@ func (c Config) Validate() error {
 	seen := map[string]bool{}
 	for i, p := range c.Agents.Disabled {
 		field := fmt.Sprintf("agents.disabled[%d]", i)
+		switch {
+		case !packagePattern.MatchString(p):
+			v.add(field, "%q is not an npm package name", p)
+		case seen[p]:
+			v.add(field, "%q is listed twice", p)
+		}
+		seen[p] = true
+	}
+	seen = map[string]bool{}
+	for i, p := range c.Agents.Added {
+		field := fmt.Sprintf("agents.added[%d]", i)
 		switch {
 		case !packagePattern.MatchString(p):
 			v.add(field, "%q is not an npm package name", p)
@@ -234,6 +247,10 @@ func (c *Config) normalize() {
 		c.Agents.Disabled = []string{}
 	}
 	slices.Sort(c.Agents.Disabled)
+	if c.Agents.Added == nil {
+		c.Agents.Added = []string{}
+	}
+	slices.Sort(c.Agents.Added)
 	if c.MCP.Servers == nil {
 		c.MCP.Servers = map[string]MCPServer{}
 	}

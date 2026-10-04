@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -90,7 +91,7 @@ func TestApplyInvalidWritesNothing(t *testing.T) {
 func TestLoadCorrupt(t *testing.T) {
 	for name, content := range map[string]string{
 		"not json":     `{"schema":`,
-		"newer schema": `{"schema":4}`,
+		"newer schema": `{"schema":5}`,
 		"unknown key":  `{"schema":1,"revision":1,"surprise":true}`,
 	} {
 		t.Run(name, func(t *testing.T) {
@@ -214,5 +215,29 @@ func TestReadUpgradesSchema2(t *testing.T) {
 	}
 	if c.Schema != Schema || c.Revision != 4 || c.Skills == nil {
 		t.Errorf("loaded = %+v", c)
+	}
+}
+
+func TestReadUpgradesSchema3(t *testing.T) {
+	dir := t.TempDir()
+	raw := `{"schema":3,"revision":7,"agents":{"ref":"main","disabled":["opencode-ai"],"keep":3,"boot_timeout":600,"mcp_timeout":120}}`
+	if err := os.WriteFile(filepath.Join(dir, "config.json"), []byte(raw), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	c, err := (&Store{Dir: dir}).Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.Schema != Schema || c.Revision != 7 || c.Agents.Added == nil || len(c.Agents.Added) != 0 ||
+		!slices.Equal(c.Agents.Disabled, []string{"opencode-ai"}) {
+		t.Errorf("loaded = %+v", c)
+	}
+}
+
+func TestApplySortsAdded(t *testing.T) {
+	s := &Store{Dir: t.TempDir()}
+	_, next, err := s.Apply(json.RawMessage(`{"agents":{"added":["zz-agent","@acme/agent"]}}`), 0)
+	if err != nil || !slices.Equal(next.Agents.Added, []string{"@acme/agent", "zz-agent"}) {
+		t.Fatalf("next = %+v, %v", next.Agents, err)
 	}
 }

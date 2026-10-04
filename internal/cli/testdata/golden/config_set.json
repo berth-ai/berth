@@ -7,7 +7,7 @@
     "stopped": []
   },
   "config": {
-    "schema": 3,
+    "schema": 4,
     "revision": 1,
     "frontends": {
       "terminal": {
@@ -22,6 +22,7 @@
       "disabled": [
         "opencode-ai"
       ],
+      "added": [],
       "keep": 3,
       "boot_timeout": 600,
       "mcp_timeout": 120

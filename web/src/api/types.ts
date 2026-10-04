@@ -125,6 +125,8 @@ export interface Config {
   agents: {
     ref: string;
     disabled: string[] | null;
+    // An older broker omits it.
+    added?: string[] | null;
     keep: number | null;
     boot_timeout: number | null;
     mcp_timeout: number | null;

@@ -1,6 +1,6 @@
 {
   "config": {
-    "schema": 3,
+    "schema": 4,
     "revision": 0,
     "frontends": {
       "terminal": {
@@ -13,6 +13,7 @@
     "agents": {
       "ref": "main",
       "disabled": [],
+      "added": [],
       "keep": 3,
       "boot_timeout": 600,
       "mcp_timeout": 120

@@ -12,7 +12,7 @@ func TestDefaultsAreValid(t *testing.T) {
 	if err := d.Validate(); err != nil {
 		t.Fatalf("defaults invalid: %v", err)
 	}
-	if d.Schema != 3 || d.Revision != 0 || !d.Frontends.Terminal.Enabled || d.Frontends.IDE.Enabled ||
+	if d.Schema != 4 || d.Agents.Added == nil || d.Revision != 0 || !d.Frontends.Terminal.Enabled || d.Frontends.IDE.Enabled ||
 		d.Agents.Ref != "main" || d.Agents.Keep != 3 || d.Agents.BootTimeout != 600 ||
 		d.Agents.MCPTimeout != 120 || d.Runtime.TZ != "UTC" || d.Agents.Disabled == nil {
 		t.Errorf("defaults = %+v", d)
@@ -21,7 +21,7 @@ func TestDefaultsAreValid(t *testing.T) {
 
 func TestValidateReportsEveryField(t *testing.T) {
 	c := Defaults()
-	c.Schema = 4
+	c.Schema = 5
 	c.Agents.Ref = "../x"
 	c.Agents.Disabled = []string{"Bad Name", "opencode-ai", "opencode-ai"}
 	c.Agents.Keep = 51
@@ -151,5 +151,21 @@ func TestNormalizeSortsAvailable(t *testing.T) {
 	c.normalize()
 	if !slices.Equal(c.MCP.Available["x"], []string{"a", "b"}) || c.MCP.Servers == nil {
 		t.Errorf("mcp = %+v", c.MCP)
+	}
+}
+
+func TestAddedValidation(t *testing.T) {
+	c := Defaults()
+	c.Agents.Added = []string{"@github/copilot", "Bad Name", "@github/copilot"}
+	var ve *ValidationError
+	if err := c.Validate(); !errors.As(err, &ve) {
+		t.Fatalf("err = %v", err)
+	}
+	var fields []string
+	for _, f := range ve.Fields {
+		fields = append(fields, f.Field)
+	}
+	if !slices.Equal(fields, []string{"agents.added[1]", "agents.added[2]"}) {
+		t.Errorf("fields = %v", fields)
 	}
 }
