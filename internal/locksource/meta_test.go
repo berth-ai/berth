@@ -1,7 +1,9 @@
 package locksource
 
 import (
+	"encoding/json"
 	"errors"
+	"strings"
 	"testing"
 )
 
@@ -50,5 +52,26 @@ func TestParseCarriesMeta(t *testing.T) {
 	}
 	if lock.Meta["@anthropic-ai/claude-code"].Keys[0] != "ANTHROPIC_API_KEY" {
 		t.Errorf("meta = %+v", lock.Meta)
+	}
+}
+
+func TestParseMetaDescription(t *testing.T) {
+	deps := map[string]string{"a": "1.0.0"}
+	pkg := func(desc string) []byte {
+		raw, _ := json.Marshal(map[string]any{"berth": map[string]any{
+			"a": map[string]any{"kind": "agent", "name": "A", "description": desc, "keys": []string{}}}})
+		return raw
+	}
+	meta, err := ParseMeta(pkg("An agent"), deps)
+	if err != nil || meta["a"].Description != "An agent" {
+		t.Fatalf("meta = %+v, %v", meta, err)
+	}
+	if meta, err := ParseMeta([]byte(`{"berth":{"a":{"kind":"agent","name":"A","keys":[]}}}`), deps); err != nil || meta["a"].Description != "" {
+		t.Errorf("no description: %+v %v", meta, err)
+	}
+	for _, bad := range []string{strings.Repeat("x", 121), "line\nbreak"} {
+		if _, err := ParseMeta(pkg(bad), deps); !errors.Is(err, ErrInvalid) {
+			t.Errorf("description %q: err = %v", bad, err)
+		}
 	}
 }

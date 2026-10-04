@@ -17,11 +17,12 @@ const (
 var keyNamePattern = regexp.MustCompile(`^[A-Z][A-Z0-9_]{0,63}$`)
 
 // Meta describes one package of an agent set for the panel: what it is,
-// what to call it, and which API keys it reads.
+// what to call it, a one-line description, and which API keys it reads.
 type Meta struct {
-	Kind string   `json:"kind"`
-	Name string   `json:"name"`
-	Keys []string `json:"keys"`
+	Kind        string   `json:"kind"`
+	Name        string   `json:"name"`
+	Description string   `json:"description,omitempty"`
+	Keys        []string `json:"keys"`
 }
 
 // ParseMeta reads the berth block of package.json. Every dependency gets an
@@ -52,6 +53,9 @@ func ParseMeta(pkg []byte, deps map[string]string) (map[string]Meta, error) {
 		}
 		if m.Name == "" {
 			return nil, invalid("package.json berth block: %s has no name", name)
+		}
+		if m.Description != "" && !printable(m.Description, 120) {
+			return nil, invalid("package.json berth block: %s description must be 1 to 120 printable characters", name)
 		}
 		for _, k := range m.Keys {
 			if !keyNamePattern.MatchString(k) {

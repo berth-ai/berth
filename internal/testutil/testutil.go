@@ -178,3 +178,36 @@ func fakeNode(args []string) int {
 	fmt.Fprintf(os.Stderr, "fake node: unsupported arguments %q\n", args)
 	return 2
 }
+
+// CopilotPackageJSON is a registry entry's package.json shaped like
+// agents/registry/copilot's: one agent with a key, an MCP file, a skills
+// directory, an icon and a device sign-in.
+const CopilotPackageJSON = `{"name":"berth-registry-copilot","private":true,
+  "dependencies":{"@github/copilot":"1.0.91"},
+  "berth":{"@github/copilot":{"kind":"agent","name":"GitHub Copilot CLI",
+    "description":"GitHub's coding agent, signed in with your GitHub account","keys":["COPILOT_GITHUB_TOKEN"]}},
+  "berthAgents":{"schema":1,"agents":{"@github/copilot":{
+    "mcp":{"file":"~/.copilot/mcp-config.json","style":"claude","key":"mcpServers"},
+    "skills":{"dir":"~/.copilot/skills"},
+    "icon":"githubcopilot",
+    "login":{"methods":[{"id":"github","label":"GitHub","flow":"device","args":["login","--device-code"],
+      "status":{"file":"~/.copilot/config.json","key":"authTokens"},
+      "logout":{"remove":["~/.copilot/config.json"]}}]}}}}}`
+
+// RegistryEntry writes root/id as a registry entry: pkgJSON as its
+// package.json and a minimal package-lock.json whose root dependencies
+// match it.
+func RegistryEntry(t *testing.T, root, id, pkgJSON string) {
+	t.Helper()
+	var p struct {
+		Dependencies map[string]string `json:"dependencies"`
+	}
+	must(t, json.Unmarshal([]byte(pkgJSON), &p))
+	dir := filepath.Join(root, id)
+	must(t, os.MkdirAll(dir, 0o755))
+	must(t, os.WriteFile(filepath.Join(dir, "package.json"), []byte(pkgJSON), 0o644))
+	writeJSON(t, filepath.Join(dir, "package-lock.json"), map[string]any{
+		"lockfileVersion": 3,
+		"packages":        map[string]any{"": map[string]any{"dependencies": p.Dependencies}},
+	})
+}
