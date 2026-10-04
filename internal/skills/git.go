@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"syscall"
 )
@@ -128,6 +129,20 @@ func (g Git) Show(ctx context.Context, dir, commit, file string) ([]byte, error)
 		return nil, err
 	}
 	return out.Bytes(), nil
+}
+
+// ListFiles lists the files at commit under paths, or the whole tree when
+// paths is empty or holds the root ("").
+func (g Git) ListFiles(ctx context.Context, dir, commit string, paths []string) ([]string, error) {
+	args := []string{"ls-tree", "-r", "--name-only", "-z", commit}
+	if len(paths) > 0 && !slices.Contains(paths, "") {
+		args = append(append(args, "--"), paths...)
+	}
+	var out bytes.Buffer
+	if err := g.run(ctx, dir, &out, args...); err != nil {
+		return nil, err
+	}
+	return strings.FieldsFunc(out.String(), func(r rune) bool { return r == 0 }), nil
 }
 
 // Archive streams the tar of sub (the root when empty) at commit to extract.

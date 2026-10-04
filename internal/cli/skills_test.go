@@ -11,14 +11,16 @@ import (
 	"github.com/berth-ai/berth/internal/testutil"
 )
 
-// skillRepo makes a file:// repository holding SKILL.md at skills/demo.
+// skillRepo makes a file:// repository holding skills/demo and skills/other.
 func skillRepo(t *testing.T) string {
 	t.Helper()
 	t.Setenv("GIT_CONFIG_GLOBAL", os.DevNull)
 	t.Setenv("GIT_CONFIG_NOSYSTEM", "1")
 	dir := t.TempDir()
-	os.MkdirAll(filepath.Join(dir, "skills", "demo"), 0o755)
-	os.WriteFile(filepath.Join(dir, "skills", "demo", "SKILL.md"), []byte("---\nname: demo\ndescription: Demo\n---\n"), 0o644)
+	for _, name := range []string{"demo", "other"} {
+		os.MkdirAll(filepath.Join(dir, "skills", name), 0o755)
+		os.WriteFile(filepath.Join(dir, "skills", name, "SKILL.md"), []byte("---\nname: "+name+"\ndescription: D\n---\n"), 0o644)
+	}
 	for _, args := range [][]string{{"init", "-q", "-b", "main"}, {"add", "-A"},
 		{"-c", "user.name=t", "-c", "user.email=t@example.org", "-c", "commit.gpgsign=false", "commit", "-q", "-m", "c"}} {
 		cmd := exec.Command("git", args...)
@@ -30,39 +32,62 @@ func skillRepo(t *testing.T) string {
 	return "file://" + dir
 }
 
-func TestSkillsResolve(t *testing.T) {
+func TestSkillsScan(t *testing.T) {
 	cfg := testConfig(t)
 	t.Setenv("HOME", t.TempDir())
 	t.Setenv("BERTH_SKILLS_ALLOW_FILE", "1")
 	cfg.Getenv = os.Getenv
 	repo := skillRepo(t)
-	out, errOut, code := run(t, cfg, "skills", "resolve", "--json", "--repo", repo, "--path", "skills/demo", "--ref", "main")
-	if code != 0 {
-		t.Fatalf("exit %d: %s", code, errOut)
+	type scan struct {
+		Commit string
+		Skills []struct{ Path, Name, Error string }
 	}
-	var res struct{ Name, Description, Commit string }
-	if err := json.Unmarshal([]byte(out), &res); err != nil || res.Name != "demo" || len(res.Commit) != 40 {
-		t.Errorf("out = %s (%v)", out, err)
+	parse := func(out string) scan {
+		var s scan
+		if err := json.Unmarshal([]byte(out), &s); err != nil {
+			t.Fatalf("%v: %q", err, out)
+		}
+		return s
 	}
-	out, _, code = run(t, cfg, "skills", "resolve", "--json", "--repo", repo, "--path", "skills/demo", "--ref", "nope")
-	if e := resolveError(t, out); code != 1 || e.Code != "ref_not_found" || e.Step != "ref" {
+	out, errOut, code := run(t, cfg, "skills", "scan", "--json", "--repo", repo, "--ref", "main")
+	if s := parse(out); code != 0 || len(s.Commit) != 40 || len(s.Skills) != 2 || s.Skills[0].Name != "demo" || s.Skills[1].Path != "skills/other" {
+		t.Fatalf("whole tree: exit %d, %s %s", code, out, errOut)
+	}
+	out, _, code = run(t, cfg, "skills", "scan", "--json", "--repo", repo, "--ref", "main", "--path", "skills/demo", "--path", "skills/other")
+	if s := parse(out); code != 0 || len(s.Skills) != 2 {
+		t.Errorf("two paths: exit %d, %s", code, out)
+	}
+	out, _, code = run(t, cfg, "skills", "scan", "--json", "--repo", repo, "--ref", "main", "--path", "skills/demo")
+	if s := parse(out); code != 0 || len(s.Skills) != 1 || s.Skills[0].Name != "demo" {
+		t.Errorf("one path: exit %d, %s", code, out)
+	}
+	out, _, code = run(t, cfg, "skills", "scan", "--repo", repo, "--ref", "main", "--path", "skills/demo")
+	if code != 0 || out != "skills/demo\tdemo\n" {
+		t.Errorf("text: exit %d, %q", code, out)
+	}
+	out, _, code = run(t, cfg, "skills", "scan", "--json", "--repo", repo, "--ref", "nope")
+	if e := scanError(t, out); code != 1 || e.Code != "ref_not_found" || e.Step != "ref" {
 		t.Errorf("missing ref: exit %d, %s", code, out)
+	}
+	out, _, code = run(t, cfg, "skills", "scan", "--json", "--repo", repo, "--ref", "main", "--path", "docs")
+	if e := scanError(t, out); code != 1 || e.Code != "no_skill" || e.Step != "path" {
+		t.Errorf("no skill: exit %d, %s", code, out)
 	}
 }
 
-func TestSkillsResolveRefusesFileByDefault(t *testing.T) {
+func TestSkillsScanRefusesFileByDefault(t *testing.T) {
 	cfg := testConfig(t)
 	t.Setenv("HOME", t.TempDir())
 	cfg.Getenv = os.Getenv
-	out, _, code := run(t, cfg, "skills", "resolve", "--json", "--repo", skillRepo(t), "--ref", "main")
-	if e := resolveError(t, out); code != 1 || e.Step != "repo" {
+	out, _, code := run(t, cfg, "skills", "scan", "--json", "--repo", skillRepo(t), "--ref", "main")
+	if e := scanError(t, out); code != 1 || e.Step != "repo" {
 		t.Errorf("exit %d, %s", code, out)
 	}
 }
 
 type cliError struct{ Code, Step, Message string }
 
-func resolveError(t *testing.T, out string) cliError {
+func scanError(t *testing.T, out string) cliError {
 	t.Helper()
 	var doc struct{ Error cliError }
 	if err := json.Unmarshal([]byte(out), &doc); err != nil {
@@ -85,7 +110,7 @@ func TestSkillsSyncAfterUpdate(t *testing.T) {
 
 func TestSkillsUsage(t *testing.T) {
 	cfg := testConfig(t)
-	for _, args := range [][]string{{"skills"}, {"skills", "list"}, {"skills", "sync", "extra"}, {"skills", "resolve", "extra"}} {
+	for _, args := range [][]string{{"skills"}, {"skills", "list"}, {"skills", "sync", "extra"}, {"skills", "scan", "extra"}, {"skills", "resolve"}} {
 		if _, _, code := run(t, cfg, args...); code != 2 {
 			t.Errorf("%v: exit %d, want 2", args, code)
 		}

@@ -151,7 +151,7 @@ var commands = map[string]command{
 	"version":   {"version                              print the berth version", runVersion},
 	"supervise": {"supervise                            run the container's services (the entrypoint starts it)", runSupervise},
 	"mcp":       {"mcp sync                             register MCP servers with the agents (internal)", runMCP},
-	"skills":    {"skills resolve|sync                  pin skills and link them for the agents (internal)", runSkills},
+	"skills":    {"skills scan|sync                     list skills in a repository and link them for the agents (internal)", runSkills},
 	"panel":     {"panel                                serve the web panel (the panel module starts it)", runPanel},
 }
 

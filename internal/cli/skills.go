@@ -1,29 +1,32 @@
 package cli
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
 	"io"
 	"path/filepath"
+	"strings"
 
 	"github.com/berth-ai/berth/internal/output"
 	"github.com/berth-ai/berth/internal/runner"
 	"github.com/berth-ai/berth/internal/skills"
 )
 
-const skillsUsage = "usage: berth skills resolve --repo URL [--path P] --ref REF [--json] | berth skills sync"
+const skillsUsage = "usage: berth skills scan --repo URL --ref REF [--path P]... [--json] | berth skills sync"
 
-// runSkills is the hidden `berth skills resolve|sync`, run as agent: the
-// broker resolves a skill before saving it, and syncs after every change.
+// runSkills is the hidden `berth skills scan|sync`, run as agent: the
+// broker scans a repository before adding or updating skills, and syncs
+// after every change.
 func runSkills(ctx context.Context, a *app, args []string) error {
 	if len(args) == 0 {
 		return usageErr(errors.New(skillsUsage))
 	}
 	g := skills.Git{AllowFile: a.cfg.Getenv("BERTH_SKILLS_ALLOW_FILE") == "1", Log: a.p.Stderr}
 	switch args[0] {
-	case "resolve":
-		return a.skillsResolve(ctx, g, args[1:])
+	case "scan":
+		return a.skillsScan(ctx, g, args[1:])
 	case "sync":
 		if len(args) != 1 {
 			return usageErr(errors.New(skillsUsage))
@@ -41,11 +44,18 @@ func (a *app) skillsHome() (string, error) {
 	return home, nil
 }
 
-func (a *app) skillsResolve(ctx context.Context, g skills.Git, args []string) error {
-	fs := newFlagSet("skills resolve")
+// pathsFlag collects a repeatable --path.
+type pathsFlag []string
+
+func (p *pathsFlag) String() string     { return strings.Join(*p, ",") }
+func (p *pathsFlag) Set(v string) error { *p = append(*p, v); return nil }
+
+func (a *app) skillsScan(ctx context.Context, g skills.Git, args []string) error {
+	fs := newFlagSet("skills scan")
 	repo := fs.String("repo", "", "repository URL")
-	path := fs.String("path", "", "folder holding SKILL.md")
 	ref := fs.String("ref", "", "branch, tag or commit")
+	var paths pathsFlag
+	fs.Var(&paths, "path", "folder to look in; repeatable")
 	jsonOut := fs.Bool("json", false, "print JSON")
 	pos, err := parseArgs(fs, args)
 	if err != nil {
@@ -59,7 +69,7 @@ func (a *app) skillsResolve(ctx context.Context, g skills.Git, args []string) er
 	if err != nil {
 		return err
 	}
-	res, err := g.Resolve(ctx, home, skills.Request{Repo: *repo, Path: *path, Ref: *ref})
+	res, err := g.Scan(ctx, home, skills.ScanRequest{Repo: *repo, Ref: *ref, Paths: paths})
 	var se *skills.Error
 	switch {
 	case errors.As(err, &se):
@@ -68,8 +78,16 @@ func (a *app) skillsResolve(ctx context.Context, g skills.Git, args []string) er
 	case err != nil:
 		return output.Errorf(output.ExitFailure, "fetch_failed", "repo", "%v", err)
 	}
-	a.p.Logf("%s at %s is skill %s (%s)", *repo, *ref, res.Name, res.Commit)
-	return a.p.Result(res, func(w io.Writer) { fmt.Fprintf(w, "%s %s\n", res.Name, res.Commit) })
+	a.p.Logf("%s at %s is commit %s; found %d skills", *repo, *ref, res.Commit, len(res.Skills))
+	return a.p.Result(res, func(w io.Writer) {
+		for _, s := range res.Skills {
+			if s.Error != "" {
+				fmt.Fprintf(w, "%s\t-\t%s\n", cmp.Or(s.Path, "."), s.Error)
+			} else {
+				fmt.Fprintf(w, "%s\t%s\n", cmp.Or(s.Path, "."), s.Name)
+			}
+		}
+	})
 }
 
 func (a *app) skillsSync(ctx context.Context, g skills.Git) error {

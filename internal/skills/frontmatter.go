@@ -1,7 +1,7 @@
 // Package skills installs agent skills: folders holding a SKILL.md, taken
-// from git repositories and pinned to a commit. berth skills resolve pins
-// and checks one; berth skills sync exports every configured skill once and
-// links it into the agents' skills directories.
+// from git repositories and pinned to a commit. berth skills scan lists and
+// checks the skills at a ref; berth skills sync exports every configured
+// skill once and links it into the agents' skills directories.
 package skills
 
 import (
