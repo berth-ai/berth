@@ -131,9 +131,11 @@ function PackageRows({
       <TableRow>
         <TableCell data-label="">
           <div className="flex min-w-0 items-start gap-2">
-            <span className="mt-0.5">
-              <BrandIcon slug={p.icon} name={p.name} id={p.package} />
-            </span>
+            {p.kind === "agent" ? (
+              <span className="mt-0.5">
+                <BrandIcon slug={p.icon} name={p.name} id={p.package} />
+              </span>
+            ) : null}
             <div className="flex min-w-0 flex-col gap-0.5">
               <strong className="text-fg">{p.name}</strong>
               <span className="font-mono text-xs break-all text-fg-muted">

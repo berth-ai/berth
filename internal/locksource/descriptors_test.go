@@ -142,7 +142,7 @@ func TestRepositoryLockDescriptors(t *testing.T) {
 	}
 	for dep, icon := range map[string]string{
 		"@anthropic-ai/claude-code": "claude", "@google/gemini-cli": "googlegemini",
-		"opencode-ai": "opencode", "@openai/codex": "",
+		"opencode-ai": "opencode", "@openai/codex": "codex",
 	} {
 		if got := lock.Descriptors.Agents[dep].Icon; got != icon {
 			t.Errorf("%s icon = %q, want %q", dep, got, icon)

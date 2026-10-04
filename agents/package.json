@@ -49,6 +49,7 @@
       "@openai/codex": {
         "mcp": { "file": "~/.codex/config.toml", "style": "codex-toml" },
         "skills": { "dir": "~/.codex/skills" },
+        "icon": "codex",
         "login": { "methods": [
           { "id": "chatgpt", "label": "ChatGPT", "flow": "device",
             "args": ["login", "--device-auth"],

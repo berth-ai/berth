@@ -3,7 +3,6 @@ import { useId, useState } from "react";
 import { applyConfig } from "@/api/config";
 import { keys, queryClient, refreshStatus, useConfig, useStatus } from "@/api/queries";
 import type { AgentPackage } from "@/api/types";
-import { BrandIcon } from "@/components/brand-icon";
 import { useConfirm } from "@/components/confirm";
 import { EmptyState } from "@/components/empty-state";
 import { LoadingRows } from "@/components/loading";
@@ -193,13 +192,6 @@ function ServerRows({
       <TableRow>
         <TableCell data-label="">
           <div className="flex min-w-0 items-start gap-2">
-            <span className="mt-0.5">
-              <BrandIcon
-                slug={isLock ? row.pkg.icon : undefined}
-                name={row.name}
-                id={isLock ? row.pkg.package : row.id}
-              />
-            </span>
             <div className="flex min-w-0 flex-col gap-0.5">
               <strong className="text-fg">{row.name}</strong>
               <span

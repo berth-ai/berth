@@ -4,7 +4,6 @@ import { keys, queryClient, refreshLogins, useJob, useJobs } from "@/api/queries
 import { verb } from "@/api/request";
 import { jobStartError } from "@/api/run-job";
 import type { AgentPackage, Job, LoginMethodStatus, LoginStatus } from "@/api/types";
-import { BrandIcon } from "@/components/brand-icon";
 import { BusyButton } from "@/components/busy-button";
 import { DeviceBox } from "@/components/device-box";
 import { FormField, fieldProps } from "@/components/form-field";
@@ -102,17 +101,16 @@ export function SignInCell({
 export interface SignInTarget {
   agent: string;
   agentName: string;
-  icon?: string;
   method: string;
   label: string;
 }
 
 /** useSignIn owns the sign-in dialog: start opens one, and a sign-in
  * already running (another tab, a reload) reopens it. */
-export function useSignIn(
-  logins: LoginStatus | undefined,
-  pkgs: AgentPackage[] | undefined,
-): { dialog: ReactNode; start: (t: SignInTarget) => void } {
+export function useSignIn(logins: LoginStatus | undefined): {
+  dialog: ReactNode;
+  start: (t: SignInTarget) => void;
+} {
   const jobs = useJobs();
   const [open, setOpen] = useState<{ target: SignInTarget; jobId: number | null } | null>(null);
   const [dismissed, setDismissed] = useState<number | null>(null);
@@ -127,9 +125,8 @@ export function useSignIn(
     const a = logins?.agents?.[running.agent];
     const m = a?.methods?.find((x) => x.id === running.method);
     if (a && m) {
-      const icon = pkgs?.find((p) => p.package === running.agent)?.icon;
       setOpen({
-        target: { agent: running.agent, agentName: a.name, icon, method: m.id, label: m.label },
+        target: { agent: running.agent, agentName: a.name, method: m.id, label: m.label },
         jobId: running.id,
       });
     }
@@ -246,8 +243,7 @@ function SignInDialog({
     <Dialog open onOpenChange={(o) => (o ? undefined : close())}>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle className="flex items-center gap-2">
-            <BrandIcon slug={target.icon} name={target.agentName} id={target.agent} size={20} />
+          <DialogTitle>
             Sign in to {target.agentName} · {target.label}
           </DialogTitle>
         </DialogHeader>

@@ -44,7 +44,7 @@ export function AgentsPage() {
   const status = useStatus();
   const pkgs = status.data ? (status.data.packages ?? []) : undefined;
   const logins = useLogins();
-  const signIn = useSignIn(logins.data, pkgs);
+  const signIn = useSignIn(logins.data);
   const [confirmDialog, ask] = useConfirm();
   const signOut = (p: AgentPackage, m: LoginMethodStatus) =>
     ask({
@@ -86,7 +86,6 @@ export function AgentsPage() {
             signIn.start({
               agent: p.package,
               agentName: p.name,
-              icon: p.icon,
               method: m.id,
               label: m.label,
             }),
