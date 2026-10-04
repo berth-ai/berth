@@ -6,15 +6,26 @@ import { StatusBadge } from "@/components/status-badge";
 import { buttonVariants } from "@/components/ui/button";
 import { useTitle } from "@/lib/use-title";
 
+/** keepRightClick stops the browser menu over a same-origin frame, so a
+ * right click reaches tmux; Shift+right click still opens the browser menu. */
+function keepRightClick(frame: HTMLIFrameElement) {
+  frame.contentDocument?.addEventListener("contextmenu", (e) => {
+    if (!e.shiftKey) e.preventDefault();
+  });
+}
+
 // Terminal and IDE: full-height embeds of the proxied frontends.
 export function FrontendPage({
   service,
   label,
   path,
+  rightClick = false,
 }: {
   service: string;
   label: string;
   path: string;
+  /** rightClick hands right clicks to the frame instead of the browser menu. */
+  rightClick?: boolean;
 }) {
   useTitle(label);
   const status = useStatus();
@@ -40,7 +51,12 @@ export function FrontendPage({
       </div>
       <div className="flex min-h-0 flex-1 bg-log-bg">
         {status.data && svc ? (
-          <iframe title={label} src={path} className="size-full flex-1 border-0" />
+          <iframe
+            title={label}
+            src={path}
+            className="size-full flex-1 border-0"
+            onLoad={rightClick ? (e) => keepRightClick(e.currentTarget) : undefined}
+          />
         ) : null}
         {status.data && !svc ? (
           <div className="flex flex-1 items-center justify-center p-4">

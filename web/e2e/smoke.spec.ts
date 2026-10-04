@@ -68,6 +68,20 @@ test("every page renders inside the CSP", async ({ page }) => {
   await expect(
     page.frameLocator('iframe[title="Terminal"]').getByText("The terminal is not running"),
   ).toBeVisible();
+  // A right click in the terminal goes to tmux, not the browser menu.
+  const rightClick = (shiftKey: boolean) =>
+    page
+      .frameLocator('iframe[title="Terminal"]')
+      .locator("body")
+      .evaluate(
+        (body, shiftKey) =>
+          !body.dispatchEvent(
+            new MouseEvent("contextmenu", { bubbles: true, cancelable: true, shiftKey }),
+          ),
+        shiftKey,
+      );
+  await expect.poll(() => rightClick(false)).toBe(true);
+  expect(await rightClick(true)).toBe(false);
   await page.goto(`${NORMAL}/#/ide`);
   await expect(page.getByText("The IDE is off")).toBeVisible();
   await page.getByRole("button", { name: "Dark", exact: true }).click();
