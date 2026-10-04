@@ -190,8 +190,10 @@ inherit`, weight 500. Compact controls inside cards and table rows are
   `--surface-sunken`. The primary cell is a quiet link (`--accent-text` 600)
   with mono detail below in `--fg-muted`.
 - **Agent icons.** 16 px before the name in the Agents table only. A lock
-  `icon` slug draws a bundled monochrome mark from LobeHub Icons (Claude
-  Code, Gemini CLI, Codex, OpenCode) in `currentColor` for both themes.
+  `icon` slug draws a bundled LobeHub Icons mark in its own colours, the one
+  exception to the single-accent rule: Claude Code's terracotta, the Gemini
+  CLI and Codex tiles with their gradients. OpenCode's mark has no colour
+  version and draws in `currentColor`.
   Unknown agents get a monogram: the name's first letter, weight 600, on a
   soft tint (`--accent-soft`, `--info-soft`, `--ok-soft`, `--warn-soft`,
   `--idle-soft`) picked by a stable hash of the package id. Always
@@ -266,7 +268,8 @@ inherit`, weight 500. Compact controls inside cards and table rows are
 - **Icons.** Inline SVG, 16 × 16 viewBox, `stroke="currentColor"`,
   `fill="none"`, round caps. Nav and toolbar icons render at 16 px, stroke 1.5.
   Inline action icons render at 13–14 px, stroke 1.6. Status icons render at
-  11–12 px, stroke 2. Decorative icons carry `aria-hidden="true"`.
+  11–12 px, stroke 2. Decorative icons carry `aria-hidden="true"`. Agent
+  brand marks are filled 24 × 24 artwork; see Agent icons.
 
 ## 5. Layout
 

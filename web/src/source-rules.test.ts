@@ -28,6 +28,8 @@ const sources = [
 describe("source rules", () => {
   it("keeps hex colours inside the tokens block", () => {
     for (const path of sources) {
+      // Brand marks keep their makers' colours; DESIGN.md, Agent icons.
+      if (path.endsWith("components/brand-icons.ts")) continue;
       let text = readFileSync(path, "utf8");
       if (path.endsWith("styles/tokens.css")) {
         text =
