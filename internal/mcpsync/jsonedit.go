@@ -171,3 +171,41 @@ func editJSON(data []byte, key string, set []entry, del []string) ([]byte, error
 	}
 	return formatObject(top)
 }
+
+// SetPath sets the value at path, a list of object keys, in a JSON object,
+// creating objects on the way and keeping every other member and its
+// order. It returns data itself when the value is already there.
+func SetPath(data []byte, path []string, val json.RawMessage) ([]byte, error) {
+	if len(path) == 0 {
+		return nil, errors.New("empty key path")
+	}
+	top, err := parseObject(data)
+	if err != nil {
+		return nil, err
+	}
+	i := slices.IndexFunc(top, func(m member) bool { return m.key == path[0] })
+	next := val
+	if len(path) > 1 {
+		var cur json.RawMessage
+		if i >= 0 {
+			cur = top[i].val
+			if _, err := parseObject(cur); err != nil {
+				return nil, fmt.Errorf("%s is not an object", path[0])
+			}
+		}
+		if next, err = SetPath(cur, path[1:], val); err != nil {
+			return nil, err
+		}
+		if i >= 0 && bytes.Equal(next, cur) {
+			return data, nil
+		}
+	} else if i >= 0 && sameJSON(top[i].val, val) {
+		return data, nil
+	}
+	if i >= 0 {
+		top[i].val = next
+	} else {
+		top = append(top, member{key: path[0], val: next})
+	}
+	return formatObject(top)
+}

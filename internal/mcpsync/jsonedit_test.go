@@ -2,6 +2,7 @@ package mcpsync
 
 import (
 	"bytes"
+	"encoding/json"
 	"errors"
 	"slices"
 	"testing"
@@ -141,5 +142,31 @@ func TestRemoteEntries(t *testing.T) {
 	es, _ := jsonEntries(locksource.StyleClaude, []server{{ID: "open", URL: "https://a.example/mcp"}})
 	if string(es[0].val) != `{"type":"http","url":"https://a.example/mcp"}` {
 		t.Errorf("no headers: %s", es[0].val)
+	}
+}
+
+func TestSetPath(t *testing.T) {
+	in := []byte("{\n  \"theme\": \"dark\",\n  \"security\": {\"other\": 1}\n}\n")
+	val := json.RawMessage(`"oauth-personal"`)
+	out, err := SetPath(in, []string{"security", "auth", "selectedType"}, val)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "{\n  \"theme\": \"dark\",\n  \"security\": {\n    \"other\": 1,\n    \"auth\": {\n      \"selectedType\": \"oauth-personal\"\n    }\n  }\n}\n"
+	if string(out) != want {
+		t.Errorf("got\n%s\nwant\n%s", out, want)
+	}
+	again, err := SetPath(out, []string{"security", "auth", "selectedType"}, val)
+	if err != nil || !bytes.Equal(again, out) {
+		t.Errorf("second SetPath changed the file: %v\n%s", err, again)
+	}
+	if out, err := SetPath(nil, []string{"a"}, val); err != nil || string(out) != "{\n  \"a\": \"oauth-personal\"\n}\n" {
+		t.Errorf("empty input = %q, %v", out, err)
+	}
+	if _, err := SetPath([]byte(`{"security": 3}`), []string{"security", "auth"}, val); err == nil {
+		t.Error("a scalar on the path was overwritten")
+	}
+	if _, err := SetPath([]byte("// comment\n{}"), []string{"a"}, val); !errors.Is(err, errNotPlainJSON) {
+		t.Errorf("commented file: err = %v", err)
 	}
 }
