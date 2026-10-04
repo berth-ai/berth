@@ -367,6 +367,53 @@ verb main git.identity '{"name":"Smoke Test","email":"smoke@example.org"}' >/dev
 verb main forge.status '{}' | jq -e '.forges.gh.signed_in == false and .git.name == "Smoke Test"' >/dev/null ||
   fail "forge.status"
 
+step "agent sign-ins reach their sign-in page and cancel cleanly"
+# Run as root, berth login re-runs itself as agent. ANTHROPIC_API_KEY is set
+# (above), and must not count as a Claude sign-in.
+status=$(x main berth login status --json)
+jq -e '[.agents[].methods[]] | length == 5 and all(.signed_in == false and .error == "")' <<<"$status" >/dev/null ||
+  fail "login status: $status"
+for target in "@anthropic-ai/claude-code claude" "@openai/codex chatgpt" "@google/gemini-cli google" \
+  "opencode-ai chatgpt" "opencode-ai copilot"; do
+  read -r agent method <<<"$target"
+  before=$(x main ps -u agent -o pid= | sort)
+  id=$(verb main login.start '{"agent":"'"$agent"'","method":"'"$method"'"}' | jq -r .job.id) ||
+    fail "login.start $target"
+  for ((i = 0; i < 90; i++)); do
+    job=$(x main curl -fsS --unix-socket /run/berth/broker.sock "http://b/jobs/$id")
+    jq -e '.job.login.url != "" and (.job.login.code != "" or .job.login.waiting)' <<<"$job" >/dev/null && break
+    [[ $(jq -r .job.state <<<"$job") != running ]] && break
+    sleep 1
+  done
+  jq -e '.job.login.url | startswith("https://")' <<<"$job" >/dev/null ||
+    fail "$target: no sign-in URL; log: $(jq -r .job.log <<<"$job" | tail -20)"
+  case $(jq -r .job.login.flow <<<"$job") in
+  device) jq -e '.job.login.code | test("^[A-Z0-9]{4,}-[A-Z0-9]{4,}$")' <<<"$job" >/dev/null ||
+    fail "$target: no device code; log: $(jq -r .job.log <<<"$job" | tail -20)" ;;
+  paste) jq -e '.job.login.waiting' <<<"$job" >/dev/null ||
+    fail "$target: never asked for the code; log: $(jq -r .job.log <<<"$job" | tail -20)" ;;
+  *) fail "$target: unknown flow" ;;
+  esac
+  verb main login.cancel '{"job":'"$id"'}' >/dev/null || fail "$target: login.cancel"
+  for ((i = 0; i < 40; i++)); do
+    job=$(x main curl -fsS --unix-socket /run/berth/broker.sock "http://b/jobs/$id")
+    [[ $(jq -r .job.state <<<"$job") != running ]] && break
+    sleep 0.5
+  done
+  jq -e '.job.state == "failed" and .job.result.error.code == "cancelled"' <<<"$job" >/dev/null ||
+    fail "$target: cancel ended $(jq -c '{state: .job.state, result: .job.result}' <<<"$job")"
+  left=
+  for ((i = 0; i < 20; i++)); do
+    left=$(comm -13 <(echo "$before") <(x main ps -u agent -o pid= | sort))
+    [[ -z $left ]] && break
+    sleep 0.5
+  done
+  # shellcheck disable=SC2086 # unquoted on purpose: joins the PIDs
+  [[ -z $left ]] || fail "$target: processes left after cancel: $(x main ps -o pid,args -p "$(echo $left | tr ' ' ,)")"
+done
+xa main jq -e '.security.auth.selectedType == "oauth-personal" and .mcpServers.playwright' /home/agent/.gemini/settings.json >/dev/null ||
+  fail "gemini's sign-in setting lost or clobbered the MCP entries"
+
 step "config change restarts only what it affects"
 xa main tmux new-session -d -s keep
 ttyd_pid=$(service_pid main ttyd)
