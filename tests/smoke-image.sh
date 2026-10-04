@@ -364,6 +364,60 @@ for s in pdf docx xlsx; do
   if xa main test -e "/home/agent/.claude/skills/$s"; then fail "removed $s still linked for claude"; fi
 done
 
+step "a registry agent is added, wired, signs in and is removed"
+added=$(wait_job "$(verb main agents.add '{"id":"copilot"}' | jq -r .job.id)")
+jq -e '.state == "succeeded" and .result.package == "@github/copilot"' <<<"$added" >/dev/null ||
+  fail "agents.add: $(jq -c '{state, result}' <<<"$added"); log: $(jq -r .log <<<"$added" | tail -20)"
+[[ $(x main stat -c '%a %U %G' /var/lib/berth/agents.json) == "640 root agent" ]] || fail "agents.json ownership"
+x main test -d /home/agent/.local/share/berth/agents/copilot/current || fail "no Copilot install"
+[[ $(x main stat -c '%U' /home/agent/.local/share/berth/agents/copilot/current/) == agent ]] ||
+  fail "the Copilot install is not agent's"
+for ((i = 0; i < 120; i++)); do
+  xa main test -x /var/lib/berth/bin/copilot && break
+  sleep 1
+done
+xa main copilot --version >/dev/null || fail "copilot --version through the layer"
+for ((i = 0; i < 120; i++)); do
+  xa main jq -e '.mcpServers.playwright and .mcpServers.context7' /home/agent/.copilot/mcp-config.json >/dev/null 2>&1 && break
+  sleep 1
+done
+xa main jq -e '.mcpServers.playwright and .mcpServers.context7' /home/agent/.copilot/mcp-config.json >/dev/null ||
+  fail "Copilot did not get Playwright and Context7"
+pin=8a1541c4a3ffa5a20a5a91de0dcf3f0bab1d1ef4
+wait_job "$(verb main skills.add '{"repo":"https://github.com/anthropics/skills","ref":"'"$pin"'","commit":"'"$pin"'","paths":["skills/pdf"]}' | jq -r .job.id)" |
+  jq -e '.state == "succeeded"' >/dev/null || fail "skills.add for Copilot"
+for ((i = 0; i < 120; i++)); do
+  xa main test -L /home/agent/.copilot/skills/pdf && break
+  sleep 1
+done
+xa main test -L /home/agent/.copilot/skills/pdf || fail "pdf not linked for Copilot"
+verb main config.apply '{"base_revision":'"$(rev main)"',"patch":{"skills":{"pdf":null}}}' >/dev/null || fail "removing pdf"
+id=$(verb main login.start '{"agent":"@github/copilot","method":"github"}' | jq -r .job.id) || fail "login.start copilot"
+for ((i = 0; i < 90; i++)); do
+  job=$(x main curl -fsS --unix-socket /run/berth/broker.sock "http://b/jobs/$id")
+  jq -e '.job.login.code != ""' <<<"$job" >/dev/null && break
+  [[ $(jq -r .job.state <<<"$job") != running ]] && break
+  sleep 1
+done
+jq -e '(.job.login.url | startswith("https://github.com/login/device")) and
+  (.job.login.code | test("^[A-Z0-9]{4}-[A-Z0-9]{4}$"))' <<<"$job" >/dev/null ||
+  fail "Copilot sign-in: no device code; log: $(jq -r .job.log <<<"$job" | tail -20)"
+verb main login.cancel '{"job":'"$id"'}' >/dev/null || fail "Copilot login.cancel"
+for ((i = 0; i < 40; i++)); do
+  job=$(x main curl -fsS --unix-socket /run/berth/broker.sock "http://b/jobs/$id")
+  [[ $(jq -r .job.state <<<"$job") != running ]] && break
+  sleep 0.5
+done
+jq -e '.job.result.error.code == "cancelled"' <<<"$job" >/dev/null || fail "Copilot sign-in did not cancel cleanly"
+verb main agents.remove '{"package":"@github/copilot"}' >/dev/null || fail "agents.remove"
+# The converger deletes the install, then its job rebuilds the layer.
+for ((i = 0; i < 120; i++)); do
+  ! x main test -e /home/agent/.local/share/berth/agents/copilot && ! x main test -e /var/lib/berth/bin/copilot && break
+  sleep 1
+done
+if x main test -e /home/agent/.local/share/berth/agents/copilot; then fail "Copilot install left after remove"; fi
+if x main test -e /var/lib/berth/bin/copilot; then fail "Copilot wrapper left after remove"; fi
+
 step "tools and accounts (as agent)"
 verb main tools.list '{}' | jq -e '(.base | map(.name) | index("node")) and (.presets | length == 4)' >/dev/null ||
   fail "tools.list"
