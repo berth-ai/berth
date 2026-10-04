@@ -49,6 +49,7 @@ type Job struct {
 	Log          string          `json:"log,omitempty"`
 	LogTruncated bool            `json:"log_truncated"`
 	Device       *Device         `json:"device,omitempty"`
+	Login        *LoginState     `json:"login,omitempty"`
 }
 
 // Work runs one job, writing its log to out. It returns the exit code of the

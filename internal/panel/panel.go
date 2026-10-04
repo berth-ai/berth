@@ -37,6 +37,7 @@ var browserVerbs = map[string]bool{
 	"tools.list": true, "tools.versions": true, "tools.registry": true, "tools.add": true, "tools.remove": true,
 	"preset.install": true, "git.identity": true, "forge.status": true, "forge.login": true,
 	"skills.add": true, "skills.update": true,
+	"login.status": true, "login.start": true, "login.input": true, "login.cancel": true, "login.logout": true,
 }
 
 var jobID = regexp.MustCompile(`^[0-9]{1,9}$`)

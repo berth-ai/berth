@@ -120,6 +120,9 @@ var (
 	serverIDPattern     = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,62}$`)
 )
 
+// ValidPackage reports whether name is an npm package name.
+func ValidPackage(name string) bool { return packagePattern.MatchString(name) }
+
 // ValidRef reports whether ref may be passed to berth update --ref.
 func ValidRef(ref string) bool {
 	return refPattern.MatchString(ref) && !strings.Contains(ref, "..")

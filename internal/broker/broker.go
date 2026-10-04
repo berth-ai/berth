@@ -115,8 +115,11 @@ type Broker struct {
 func New(store *config.Store, logins login.Store, services Services, jobs *Jobs, exec Exec) *Broker {
 	if jobs != nil {
 		jobs.Annotate = func(job *Job, log string) {
-			if job.Verb == "forge.login" {
+			switch job.Verb {
+			case "forge.login":
 				job.Device = ParseDevice(log)
+			case loginVerb:
+				job.Login = ParseLogin(job.Args, log)
 			}
 		}
 	}
