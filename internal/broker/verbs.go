@@ -34,6 +34,7 @@ func (b *Broker) verbs() map[string]verbFunc {
 		"config.export":   b.configExport,
 		"config.apply":    b.configApply,
 		"skills.add":      b.skillsAdd,
+		"skills.scan":     b.skillsScan,
 		"skills.update":   b.skillsUpdate,
 		"config.revert":   b.configRevert,
 		"config.reset":    b.configReset,

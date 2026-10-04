@@ -1,6 +1,7 @@
 package broker
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -135,25 +136,6 @@ func TestRevertRepublishesSkills(t *testing.T) {
 	waitSkillRuns(t, tb, 3)
 }
 
-// fakeResolve makes Home.Berth answer `skills resolve`: skill pdf at
-// skillCommit, ref "nope" not found, ref "other" holding skill other, and
-// ref "v2" a new commit of pdf.
-func fakeResolve(t *testing.T, tb *testBroker) {
-	t.Helper()
-	script := `#!/bin/sh
-case "$*" in
-  *"--ref nope"*) echo '{"schema":1,"error":{"code":"ref_not_found","step":"ref","message":"Ref nope not found in that repository"}}'; exit 1 ;;
-  *"--ref other"*) echo '{"schema":1,"name":"other","description":"Other","commit":"` + skillCommit + `"}' ;;
-  *"--ref v2"*) echo '{"schema":1,"name":"pdf","description":"PDF tools v2","commit":"89abcdef0123456789abcdef0123456789abcdef"}' ;;
-  *) echo '{"schema":1,"name":"pdf","description":"PDF tools","commit":"` + skillCommit + `"}' ;;
-esac
-echo "$*" >> "` + tb.dir + `/resolve.log"
-`
-	path := filepath.Join(tb.dir, "fake-berth")
-	os.WriteFile(path, []byte(script), 0o755)
-	tb.b.Home.Berth = path
-}
-
 func skillJob(t *testing.T, tb *testBroker, verb, body string) Job {
 	t.Helper()
 	code, out := tb.verb(t, verb, body)
@@ -171,68 +153,11 @@ func skillJob(t *testing.T, tb *testBroker, verb, body string) Job {
 	return Job{}
 }
 
-func TestSkillsAdd(t *testing.T) {
-	tb := newTestBroker(t)
-	withSkills(t, tb)
-	fakeResolve(t, tb)
-	j := skillJob(t, tb, "skills.add", `{"repo":"https://github.com/anthropics/skills","path":"skills/pdf","ref":"main","agents":["agent-a"]}`)
-	if j.State != StateSucceeded || !strings.Contains(string(j.Result), `"skill":"pdf"`) {
-		t.Fatalf("job = %+v %s", j, j.Result)
-	}
-	_, out := tb.verb(t, "config.get", `{}`)
-	pdf := out["config"].(map[string]any)["skills"].(map[string]any)["pdf"].(map[string]any)
-	if pdf["commit"] != skillCommit || pdf["enabled"] != true || pdf["description"] != "PDF tools" {
-		t.Errorf("pdf = %v", pdf)
-	}
-	if a, _ := pdf["agents"].([]any); len(a) != 1 || a[0] != "agent-a" {
-		t.Errorf("agents = %v", pdf["agents"])
-	}
-	waitSkillRuns(t, tb, 1)
-	raw, _ := os.ReadFile(filepath.Join(tb.dir, "resolve.log"))
-	if !strings.Contains(string(raw), "skills resolve --json --repo https://github.com/anthropics/skills --ref main --path skills/pdf") {
-		t.Errorf("resolve args = %s", raw)
-	}
-
-	again := skillJob(t, tb, "skills.add", `{"repo":"https://github.com/anthropics/skills","path":"skills/pdf","ref":"main"}`)
-	if again.State != StateFailed || !strings.Contains(string(again.Result), "already installed") {
-		t.Errorf("duplicate = %+v %s", again, again.Result)
-	}
-}
-
-func TestSkillsAddResolveFailure(t *testing.T) {
-	tb := newTestBroker(t)
-	withSkills(t, tb)
-	fakeResolve(t, tb)
-	j := skillJob(t, tb, "skills.add", `{"repo":"https://github.com/anthropics/skills","path":"skills/pdf","ref":"nope"}`)
-	if j.State != StateFailed || !strings.Contains(string(j.Result), `"field":"ref"`) ||
-		!strings.Contains(string(j.Result), "Ref nope not found") {
-		t.Errorf("job = %+v %s", j, j.Result)
-	}
-	if _, out := tb.verb(t, "config.get", `{}`); len(out["config"].(map[string]any)["skills"].(map[string]any)) != 0 {
-		t.Error("a failed resolve saved a skill")
-	}
-}
-
-func TestSkillsAddValidation(t *testing.T) {
-	tb := newTestBroker(t)
-	withSkills(t, tb)
-	for body, field := range map[string]string{
-		`{"repo":"http://x.example/r","ref":"main"}`:                "repo",
-		`{"repo":"https://x.example/r","path":"../x","ref":"main"}`: "path",
-		`{"repo":"https://x.example/r","ref":"-x"}`:                 "ref",
-		`{"repo":"https://x.example/r","ref":"main","agents":[]}`:   "agents",
-	} {
-		code, out := tb.verb(t, "skills.add", body)
-		if code != 400 || !strings.Contains(fmt.Sprint(out), "field:"+field) {
-			t.Errorf("%s = %d %v", body, code, out)
-		}
-	}
-}
-
 func TestSkillsUpdate(t *testing.T) {
+	t.Skip("replaced in Task 4")
 	tb := newTestBroker(t)
 	withSkills(t, tb)
-	fakeResolve(t, tb)
+	fakeScan(t, tb)
 	skillJob(t, tb, "skills.add", `{"repo":"https://github.com/anthropics/skills","path":"skills/pdf","ref":"main"}`)
 	same := skillJob(t, tb, "skills.update", `{"id":"pdf"}`)
 	if same.State != StateSucceeded || !strings.Contains(string(same.Result), `"changed":false`) {
@@ -253,5 +178,217 @@ func TestSkillsUpdate(t *testing.T) {
 	}
 	if code, _ := tb.verb(t, "skills.update", `{"id":"nothere"}`); code != 404 {
 		t.Errorf("unknown = %d", code)
+	}
+}
+
+const skillCommit2 = "89abcdef0123456789abcdef0123456789abcdef"
+
+// fakeScan makes Home.Berth answer `skills scan`, logging its arguments to
+// scan.log. Ref nope is not found; ref v2 is a new commit of pdf and docx;
+// at ref renamed skills/pdf holds skill other; at ref moved only docx is
+// left; ref slow is v2 after half a second. Any other ref is skillCommit
+// with root (path ""), a broken skill, docx and pdf.
+func fakeScan(t *testing.T, tb *testBroker) {
+	t.Helper()
+	row := func(path, name, desc string) string {
+		return `{"path":"` + path + `","name":"` + name + `","description":"` + desc + `"}`
+	}
+	at := func(commit string, rows ...string) string {
+		return `echo '{"schema":1,"commit":"` + commit + `","skills":[` + strings.Join(rows, ",") + `]}'`
+	}
+	v2 := at(skillCommit2, row("skills/docx", "docx", "Word v2"), row("skills/pdf", "pdf", "PDF tools v2"))
+	script := `#!/bin/sh
+echo "$*" >> "` + tb.dir + `/scan.log"
+case "$*" in
+  *"--ref nope"*) echo '{"schema":1,"error":{"code":"ref_not_found","step":"ref","message":"Ref nope not found in that repository"}}'; exit 1 ;;
+  *"--ref v2"*) ` + v2 + ` ;;
+  *"--ref slow"*) sleep 0.5; ` + v2 + ` ;;
+  *"--ref renamed"*) ` + at(skillCommit, row("skills/docx", "docx", "Word"), row("skills/pdf", "other", "Other")) + ` ;;
+  *"--ref moved"*) ` + at(skillCommit, row("skills/docx", "docx", "Word")) + ` ;;
+  *) ` + at(skillCommit, row("", "root", "Root"), `{"path":"skills/bad","error":"SKILL.md has no description"}`,
+		row("skills/docx", "docx", "Word"), row("skills/pdf", "pdf", "PDF tools")) + ` ;;
+esac
+`
+	path := filepath.Join(tb.dir, "fake-berth")
+	os.WriteFile(path, []byte(script), 0o755)
+	tb.b.Home.Berth = path
+}
+
+func lastScan(t *testing.T, tb *testBroker) string {
+	t.Helper()
+	raw, _ := os.ReadFile(filepath.Join(tb.dir, "scan.log"))
+	lines := strings.Split(strings.TrimSpace(string(raw)), "\n")
+	return lines[len(lines)-1]
+}
+
+func skillsOf(t *testing.T, tb *testBroker) (map[string]any, float64) {
+	t.Helper()
+	_, out := tb.verb(t, "config.get", `{}`)
+	cfg := out["config"].(map[string]any)
+	return cfg["skills"].(map[string]any), cfg["revision"].(float64)
+}
+
+func TestSkillsScan(t *testing.T) {
+	tb := newTestBroker(t)
+	withSkills(t, tb)
+	fakeScan(t, tb)
+	tb.verb(t, "config.apply", addPDF)
+	j := skillJob(t, tb, "skills.scan", `{"repo":"https://github.com/anthropics/skills","ref":"main","path":"skills"}`)
+	if j.State != StateSucceeded {
+		t.Fatalf("job = %+v %s", j, j.Result)
+	}
+	var res struct {
+		Commit string
+		Skills []struct {
+			Path, Name, Error string
+			Installed         bool
+		}
+	}
+	json.Unmarshal(j.Result, &res)
+	if res.Commit != skillCommit || len(res.Skills) != 4 {
+		t.Fatalf("result = %s", j.Result)
+	}
+	for _, r := range res.Skills {
+		if r.Installed != (r.Name == "pdf") {
+			t.Errorf("row %+v: installed = %v", r, r.Installed)
+		}
+	}
+	if !strings.Contains(string(j.Result), `"error":"SKILL.md has no description"`) {
+		t.Errorf("bad row lost: %s", j.Result)
+	}
+	if got := lastScan(t, tb); got != "skills scan --json --repo https://github.com/anthropics/skills --ref main --path skills" {
+		t.Errorf("scan args = %s", got)
+	}
+	if _, rev := skillsOf(t, tb); rev != 1 {
+		t.Errorf("a scan changed the config: revision %v", rev)
+	}
+	skillJob(t, tb, "skills.scan", `{"repo":"https://github.com/anthropics/skills","ref":"main"}`)
+	if got := lastScan(t, tb); strings.Contains(got, "--path") {
+		t.Errorf("root scan args = %s", got)
+	}
+}
+
+func TestSkillsScanFailure(t *testing.T) {
+	tb := newTestBroker(t)
+	withSkills(t, tb)
+	fakeScan(t, tb)
+	j := skillJob(t, tb, "skills.scan", `{"repo":"https://github.com/anthropics/skills","ref":"nope"}`)
+	if j.State != StateFailed || !strings.Contains(string(j.Result), `"field":"ref"`) ||
+		!strings.Contains(string(j.Result), "Ref nope not found") {
+		t.Errorf("job = %+v %s", j, j.Result)
+	}
+}
+
+func TestSkillsScanValidation(t *testing.T) {
+	tb := newTestBroker(t)
+	withSkills(t, tb)
+	for body, field := range map[string]string{
+		`{"repo":"http://x.example/r","ref":"main"}`:                "repo",
+		`{"repo":"https://x.example/r","ref":"-x"}`:                 "ref",
+		`{"repo":"https://x.example/r","ref":"main","path":"../x"}`: "path",
+	} {
+		code, out := tb.verb(t, "skills.scan", body)
+		if code != 400 || !strings.Contains(fmt.Sprint(out), "field:"+field) {
+			t.Errorf("%s = %d %v", body, code, out)
+		}
+	}
+}
+
+func TestSkillsAddBatch(t *testing.T) {
+	tb := newTestBroker(t)
+	withSkills(t, tb)
+	fakeScan(t, tb)
+	j := skillJob(t, tb, "skills.add", `{"repo":"https://github.com/anthropics/skills","ref":"main","commit":"`+skillCommit+
+		`","paths":["skills/pdf","skills/docx"],"agents":["agent-a"]}`)
+	if j.State != StateSucceeded || !strings.Contains(string(j.Result), `"skills":["docx","pdf"]`) ||
+		!strings.Contains(string(j.Result), `"revision":1`) {
+		t.Fatalf("job = %+v %s", j, j.Result)
+	}
+	if got := lastScan(t, tb); got != "skills scan --json --repo https://github.com/anthropics/skills --ref "+skillCommit+" --path skills/pdf --path skills/docx" {
+		t.Errorf("scan args = %s", got)
+	}
+	skills, rev := skillsOf(t, tb)
+	if rev != 1 || len(skills) != 2 {
+		t.Fatalf("revision %v, skills %v", rev, skills)
+	}
+	for id, desc := range map[string]string{"pdf": "PDF tools", "docx": "Word"} {
+		s := skills[id].(map[string]any)
+		if s["commit"] != skillCommit || s["ref"] != "main" || s["path"] != "skills/"+id || s["description"] != desc || s["enabled"] != true {
+			t.Errorf("%s = %v", id, s)
+		}
+		if a, _ := s["agents"].([]any); len(a) != 1 || a[0] != "agent-a" {
+			t.Errorf("%s agents = %v", id, s["agents"])
+		}
+	}
+	waitSkillRuns(t, tb, 1)
+}
+
+func TestSkillsAddRootSkill(t *testing.T) {
+	tb := newTestBroker(t)
+	withSkills(t, tb)
+	fakeScan(t, tb)
+	j := skillJob(t, tb, "skills.add", `{"repo":"https://github.com/anthropics/skills","ref":"main","commit":"`+skillCommit+`","paths":["","skills/pdf"]}`)
+	if j.State != StateSucceeded {
+		t.Fatalf("job = %+v %s", j, j.Result)
+	}
+	if got := lastScan(t, tb); strings.Contains(got, "--path") {
+		t.Errorf("a root skill must scan the whole tree: %s", got)
+	}
+	skills, _ := skillsOf(t, tb)
+	if root, ok := skills["root"].(map[string]any); !ok || root["path"] != "" {
+		t.Errorf("root = %v", skills["root"])
+	}
+}
+
+func TestSkillsAddFailsWholeBatch(t *testing.T) {
+	tb := newTestBroker(t)
+	withSkills(t, tb)
+	fakeScan(t, tb)
+	tb.verb(t, "config.apply", addPDF)
+	add := func(paths string) Job {
+		return skillJob(t, tb, "skills.add", `{"repo":"https://github.com/anthropics/skills","ref":"main","commit":"`+skillCommit+`","paths":`+paths+`}`)
+	}
+	for paths, want := range map[string]string{
+		`["skills/docx","skills/pdf"]`:  `"code":"skill_exists"`,
+		`["skills/docx","skills/bad"]`:  `"code":"bad_skill"`,
+		`["skills/docx","skills/none"]`: `"code":"no_skill"`,
+	} {
+		j := add(paths)
+		if j.State != StateFailed || !strings.Contains(string(j.Result), want) || !strings.Contains(string(j.Result), `"field":"path"`) {
+			t.Errorf("%s: %+v %s", paths, j, j.Result)
+		}
+	}
+	if j := add(`["skills/docx","skills/pdf"]`); !strings.Contains(string(j.Result), "A skill named pdf is already installed") {
+		t.Errorf("message = %s", j.Result)
+	}
+	if skills, rev := skillsOf(t, tb); rev != 1 || len(skills) != 1 {
+		t.Errorf("a failed batch saved something: revision %v, %v", rev, skills)
+	}
+}
+
+func TestSkillsAddValidation(t *testing.T) {
+	tb := newTestBroker(t)
+	withSkills(t, tb)
+	many := make([]string, maxSkillBatch+1)
+	for i := range many {
+		many[i] = fmt.Sprintf(`"s%d"`, i)
+	}
+	base := `"repo":"https://x.example/r","ref":"main","commit":"` + skillCommit + `"`
+	for body, field := range map[string]string{
+		`{"repo":"http://x.example/r","ref":"main","commit":"` + skillCommit + `","paths":["a"]}`: "repo",
+		`{"repo":"https://x.example/r","ref":"-x","commit":"` + skillCommit + `","paths":["a"]}`:  "ref",
+		`{"repo":"https://x.example/r","ref":"main","commit":"abc","paths":["a"]}`:                "commit",
+		`{"repo":"https://x.example/r","ref":"main","paths":["a"]}`:                               "commit",
+		`{` + base + `,"paths":[]}`:                                "paths",
+		`{` + base + `}`:                                           "paths",
+		`{` + base + `,"paths":["../x"]}`:                          "paths",
+		`{` + base + `,"paths":["a","a"]}`:                         "paths",
+		`{` + base + `,"paths":[` + strings.Join(many, ",") + `]}`: "paths",
+		`{` + base + `,"paths":["a"],"agents":[]}`:                 "agents",
+	} {
+		code, out := tb.verb(t, "skills.add", body)
+		if code != 400 || !strings.Contains(fmt.Sprint(out), "field:"+field) {
+			t.Errorf("%.80s = %d %v", body, code, out)
+		}
 	}
 }

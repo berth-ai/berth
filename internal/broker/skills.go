@@ -19,8 +19,8 @@ import (
 	"github.com/berth-ai/berth/internal/skills"
 )
 
-// skillsSyncGroup serializes skills.sync runs; skills.add and
-// skills.update use skillsGroup, so a resolve can run during a sync.
+// skillsSyncGroup serializes skills.sync runs; skills.scan, skills.add and
+// skills.update use skillsGroup, so a scan can run during a sync.
 const skillsSyncGroup = "skills-sync"
 
 func sameSkills(a, b map[string]config.Skill) bool {
@@ -64,10 +64,14 @@ func (b *Broker) startSkillsSync() {
 }
 
 const (
-	// skillsGroup serializes skills.add and skills.update.
-	skillsGroup         = "skills"
-	skillResolveTimeout = 5 * time.Minute
+	// skillsGroup serializes skills.scan, skills.add and skills.update.
+	skillsGroup      = "skills"
+	skillScanTimeout = 5 * time.Minute
+	// maxSkillBatch caps the skills one add or update touches.
+	maxSkillBatch = skills.MaxScan
 )
+
+const skillPathMsg = "The path must be a folder inside the repository, such as skills/pdf"
 
 // skillError is a failure the panel shows next to a field of its dialog.
 type skillError struct {
@@ -95,24 +99,90 @@ func (b *Broker) normalMode() (int, any, bool) {
 	return 0, nil, true
 }
 
+// skillSourceError checks a repository and ref; field is "" when both are fine.
+func skillSourceError(repo, ref string) (field, msg string) {
+	if msg := config.CheckSkillRepo(repo); msg != "" {
+		return "repo", "The repository URL " + msg
+	}
+	if !config.ValidGitRef(ref) {
+		return "ref", "The ref must be a branch, tag or commit"
+	}
+	return "", ""
+}
+
+// pathsError checks skills.add's paths: 1 to maxSkillBatch unique folders.
+func pathsError(paths []string) string {
+	if len(paths) == 0 || len(paths) > maxSkillBatch {
+		return fmt.Sprintf("Choose 1 to %d skills", maxSkillBatch)
+	}
+	seen := map[string]bool{}
+	for _, p := range paths {
+		switch {
+		case !config.ValidSkillPath(p):
+			return skillPathMsg
+		case seen[p]:
+			return "Choose each skill once"
+		}
+		seen[p] = true
+	}
+	return ""
+}
+
+func rowsByPath(rows []scanRow) map[string]scanRow {
+	m := make(map[string]scanRow, len(rows))
+	for _, r := range rows {
+		m[r.Path] = r
+	}
+	return m
+}
+
+func (b *Broker) skillsScan(_ context.Context, body []byte) (int, any) {
+	var in struct {
+		Repo string `json:"repo"`
+		Ref  string `json:"ref"`
+		Path string `json:"path"`
+	}
+	if err := decode(body, &in); err != nil {
+		return badRequest(err)
+	}
+	if field, msg := skillSourceError(in.Repo, in.Ref); field != "" {
+		return fieldInvalid(field, msg)
+	}
+	if !config.ValidSkillPath(in.Path) {
+		return fieldInvalid("path", skillPathMsg)
+	}
+	if code, v, ok := b.normalMode(); !ok {
+		return code, v
+	}
+	return b.scanJob("skills.scan", in.Repo, in.Ref, []string{in.Path}, func(s skillScan) (json.RawMessage, error) {
+		cur, _, _ := b.snapshot()
+		for i, r := range s.Skills {
+			_, ok := cur.Skills[r.Name]
+			s.Skills[i].Installed = ok && r.Name != ""
+		}
+		return json.Marshal(s)
+	})
+}
+
 func (b *Broker) skillsAdd(_ context.Context, body []byte) (int, any) {
 	var in struct {
 		Repo   string   `json:"repo"`
-		Path   string   `json:"path"`
 		Ref    string   `json:"ref"`
+		Commit string   `json:"commit"`
+		Paths  []string `json:"paths"`
 		Agents []string `json:"agents"`
 	}
 	if err := decode(body, &in); err != nil {
 		return badRequest(err)
 	}
-	if msg := config.CheckSkillRepo(in.Repo); msg != "" {
-		return fieldInvalid("repo", "The repository URL "+msg)
+	if field, msg := skillSourceError(in.Repo, in.Ref); field != "" {
+		return fieldInvalid(field, msg)
 	}
-	if !config.ValidSkillPath(in.Path) {
-		return fieldInvalid("path", "The path must be a folder inside the repository, such as skills/pdf")
+	if !config.ValidCommit(in.Commit) {
+		return fieldInvalid("commit", "Find the skills again; the scanned commit is missing")
 	}
-	if !config.ValidGitRef(in.Ref) {
-		return fieldInvalid("ref", "The ref must be a branch, tag or commit")
+	if msg := pathsError(in.Paths); msg != "" {
+		return fieldInvalid("paths", msg)
 	}
 	if in.Agents != nil && len(in.Agents) == 0 {
 		return fieldInvalid("agents", "Choose at least one agent")
@@ -120,14 +190,30 @@ func (b *Broker) skillsAdd(_ context.Context, body []byte) (int, any) {
 	if code, v, ok := b.normalMode(); !ok {
 		return code, v
 	}
-	return b.resolveJob("skills.add", in.Repo, in.Path, in.Ref, func(res skillResolved) (json.RawMessage, error) {
-		return b.applySkill(res.Name, func(cur config.Config) (any, error) {
-			if _, ok := cur.Skills[res.Name]; ok {
-				return nil, &skillError{Code: "skill_exists", Field: "path",
-					Message: fmt.Sprintf("A skill named %s is already installed", res.Name)}
+	return b.scanJob("skills.add", in.Repo, in.Commit, in.Paths, func(s skillScan) (json.RawMessage, error) {
+		byPath := rowsByPath(s.Skills)
+		entries := make(map[string]any, len(in.Paths))
+		for _, p := range in.Paths {
+			row, ok := byPath[p]
+			switch {
+			case !ok:
+				return nil, &skillError{Code: "no_skill", Field: "path",
+					Message: fmt.Sprintf("No SKILL.md at %s in that commit", cmp.Or(p, "the repository root"))}
+			case row.Error != "":
+				return nil, &skillError{Code: "bad_skill", Field: "path",
+					Message: fmt.Sprintf("%s: %s", cmp.Or(p, "The repository root"), row.Error)}
 			}
-			return config.Skill{Repo: in.Repo, Path: in.Path, Ref: in.Ref, Commit: res.Commit,
-				Description: res.Description, Agents: in.Agents, Enabled: true}, nil
+			entries[row.Name] = config.Skill{Repo: in.Repo, Path: p, Ref: in.Ref, Commit: s.Commit,
+				Description: row.Description, Agents: in.Agents, Enabled: true}
+		}
+		return b.applySkills(func(cur config.Config) (map[string]any, error) {
+			for _, id := range slices.Sorted(maps.Keys(entries)) {
+				if _, ok := cur.Skills[id]; ok {
+					return nil, &skillError{Code: "skill_exists", Field: "path",
+						Message: fmt.Sprintf("A skill named %s is already installed", id)}
+				}
+			}
+			return entries, nil
 		})
 	})
 }
@@ -152,52 +238,64 @@ func (b *Broker) skillsUpdate(_ context.Context, body []byte) (int, any) {
 	if code, v, ok := b.normalMode(); !ok {
 		return code, v
 	}
-	return b.resolveJob("skills.update", s.Repo, s.Path, ref, func(res skillResolved) (json.RawMessage, error) {
-		return b.applySkill(in.ID, func(cur config.Config) (any, error) {
+	return b.scanJob("skills.update", s.Repo, ref, []string{s.Path}, func(res skillScan) (json.RawMessage, error) {
+		row, ok := rowsByPath(res.Skills)[s.Path]
+		if !ok || row.Name != in.ID {
+			return nil, &skillError{Code: "name_changed", Field: "ref", Message: fmt.Sprintf("That ref no longer holds skill %s", in.ID)}
+		}
+		return b.applySkills(func(cur config.Config) (map[string]any, error) {
 			now, ok := cur.Skills[in.ID]
-			switch {
-			case !ok:
+			if !ok {
 				return nil, &skillError{Code: "unknown_skill", Message: fmt.Sprintf("The skill %s was removed", in.ID)}
-			case res.Name != in.ID:
-				return nil, &skillError{Code: "name_changed", Field: "ref",
-					Message: fmt.Sprintf("That ref holds skill %s, not %s", res.Name, in.ID)}
-			case now.Ref == ref && now.Commit == res.Commit && now.Description == res.Description:
+			}
+			if now.Ref == ref && now.Commit == res.Commit && now.Description == row.Description {
 				return nil, nil
 			}
-			return map[string]any{"ref": ref, "commit": res.Commit, "description": res.Description}, nil
+			return map[string]any{in.ID: map[string]any{"ref": ref, "commit": res.Commit, "description": row.Description}}, nil
 		})
 	})
 }
 
-// skillResolved is berth skills resolve's answer.
-type skillResolved struct {
-	Name        string `json:"name"`
-	Description string `json:"description"`
-	Commit      string `json:"commit"`
+// scanRow and skillScan are berth skills scan's answer; skills.scan adds
+// installed.
+type scanRow struct {
+	Path        string `json:"path"`
+	Name        string `json:"name,omitempty"`
+	Description string `json:"description,omitempty"`
+	Error       string `json:"error,omitempty"`
+	Installed   bool   `json:"installed,omitempty"`
 }
 
-// resolveJob runs berth skills resolve as agent, then save with its answer.
-// The job fails when either step does; its result then carries the field.
-func (b *Broker) resolveJob(verb, repo, path, ref string, save func(skillResolved) (json.RawMessage, error)) (int, any) {
-	args := []string{"skills", "resolve", "--json", "--repo", repo, "--ref", ref}
-	if path != "" {
-		args = append(args, "--path", path)
+type skillScan struct {
+	Commit string    `json:"commit"`
+	Skills []scanRow `json:"skills"`
+}
+
+// scanJob runs berth skills scan as agent over paths (the whole tree when
+// one is the root), then save with its answer. The job fails when either
+// step does; its result then carries the field.
+func (b *Broker) scanJob(verb, repo, ref string, paths []string, save func(skillScan) (json.RawMessage, error)) (int, any) {
+	args := []string{"skills", "scan", "--json", "--repo", repo, "--ref", ref}
+	if !slices.Contains(paths, "") {
+		for _, p := range paths {
+			args = append(args, "--path", p)
+		}
 	}
 	shown := append([]string{b.Home.Berth}, args...)
 	job, err := b.Jobs.Start(verb, skillsGroup, shown, func(ctx context.Context, out io.Writer) (int, json.RawMessage, error) {
 		var stdout bytes.Buffer
 		r := runner.Exec{Agent: b.Agent, Stdout: &stdout, Stderr: out}
-		err := r.Run(ctx, runner.Cmd{Path: b.Home.Berth, Args: args, AsAgent: true, Timeout: skillResolveTimeout})
+		err := r.Run(ctx, runner.Cmd{Path: b.Home.Berth, Args: args, AsAgent: true, Timeout: skillScanTimeout})
 		var ee *exec.ExitError
 		switch {
 		case errors.As(err, &ee):
-			return ee.ExitCode(), resolveFailure(stdout.Bytes()), nil
+			return ee.ExitCode(), scanFailure(stdout.Bytes()), nil
 		case err != nil:
 			return -1, nil, err
 		}
-		var res skillResolved
-		if err := json.Unmarshal(stdout.Bytes(), &res); err != nil || res.Name == "" {
-			return 1, errorJSON("bad_output", "berth skills resolve printed no result"), nil
+		var res skillScan
+		if err := json.Unmarshal(stdout.Bytes(), &res); err != nil || res.Commit == "" {
+			return 1, errorJSON("bad_output", "berth skills scan printed no result"), nil
 		}
 		result, err := save(res)
 		if err != nil {
@@ -215,14 +313,14 @@ func (b *Broker) resolveJob(verb, repo, path, ref string, save func(skillResolve
 	return http.StatusAccepted, map[string]any{"job": job}
 }
 
-// resolveFailure turns resolve's --json error, whose step is the field,
-// into the job result.
-func resolveFailure(stdout []byte) json.RawMessage {
+// scanFailure turns scan's --json error, whose step is the field, into the
+// job result.
+func scanFailure(stdout []byte) json.RawMessage {
 	var doc struct {
 		Error struct{ Code, Step, Message string } `json:"error"`
 	}
 	if json.Unmarshal(bytes.TrimSpace(stdout), &doc) != nil || doc.Error.Code == "" {
-		return errorJSON("resolve_failed", "berth skills resolve failed; see the log")
+		return errorJSON("scan_failed", "berth skills scan failed; see the log")
 	}
 	return skillFailure(&skillError{Code: doc.Error.Code, Message: doc.Error.Message, Field: doc.Error.Step})
 }
@@ -236,24 +334,25 @@ func skillFailure(err error) json.RawMessage {
 	return raw
 }
 
-// applySkill patches skills.<id> with build's entry on top of the current
-// revision, under the change lock, and refreshes like config.apply. A nil
-// entry means nothing changed.
-func (b *Broker) applySkill(id string, build func(cur config.Config) (any, error)) (json.RawMessage, error) {
+// applySkills patches the entries build returns, keyed by skill id, on top
+// of the current revision in one change, under the change lock, and
+// refreshes like config.apply. No entries means nothing changed. The result
+// lists the ids it patched.
+func (b *Broker) applySkills(build func(cur config.Config) (map[string]any, error)) (json.RawMessage, error) {
 	b.change.Lock()
 	defer b.change.Unlock()
 	if _, _, ok := b.normalMode(); !ok {
 		return nil, &skillError{Code: "not_ready", Message: "Berth is in setup or recovery mode; finish setup or fix the config first"}
 	}
 	cur, _, _ := b.snapshot()
-	entry, err := build(cur)
+	entries, err := build(cur)
 	if err != nil {
 		return nil, err
 	}
-	if entry == nil {
-		return json.Marshal(map[string]any{"skill": id, "changed": false, "revision": cur.Revision})
+	if len(entries) == 0 {
+		return json.Marshal(map[string]any{"skills": []string{}, "changed": false, "revision": cur.Revision})
 	}
-	patch, err := json.Marshal(map[string]any{"skills": map[string]any{id: entry}})
+	patch, err := json.Marshal(map[string]any{"skills": entries})
 	if err != nil {
 		return nil, err
 	}
@@ -263,5 +362,5 @@ func (b *Broker) applySkill(id string, build func(cur config.Config) (any, error
 	}
 	b.changed(old, next, nil)
 	b.refreshAgents(old, next, false)
-	return json.Marshal(map[string]any{"skill": id, "changed": true, "revision": next.Revision})
+	return json.Marshal(map[string]any{"skills": slices.Sorted(maps.Keys(entries)), "changed": true, "revision": next.Revision})
 }
