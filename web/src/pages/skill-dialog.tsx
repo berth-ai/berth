@@ -2,7 +2,7 @@ import { useId, useState } from "react";
 import { applyConfig } from "@/api/config";
 import { keys, queryClient } from "@/api/queries";
 import { runJob } from "@/api/run-job";
-import type { AgentPackage, Job, Skill } from "@/api/types";
+import type { AgentPackage, Job, ScanResult } from "@/api/types";
 import { BusyButton } from "@/components/busy-button";
 import { FormField, fieldProps } from "@/components/form-field";
 import { InlineAlert } from "@/components/inline-alert";
@@ -15,77 +15,97 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { errorText } from "@/lib/errors";
+import { count } from "@/lib/format";
 import { notify } from "@/lib/notify";
 import { AgentChecklist } from "./available-picker";
+import { ScanChecklist } from "./scan-checklist";
 import { CATALOG, type CatalogEntry } from "./skills-catalog";
 import {
   agentsPatch,
+  defaultPicks,
   normalizeRepo,
   pathError,
   refError,
   repoError,
+  repoLabel,
+  scanOf,
+  type SkillRow,
   viaNotes,
 } from "./skills-logic";
 
-export interface EditingSkill {
-  id: string;
-  skill: Skill;
-}
+export type EditingSkill = SkillRow;
 
 type Tab = "catalog" | "repo";
 type Errors = Partial<Record<"repo" | "path" | "ref" | "form", string>>;
 
 const BG = " Agents pick it up in the background.";
 
-/** SkillDialog adds a skill from the catalog or a repository, or edits one's ref and agents. */
+/** SkillDialog adds skills from the catalog or a repository, or edits one's
+ * ref and agents; group is the edited skill's group ([] when adding). */
 export function SkillDialog({
   agents,
   unsupported,
   installed,
   editing,
+  group,
   onClose,
 }: {
   agents: AgentPackage[];
   unsupported: AgentPackage[];
   installed: string[];
   editing: EditingSkill | null;
+  group: SkillRow[];
   onClose: () => void;
 }) {
   const [tab, setTab] = useState<Tab>("catalog");
   const [repo, setRepo] = useState("");
   const [path, setPath] = useState("");
   const [ref, setRef] = useState(editing?.skill.ref ?? "main");
+  const [scan, setScan] = useState<ScanResult | null>(null);
+  const [picks, setPicks] = useState<string[]>([]);
+  const [applyAll, setApplyAll] = useState(true);
   const [picked, setPicked] = useState<string[] | null>(editing?.skill.agents ?? null);
   const [errors, setErrors] = useState<Errors>({});
   const [job, setJob] = useState<Job | null>(null);
   const [busy, setBusy] = useState(false);
   const ids = { repo: useId(), path: useId(), ref: useId() };
+  const grouped = editing !== null && group.length > 1;
 
-  const finish = (done: Job | null, okText: string) => {
-    setBusy(false);
-    void queryClient.invalidateQueries({ queryKey: keys.config });
-    if (!done) return;
-    if (done.state === "succeeded") {
-      notify(done.result?.changed === false ? "Already up to date." : okText);
-      onClose();
-      return;
-    }
-    const err = done.result?.error;
-    const field = err?.field;
-    const key = field === "repo" || field === "path" || field === "ref" ? field : "form";
-    setErrors({ [key]: err?.message ?? "The job failed; open Activity for its log." });
-  };
-
-  const start = async (body: object, verb: string, okText: string) => {
-    setBusy(true);
+  // run starts a job and returns it if it succeeded; a failure lands on its
+  // field when that field is on screen, else under the form.
+  const run = async (verb: string, body: object): Promise<Job | null> => {
     setErrors({});
-    finish(await runJob(verb, body, setJob), okText);
+    const finished = await runJob(verb, body, setJob);
+    if (!finished || finished.state === "succeeded") return finished;
+    const err = finished.result?.error;
+    const shown = editing ? ["ref"] : tab === "repo" && !scan ? ["repo", "path", "ref"] : [];
+    const key = err?.field && shown.includes(err.field) ? (err.field as keyof Errors) : "form";
+    setErrors({ [key]: err?.message ?? "The job failed; open Activity for its log." });
+    return null;
   };
 
-  const addFromRepo = () => {
+  // busyWhile runs fn with the dialog locked.
+  const busyWhile = async (fn: () => Promise<void>) => {
+    setBusy(true);
+    try {
+      await fn();
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const finish = (finished: Job | null, okText: string) => {
+    void queryClient.invalidateQueries({ queryKey: keys.config });
+    if (!finished) return;
+    notify(finished.result?.changed === false ? "Already up to date." : okText);
+    onClose();
+  };
+
+  const find = () => {
     const e: Errors = {
       repo: repoError(repo),
       path: pathError(path.trim()),
@@ -95,21 +115,62 @@ export function SkillDialog({
       setErrors(e);
       return;
     }
-    void start(
-      { repo: normalizeRepo(repo), path: path.trim(), ref: ref.trim(), agents: picked },
-      "skills.add",
-      `Skill added.${BG}`,
-    );
+    void busyWhile(async () => {
+      const found = await run("skills.scan", {
+        repo: normalizeRepo(repo),
+        ref: ref.trim(),
+        path: path.trim(),
+      });
+      const result = found ? scanOf(found) : null;
+      if (!result) return;
+      setScan(result);
+      setPicks(defaultPicks(result.skills));
+      setJob(null);
+    });
+  };
+
+  const addPicked = () => {
+    if (!scan) return;
+    const paths = scan.skills.filter((r) => picks.includes(r.path)).map((r) => r.path);
+    void busyWhile(async () => {
+      const added = await run("skills.add", {
+        repo: normalizeRepo(repo),
+        ref: ref.trim(),
+        commit: scan.commit,
+        paths,
+        agents: picked,
+      });
+      finish(added, `${count(paths.length, "skill", "skills")} added.${BG}`);
+    });
   };
 
   const addFromCatalog = (c: CatalogEntry) =>
-    void start(
-      { repo: c.repo, path: c.path, ref: c.ref, agents: picked },
-      "skills.add",
-      `${c.id} added.${BG}`,
-    );
+    void busyWhile(async () => {
+      const found = await run("skills.scan", { repo: c.repo, ref: c.ref, path: c.path });
+      const result = found ? scanOf(found) : null;
+      if (!result) return;
+      const row = result.skills.find((r) => r.path === c.path);
+      if (!row || row.error || row.installed) {
+        setErrors({
+          form:
+            row?.error ??
+            (row?.installed
+              ? `${c.id} is already installed.`
+              : `${c.id} is no longer in that repository.`),
+        });
+        return;
+      }
+      const added = await run("skills.add", {
+        repo: c.repo,
+        ref: c.ref,
+        commit: result.commit,
+        paths: [c.path],
+        agents: picked,
+      });
+      finish(added, `${c.id} added.${BG}`);
+    });
 
-  const saveEdit = async () => {
+  const saveEdit = () => {
     if (!editing) return;
     const r = ref.trim();
     const e = refError(r);
@@ -117,24 +178,26 @@ export function SkillDialog({
       setErrors({ ref: e });
       return;
     }
-    if (JSON.stringify(picked) !== JSON.stringify(editing.skill.agents)) {
-      setBusy(true);
-      try {
-        await applyConfig(agentsPatch(editing.id, picked));
-      } catch (err) {
-        setBusy(false);
-        setErrors({ form: errorText(err) });
+    void busyWhile(async () => {
+      if (JSON.stringify(picked) !== JSON.stringify(editing.skill.agents)) {
+        try {
+          await applyConfig(agentsPatch(editing.id, picked));
+        } catch (err) {
+          setErrors({ form: errorText(err) });
+          return;
+        }
+      }
+      if (r !== editing.skill.ref) {
+        const targets = grouped && applyAll ? group.map((g) => g.id) : [editing.id];
+        const moved = await run("skills.update", { ids: targets, ref: r });
+        const who = targets.length > 1 ? count(targets.length, "skill", "skills") : editing.id;
+        finish(moved, `${who} moved to ${r}.${BG}`);
         return;
       }
-    }
-    if (r !== editing.skill.ref) {
-      await start({ id: editing.id, ref: r }, "skills.update", `${editing.id} moved to ${r}.${BG}`);
-      return;
-    }
-    setBusy(false);
-    void queryClient.invalidateQueries({ queryKey: keys.config });
-    notify(`${editing.id} saved.${BG}`);
-    onClose();
+      void queryClient.invalidateQueries({ queryKey: keys.config });
+      notify(`${editing.id} saved.${BG}`);
+      onClose();
+    });
   };
 
   return (
@@ -200,7 +263,7 @@ export function SkillDialog({
             })}
           </ul>
         ) : null}
-        {!editing && tab === "repo" ? (
+        {!editing && tab === "repo" && !scan ? (
           <>
             <FormField
               id={ids.repo}
@@ -220,12 +283,13 @@ export function SkillDialog({
             <FormField
               id={ids.path}
               label="Path"
-              hint="The folder holding SKILL.md; empty for the root."
+              hint="A folder to look in; empty searches the whole repository."
               error={errors.path}
             >
               <Input
                 {...fieldProps(ids.path, errors.path)}
                 value={path}
+                placeholder="skills"
                 className="font-mono text-xs"
                 spellCheck={false}
                 autoComplete="off"
@@ -234,7 +298,7 @@ export function SkillDialog({
             </FormField>
           </>
         ) : null}
-        {editing || tab === "repo" ? (
+        {editing || (tab === "repo" && !scan) ? (
           <FormField
             id={ids.ref}
             label="Ref"
@@ -251,14 +315,35 @@ export function SkillDialog({
             />
           </FormField>
         ) : null}
-        <AgentChecklist
-          value={picked}
-          agents={agents}
-          unsupported={unsupported}
-          notes={viaNotes(picked, agents)}
-          disabled={busy}
-          onChange={setPicked}
-        />
+        {grouped ? (
+          <label className="flex items-center gap-2">
+            <Checkbox
+              checked={applyAll}
+              disabled={busy}
+              onCheckedChange={(on) => setApplyAll(on)}
+            />
+            Apply to all {group.length} skills from {repoLabel(editing.skill.repo)}
+          </label>
+        ) : null}
+        {!editing && tab === "repo" && scan ? (
+          <ScanChecklist
+            rows={scan.skills}
+            commit={scan.commit}
+            picks={picks}
+            disabled={busy}
+            onChange={setPicks}
+          />
+        ) : null}
+        {editing || tab === "catalog" || scan ? (
+          <AgentChecklist
+            value={picked}
+            agents={agents}
+            unsupported={unsupported}
+            notes={viaNotes(picked, agents)}
+            disabled={busy}
+            onChange={setPicked}
+          />
+        ) : null}
         {errors.form ? <InlineAlert tone="bad">{errors.form}</InlineAlert> : null}
         {job?.log ? <LogViewer text={job.log} truncated={job.log_truncated} /> : null}
         <DialogFooter>
@@ -266,13 +351,34 @@ export function SkillDialog({
             Cancel
           </Button>
           {editing ? (
-            <BusyButton busy={busy} busyLabel="Saving…" onClick={() => void saveEdit()}>
+            <BusyButton busy={busy} busyLabel="Saving…" onClick={saveEdit}>
               Save
             </BusyButton>
-          ) : tab === "repo" ? (
-            <BusyButton busy={busy} busyLabel="Adding…" onClick={addFromRepo}>
-              Add skill
+          ) : tab === "repo" && !scan ? (
+            <BusyButton busy={busy} busyLabel="Finding…" onClick={find}>
+              Find skills
             </BusyButton>
+          ) : tab === "repo" && scan ? (
+            <>
+              <Button
+                variant="outline"
+                disabled={busy}
+                onClick={() => {
+                  setScan(null);
+                  setErrors({});
+                }}
+              >
+                Back
+              </Button>
+              <BusyButton
+                busy={busy}
+                busyLabel="Adding…"
+                disabled={picks.length === 0}
+                onClick={addPicked}
+              >
+                Add {count(picks.length, "skill", "skills")}
+              </BusyButton>
+            </>
           ) : null}
         </DialogFooter>
       </DialogContent>

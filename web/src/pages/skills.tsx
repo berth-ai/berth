@@ -150,6 +150,7 @@ export function SkillsPage() {
           unsupported={unsupported}
           installed={(rows ?? []).map((r) => r.id)}
           editing={dialog === "add" ? null : dialog}
+          group={[]}
           onClose={() => setDialog(null)}
         />
       ) : null}
