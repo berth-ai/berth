@@ -1,6 +1,6 @@
 import { Link } from "@tanstack/react-router";
 import { Plus } from "lucide-react";
-import { useState } from "react";
+import { Fragment, useState } from "react";
 import { applyConfig } from "@/api/config";
 import { keys, queryClient, useConfig, useJobs, useStatus } from "@/api/queries";
 import { runJob } from "@/api/run-job";
@@ -35,12 +35,17 @@ import {
   removePatch,
   type SkillRow,
   shortCommit,
+  groupOf,
+  repoLabel,
+  type SkillGroup,
   skillAgents,
-  skillRows,
+  skillGroups,
   sourceLabel,
+  updateText,
   unsupportedAgents,
   viaNotes,
 } from "./skills-logic";
+import { UpdateChoice } from "./update-choice";
 
 const BG = " Agents pick up the change in the background.";
 
@@ -55,7 +60,24 @@ export function SkillsPage() {
   const packages = status.data?.packages ?? [];
   const agents = skillAgents(packages);
   const unsupported = unsupportedAgents(packages);
-  const rows = config.data ? skillRows(config.data.config) : undefined;
+  const groups = config.data ? skillGroups(config.data.config) : undefined;
+  const rows = groups?.flatMap((g) => g.rows);
+  const [choice, setChoice] = useState<{ id: string; ids: string[] } | null>(null);
+  const [updating, setUpdating] = useState<string[]>([]);
+
+  const runUpdate = async (ids: string[]) => {
+    setUpdating(ids);
+    const job = await runJob("skills.update", { ids });
+    setUpdating([]);
+    void queryClient.invalidateQueries({ queryKey: keys.config });
+    if (!job) return;
+    if (job.state !== "succeeded")
+      notify(job.result?.error?.message ?? "The update failed; open Activity for its log.", "bad");
+    else notify(updateText(job, BG));
+  };
+
+  const update = (id: string, group: SkillRow[]) =>
+    group.length > 1 ? setChoice({ id, ids: group.map((r) => r.id) }) : void runUpdate([id]);
   const lastSync = (jobs.data?.jobs ?? []).find((j) => j.verb === "skills.sync");
 
   const apply = async (patch: object, done: string) => {
@@ -105,7 +127,7 @@ export function SkillsPage() {
       >
         {!rows ? (
           <LoadingRows n={2} />
-        ) : rows.length ? (
+        ) : groups && groups.length ? (
           <Table aria-label="Skills">
             <TableHeader>
               <TableRow>
@@ -119,24 +141,31 @@ export function SkillsPage() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {rows.map((r) => (
-                <SkillRowView
-                  key={r.id}
-                  row={r}
-                  agents={agents}
-                  unsupported={unsupported}
-                  onApply={apply}
-                  onEdit={() => setDialog(r)}
-                  onRemove={() =>
-                    confirm({
-                      title: `Remove ${r.id}?`,
-                      body: "Berth removes it from every agent and deletes its copy.",
-                      confirm: "Remove",
-                      danger: true,
-                      action: () => apply(removePatch(r.id), `${r.id} removed.`),
-                    })
-                  }
-                />
+              {groups.map((g) => (
+                <Fragment key={g.key}>
+                  {g.rows.length > 1 ? <GroupHeader group={g} /> : null}
+                  {g.rows.map((r) => (
+                    <SkillRowView
+                      key={r.id}
+                      row={r}
+                      agents={agents}
+                      unsupported={unsupported}
+                      updating={updating.includes(r.id)}
+                      onApply={apply}
+                      onUpdate={() => update(r.id, g.rows)}
+                      onEdit={() => setDialog(r)}
+                      onRemove={() =>
+                        confirm({
+                          title: `Remove ${r.id}?`,
+                          body: "Berth removes it from every agent and deletes its copy.",
+                          confirm: "Remove",
+                          danger: true,
+                          action: () => apply(removePatch(r.id), `${r.id} removed.`),
+                        })
+                      }
+                    />
+                  ))}
+                </Fragment>
               ))}
             </TableBody>
           </Table>
@@ -150,12 +179,38 @@ export function SkillsPage() {
           unsupported={unsupported}
           installed={(rows ?? []).map((r) => r.id)}
           editing={dialog === "add" ? null : dialog}
-          group={[]}
+          group={dialog === "add" || !groups ? [] : groupOf(groups, dialog.id)}
           onClose={() => setDialog(null)}
         />
       ) : null}
       {confirmDialog}
+      {choice ? (
+        <UpdateChoice
+          id={choice.id}
+          ids={choice.ids}
+          onClose={() => setChoice(null)}
+          onPick={(ids) => {
+            setChoice(null);
+            void runUpdate(ids);
+          }}
+        />
+      ) : null}
     </Page>
+  );
+}
+
+/** GroupHeader names a group of skills sharing a repository and ref. */
+function GroupHeader({ group }: { group: SkillGroup }) {
+  return (
+    <TableRow className="bg-surface-sunken">
+      <TableCell colSpan={5} data-label="">
+        <span className="font-mono text-xs font-semibold text-fg">{repoLabel(group.repo)}</span>
+        <span className="text-xs text-fg-muted">
+          {" "}
+          · {group.ref} · {count(group.rows.length, "skill", "skills")}
+        </span>
+      </TableCell>
+    </TableRow>
   );
 }
 
@@ -163,32 +218,23 @@ function SkillRowView({
   row,
   agents,
   unsupported,
+  updating,
   onApply,
+  onUpdate,
   onEdit,
   onRemove,
 }: {
   row: SkillRow;
   agents: AgentPackage[];
   unsupported: AgentPackage[];
+  updating: boolean;
   onApply: (patch: object, done: string) => Promise<void>;
+  onUpdate: () => void;
   onEdit: () => void;
   onRemove: () => void;
 }) {
   const { id, skill } = row;
   const [pending, setPending] = useState<boolean | null>(null);
-  const [updating, setUpdating] = useState(false);
-
-  const update = async () => {
-    setUpdating(true);
-    const job = await runJob("skills.update", { id });
-    setUpdating(false);
-    void queryClient.invalidateQueries({ queryKey: keys.config });
-    if (!job) return;
-    if (job.state !== "succeeded")
-      notify(job.result?.error?.message ?? "The update failed; open Activity for its log.", "bad");
-    else notify(job.result?.changed ? `${id} updated.${BG}` : "Already up to date.");
-  };
-
   const toggle = async (on: boolean) => {
     setPending(on);
     await onApply(enabledPatch(id, on), `${id}${on ? " is on." : " is off."}`);
@@ -243,7 +289,7 @@ function SkillRowView({
             busy={updating}
             busyLabel="Updating…"
             aria-label={`Update ${id}`}
-            onClick={() => void update()}
+            onClick={onUpdate}
           >
             Update
           </BusyButton>

@@ -189,6 +189,9 @@ inherit`, weight 500. Compact controls inside cards and table rows are
   `--line` bottom. Body rows: same padding, 1 px `--line` rules, hover
   `--surface-sunken`. The primary cell is a quiet link (`--accent-text` 600)
   with mono detail below in `--fg-muted`.
+  The Skills table puts skills sharing a repository and ref under a
+  full-width header row on `--surface-sunken`: the repository in mono 600,
+  then ref and count in `--fg-muted`. A single skill has no header row.
 - **Agent icons.** 16 px before the name in the Agents table only. A lock
   `icon` slug draws a bundled LobeHub Icons mark in its own colours, the one
   exception to the single-accent rule: Claude Code's terracotta, the Gemini
