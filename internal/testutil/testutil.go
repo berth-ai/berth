@@ -4,7 +4,9 @@ package testutil
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path"
 	"path/filepath"
@@ -210,4 +212,30 @@ func RegistryEntry(t *testing.T, root, id, pkgJSON string) {
 		"lockfileVersion": 3,
 		"packages":        map[string]any{"": map[string]any{"dependencies": p.Dependencies}},
 	})
+}
+
+// AddedInstall writes a complete version hash of an added-agent store at
+// root/id, holding pkg at version with one bin and pkgJSON as its
+// package.json, and links current to it when the store has no current yet.
+// It returns the version directory.
+func AddedInstall(t *testing.T, root, id, hash, pkg, version, pkgJSON, bin string) string {
+	t.Helper()
+	store := filepath.Join(root, id)
+	dir := filepath.Join(store, "versions", hash)
+	must(t, os.MkdirAll(filepath.Join(dir, "bin"), 0o755))
+	writeJSON(t, filepath.Join(dir, "source.json"), map[string]any{"origin": "image", "fetched_at": time.Now()})
+	writeJSON(t, filepath.Join(dir, ".complete"), map[string]any{
+		"packages": map[string]string{pkg: version}, "installed_at": time.Now(),
+	})
+	must(t, os.WriteFile(filepath.Join(dir, "package.json"), []byte(pkgJSON), 0o644))
+	nm := filepath.Join(dir, "node_modules", filepath.FromSlash(pkg))
+	must(t, os.MkdirAll(nm, 0o755))
+	writeJSON(t, filepath.Join(nm, "package.json"), map[string]any{
+		"name": pkg, "version": version, "bin": map[string]string{bin: "cli.js"},
+	})
+	must(t, os.WriteFile(filepath.Join(dir, "bin", bin), []byte("#!/bin/sh\necho "+bin+" "+version+"\n"), 0o755))
+	if _, err := os.Lstat(filepath.Join(store, "current")); errors.Is(err, fs.ErrNotExist) {
+		Link(t, store, "current", hash)
+	}
+	return dir
 }

@@ -133,6 +133,9 @@ var (
 	fileKeyPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$`)
 )
 
+// ValidBinName reports whether s may name a bin, and so a wrapper file.
+func ValidBinName(s string) bool { return binNamePattern.MatchString(s) }
+
 // ParseDescriptors reads the berthAgents block; meta is ParseMeta's result
 // for the same file. A missing block yields empty descriptors. Unknown
 // fields are ignored, so later parts add fields without a schema bump.
