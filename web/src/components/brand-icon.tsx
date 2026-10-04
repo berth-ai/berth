@@ -2,12 +2,21 @@ import { useId } from "react";
 import { cn } from "@/lib/utils";
 import { BRAND_ICONS, monogram } from "./brand-icons";
 
+// Older installed sets may predate icon metadata. Package names remain stable.
+const AGENT_ICON_SLUGS: Record<string, string> = {
+  "@anthropic-ai/claude-code": "claude",
+  "@google/gemini-cli": "googlegemini",
+  "@openai/codex": "codex",
+  "opencode-ai": "opencode",
+};
+
 /** BrandIcon is an agent's mark, or a monogram tile; decorative, since the
  * name is always shown beside it. */
 export function BrandIcon({ slug, name, id }: { slug?: string; name: string; id: string }) {
   // Gradient ids are document-wide, so each instance gets its own.
   const uid = useId();
-  const icon = slug ? BRAND_ICONS[slug] : undefined;
+  const iconSlug = slug || AGENT_ICON_SLUGS[id];
+  const icon = iconSlug ? BRAND_ICONS[iconSlug] : undefined;
   if (icon) {
     const gradientId = (i: number) => `${uid}-g${i}`;
     return (

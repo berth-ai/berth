@@ -193,7 +193,8 @@ inherit`, weight 500. Compact controls inside cards and table rows are
   `icon` slug draws a bundled LobeHub Icons mark in its own colours, the one
   exception to the single-accent rule: Claude Code's terracotta, the Gemini
   CLI and Codex tiles with their gradients. OpenCode's mark has no colour
-  version and draws in `currentColor`.
+  version and draws in `currentColor`. If the installed set has no `icon`
+  metadata, the four built-in agents are recognized by package name.
   Unknown agents get a monogram: the name's first letter, weight 600, on a
   soft tint (`--accent-soft`, `--info-soft`, `--ok-soft`, `--warn-soft`,
   `--idle-soft`) picked by a stable hash of the package id. Always
