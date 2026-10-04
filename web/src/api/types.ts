@@ -84,6 +84,20 @@ export interface Skill {
   enabled: boolean;
 }
 
+/** ScanRow is one SKILL.md a skills.scan job found; an error row has no name. */
+export interface ScanRow {
+  path: string;
+  name?: string;
+  description?: string;
+  error?: string;
+  installed?: boolean;
+}
+
+export interface ScanResult {
+  commit: string;
+  skills: ScanRow[];
+}
+
 export interface HostInfo {
   bind_address: string;
   panel_port: string;
@@ -162,7 +176,12 @@ export interface Job {
   started_at: string;
   finished_at: string | null;
   exit_code: number | null;
-  result: { error?: JobError & { field?: string }; changed?: boolean; skill?: string } | null;
+  result: {
+    error?: JobError & { field?: string };
+    changed?: boolean;
+    commit?: string;
+    skills?: string[] | ScanRow[];
+  } | null;
   log?: string;
   log_truncated: boolean;
   device?: Device;

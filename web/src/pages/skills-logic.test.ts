@@ -1,8 +1,16 @@
 import { describe, expect, it } from "vitest";
-import type { AgentPackage, Config, Skill } from "@/api/types";
+import type { AgentPackage, Config, Job, ScanRow, Skill } from "@/api/types";
 import { CATALOG } from "./skills-catalog";
 import {
   agentsPatch,
+  defaultPicks,
+  groupOf,
+  repoLabel,
+  rowNote,
+  scanOf,
+  selectable,
+  skillGroups,
+  updateText,
   normalizeRepo,
   pathError,
   reachLabel,
@@ -115,5 +123,90 @@ describe("catalog", () => {
       expect(c.path.endsWith(`/${c.id}`)).toBe(true);
       expect(c.description.length).toBeLessThanOrEqual(80);
     }
+  });
+});
+
+const job = (result: Job["result"]): Job => ({
+  id: 1,
+  verb: "skills.update",
+  group: "skills",
+  args: [],
+  state: "succeeded",
+  started_at: "",
+  finished_at: "",
+  exit_code: 0,
+  log_truncated: false,
+  result,
+});
+
+describe("groups", () => {
+  const acme = "https://github.com/acme/eng-skills";
+  const cfg = {
+    skills: {
+      pdf: skill,
+      docx: { ...skill, path: "skills/docx" },
+      notes: { ...skill, repo: acme, path: "skills/notes", ref: "v2" },
+      changelog: { ...skill, repo: acme, path: "skills/changelog" },
+      alpha: { ...skill, repo: acme, path: "skills/alpha" },
+    },
+  } as unknown as Config;
+
+  it("groups by repo and ref, sorted by repo, ref, then name", () => {
+    const groups = skillGroups(cfg);
+    expect(
+      groups.map((g) => `${repoLabel(g.repo)}@${g.ref}:${g.rows.map((r) => r.id).join(",")}`),
+    ).toEqual([
+      "acme/eng-skills@main:alpha,changelog",
+      "acme/eng-skills@v2:notes",
+      "anthropics/skills@main:docx,pdf",
+    ]);
+    expect(skillGroups({} as Config)).toEqual([]);
+  });
+
+  it("finds a skill's group", () => {
+    const groups = skillGroups(cfg);
+    expect(groupOf(groups, "pdf").map((r) => r.id)).toEqual(["docx", "pdf"]);
+    expect(groupOf(groups, "notes").map((r) => r.id)).toEqual(["notes"]);
+    expect(groupOf(groups, "gone")).toEqual([]);
+  });
+
+  it("labels repositories", () => {
+    expect(repoLabel("https://github.com/anthropics/skills")).toBe("anthropics/skills");
+    expect(repoLabel("https://git.example.org/x/y.git")).toBe("git.example.org/x/y");
+  });
+});
+
+describe("scan checklist", () => {
+  const rows: ScanRow[] = [
+    { path: "skills/a", name: "a", description: "A" },
+    { path: "skills/b", name: "b", description: "B", installed: true },
+    { path: "skills/c", error: "SKILL.md has no description" },
+    { path: "", name: "root", description: "R" },
+  ];
+
+  it("picks every row that can be added", () => {
+    expect(rows.map(selectable)).toEqual([true, false, false, true]);
+    expect(defaultPicks(rows)).toEqual(["skills/a", ""]);
+    expect(defaultPicks([rows[1], rows[2]])).toEqual([]);
+  });
+
+  it("says why a row cannot be picked", () => {
+    expect(rows.map(rowNote)).toEqual(["", "Already installed", "SKILL.md has no description", ""]);
+  });
+
+  it("reads a scan job", () => {
+    expect(scanOf(job({ commit: "abc", skills: rows }))).toEqual({ commit: "abc", skills: rows });
+    expect(scanOf(job({ changed: true }))).toBeNull();
+    expect(scanOf(job(null))).toBeNull();
+  });
+});
+
+describe("update toasts", () => {
+  it("names one skill and counts several", () => {
+    expect(updateText(job({ changed: true, skills: ["pdf"] }), " BG")).toBe("pdf updated. BG");
+    expect(updateText(job({ changed: true, skills: ["a", "b", "c"] }), " BG")).toBe(
+      "3 skills updated. BG",
+    );
+    expect(updateText(job({ changed: false, skills: [] }), " BG")).toBe("Already up to date.");
   });
 });

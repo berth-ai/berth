@@ -1,4 +1,5 @@
-import type { AgentPackage, Config, Skill } from "@/api/types";
+import type { AgentPackage, Config, Job, ScanResult, ScanRow, Skill } from "@/api/types";
+import { count } from "@/lib/format";
 
 /** normalizeRepo turns owner/repo and host/owner/repo into an https URL. */
 export function normalizeRepo(input: string): string {
@@ -59,16 +60,20 @@ export function refError(r: string): string {
 
 export const shortCommit = (c: string) => c.slice(0, 12);
 
-/** sourceLabel is owner/repo for GitHub, host/path otherwise, then the path. */
-export function sourceLabel(s: Skill): string {
-  let repo = s.repo;
+/** repoLabel is owner/repo for GitHub, host/path otherwise. */
+export function repoLabel(repo: string): string {
   try {
-    const u = new URL(s.repo);
+    const u = new URL(repo);
     const p = u.pathname.replace(/^\/|\/$/g, "").replace(/\.git$/, "");
-    repo = u.host === "github.com" ? p : `${u.host}/${p}`;
+    return u.host === "github.com" ? p : `${u.host}/${p}`;
   } catch {
-    // Show the raw value.
+    return repo;
   }
+}
+
+/** sourceLabel is the repository label, then the path. */
+export function sourceLabel(s: Skill): string {
+  const repo = repoLabel(s.repo);
   return s.path ? `${repo} · ${s.path}` : repo;
 }
 
@@ -81,6 +86,55 @@ export function skillRows(cfg: Config): SkillRow[] {
   return Object.entries(cfg.skills ?? {})
     .map(([id, skill]) => ({ id, skill }))
     .sort((a, b) => a.id.localeCompare(b.id));
+}
+
+/** SkillGroup is the installed skills sharing a repository and ref. */
+export interface SkillGroup {
+  key: string;
+  repo: string;
+  ref: string;
+  rows: SkillRow[];
+}
+
+/** skillGroups groups skills by repository and ref, sorted by repository,
+ * ref, then name. Groups are computed, never stored. */
+export function skillGroups(cfg: Config): SkillGroup[] {
+  const groups = new Map<string, SkillGroup>();
+  for (const row of skillRows(cfg)) {
+    const key = `${row.skill.repo}\n${row.skill.ref}`;
+    const group = groups.get(key) ?? { key, repo: row.skill.repo, ref: row.skill.ref, rows: [] };
+    group.rows.push(row);
+    groups.set(key, group);
+  }
+  return [...groups.values()].sort(
+    (a, b) => a.repo.localeCompare(b.repo) || a.ref.localeCompare(b.ref),
+  );
+}
+
+/** groupOf is the rows of the group holding id. */
+export const groupOf = (groups: SkillGroup[], id: string): SkillRow[] =>
+  groups.find((g) => g.rows.some((r) => r.id === id))?.rows ?? [];
+
+/** scanOf reads a finished skills.scan job, or null if it holds no scan. */
+export function scanOf(job: Job): ScanResult | null {
+  const r = job.result;
+  return r?.commit ? { commit: r.commit, skills: (r.skills ?? []) as ScanRow[] } : null;
+}
+
+/** selectable says whether a scanned skill can be added. */
+export const selectable = (r: ScanRow) => !r.error && !r.installed;
+/** defaultPicks are the paths of every scanned skill that can be added. */
+export const defaultPicks = (rows: ScanRow[]) => rows.filter(selectable).map((r) => r.path);
+/** rowNote says why a scanned skill cannot be added, or "". */
+export const rowNote = (r: ScanRow) => r.error ?? (r.installed ? "Already installed" : "");
+
+/** updateText is the toast for a skills.update job that succeeded. */
+export function updateText(job: Job, bg: string): string {
+  const ids = (job.result?.skills ?? []) as string[];
+  if (!job.result?.changed || ids.length === 0) return "Already up to date.";
+  return ids.length === 1
+    ? `${ids[0]} updated.${bg}`
+    : `${count(ids.length, "skill", "skills")} updated.${bg}`;
 }
 
 export const skillAgents = (packages: AgentPackage[]) =>
