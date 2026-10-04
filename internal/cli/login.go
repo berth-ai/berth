@@ -38,7 +38,7 @@ func runLogin(ctx context.Context, a *app, args []string) error {
 	if !ok || len(pos) != n {
 		return usageErr(errors.New(loginUsage))
 	}
-	if done, err := a.loginAsAgent(ctx, args); done {
+	if done, err := a.rerunAsAgent(ctx, "login", args); done {
 		return err
 	}
 	env, err := a.loginEnv()
@@ -58,14 +58,14 @@ func runLogin(ctx context.Context, a *app, args []string) error {
 	return a.loginRun(ctx, env, pos[0], pos[1])
 }
 
-// loginAsAgent re-runs the command as agent when root runs it, since the
-// sign-ins live in agent's home. It reports whether it did.
-func (a *app) loginAsAgent(ctx context.Context, args []string) (bool, error) {
+// rerunAsAgent re-runs berth cmd args as agent when root runs it: these
+// commands act on agent's home. It reports whether it did.
+func (a *app) rerunAsAgent(ctx context.Context, cmd string, args []string) (bool, error) {
 	if !a.cfg.IsRoot || a.cfg.Agent == nil {
 		return false, nil
 	}
 	r := runner.Exec{Agent: a.cfg.Agent, Stdout: a.p.Stdout, Stderr: a.p.Stderr}
-	err := r.Run(ctx, runner.Cmd{Path: a.cfg.BerthPath, Args: append([]string{"login"}, args...), AsAgent: true})
+	err := r.Run(ctx, runner.Cmd{Path: a.cfg.BerthPath, Args: append([]string{cmd}, args...), AsAgent: true})
 	var ee *exec.ExitError
 	if errors.As(err, &ee) {
 		return true, output.ExitCode(ee.ExitCode())

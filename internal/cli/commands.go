@@ -158,6 +158,7 @@ func (a *app) layer() agentlayer.Builder {
 	if a.cfg.Agent != nil {
 		b.AddedRoot = agentset.StoreRoot(a.cfg.Agent.Home)
 	}
+	b.Added = a.addedReport
 	return b
 }
 
@@ -295,6 +296,9 @@ func runEnsure(ctx context.Context, a *app, args []string) error {
 			}
 			a.gcQuietly()
 		}
+		// Added agents follow the image too; their converger runs as agent.
+		a.syncAdded(ctx)
+		a.rebuildLayer()
 		if res.Current, _, err = a.views(); err != nil {
 			return output.Errorf(output.ExitFailure, "internal", "ensure", "%v", err)
 		}

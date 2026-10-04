@@ -32,6 +32,7 @@ type Config struct {
 	MCPSetup    []string // argv of the MCP converger; empty skips it
 	SkillsSync  []string // argv of the skills converger; empty skips it
 	RegistryDir string   // the image's registry of addable agents
+	AgentsCmd   []string // argv prefix of berth agents, the added-agent converger; empty skips added agents
 	GitHub      locksource.GitHub
 	Keep        int
 	LockTimeout time.Duration
@@ -85,6 +86,7 @@ func defaultConfig(getenv func(string) string, b Build, isRoot bool, lookup func
 		MCPSetup:    []string{"/usr/local/bin/berth", "mcp", "sync"},
 		SkillsSync:  []string{"/usr/local/bin/berth", "skills", "sync"},
 		RegistryDir: registry.DefaultRoot,
+		AgentsCmd:   []string{"/usr/local/bin/berth", "agents"},
 		GitHub:      locksource.GitHub{Repo: repo, Token: getenv("GITHUB_TOKEN")},
 		LockTimeout: 30 * time.Second,
 		IsRoot:      isRoot,
@@ -155,6 +157,7 @@ var commands = map[string]command{
 	"supervise": {"supervise                            run the container's services (the entrypoint starts it)", runSupervise},
 	"mcp":       {"mcp sync                             register MCP servers with the agents (internal)", runMCP},
 	"skills":    {"skills scan|sync                     list skills in a repository and link them for the agents (internal)", runSkills},
+	"agents":    {"agents status|sync|install|rollback   install the agents added from the registry (internal)", runAgents},
 	"panel":     {"panel                                serve the web panel (the panel module starts it)", runPanel},
 }
 
