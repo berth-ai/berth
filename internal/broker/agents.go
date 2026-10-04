@@ -165,33 +165,47 @@ func (b *Broker) writeSecrets(secrets map[string]*string) error {
 	return nil
 }
 
-// refreshAgents rebuilds the layer when the enabled set changed, publishes
-// the MCP and skills settings when they changed, re-registers MCP servers
-// when either the set or the MCP settings changed or an MCP token did, and
-// re-links skills when the set or the skills changed.
+// refreshAgents publishes the agents, MCP and skills settings that changed.
+// When agents.added changed it runs the converger, whose job then rebuilds
+// the layer and re-runs MCP and skills sync for the new set. Otherwise it
+// rebuilds the layer when the enabled set changed, re-registers MCP servers
+// when the set, the MCP settings or an MCP token changed, and re-links
+// skills when the set or the skills changed.
 func (b *Broker) refreshAgents(old, next config.Config, tokens bool) {
-	disabled := b.Layer != nil && !slices.Equal(old.Agents.Disabled, next.Agents.Disabled)
-	settings := !sameMCP(old.MCP, next.MCP) || b.publishedStale(next.MCP)
-	if disabled {
-		if _, err := b.Layer.Build(next.Agents.Disabled, next.Agents.Added); err != nil {
-			b.logf("WARNING: agent layer: %v", err)
-			return
+	added := !slices.Equal(old.Agents.Added, next.Agents.Added) || b.agentsStale(next.Agents.Added)
+	if added {
+		if err := b.writeAgentsSettings(next.Agents.Added); err != nil {
+			b.logf("WARNING: agent settings: %v", err)
 		}
 	}
+	disabled := b.Layer != nil && !slices.Equal(old.Agents.Disabled, next.Agents.Disabled)
+	settings := !sameMCP(old.MCP, next.MCP) || b.publishedStale(next.MCP)
+	syncSkills := disabled
 	if !sameSkills(old.Skills, next.Skills) || b.skillsStale(next.Skills) {
 		if err := b.writeSkillsSettings(next.Skills); err != nil {
 			b.logf("WARNING: skills settings: %v", err)
 		} else {
-			b.startSkillsSync()
+			syncSkills = true
 		}
-	} else if disabled {
-		b.startSkillsSync()
 	}
 	if settings {
 		if err := b.writeMCPSettings(next.MCP); err != nil {
 			b.logf("WARNING: MCP settings: %v", err)
 			return
 		}
+	}
+	if added && b.Layer != nil && len(b.AgentsCmd) > 0 {
+		b.startAgentsSync()
+		return
+	}
+	if disabled {
+		if _, err := b.Layer.Build(next.Agents.Disabled, next.Agents.Added); err != nil {
+			b.logf("WARNING: agent layer: %v", err)
+			return
+		}
+	}
+	if syncSkills {
+		b.startSkillsSync()
 	}
 	if b.Layer == nil || len(b.MCPSetup) == 0 || !disabled && !settings && !tokens {
 		return

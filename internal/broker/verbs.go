@@ -34,6 +34,10 @@ func (b *Broker) verbs() map[string]verbFunc {
 		"config.export":   b.configExport,
 		"config.apply":    b.configApply,
 		"skills.add":      b.skillsAdd,
+		"agents.registry": b.agentsRegistry,
+		"agents.add":      b.agentsAdd,
+		"agents.remove":   b.agentsRemove,
+		"agents.rollback": b.agentsRollback,
 		"skills.scan":     b.skillsScan,
 		"skills.update":   b.skillsUpdate,
 		"config.revert":   b.configRevert,
@@ -236,6 +240,9 @@ func (b *Broker) configApply(_ context.Context, body []byte) (int, any) {
 		if p, err := config.Patch(cur, in.Patch); err == nil {
 			preview = p // Store.Apply reports a bad patch
 		}
+	}
+	if err := b.checkAdded(cur, preview); err != nil {
+		return validationResponse(err)
 	}
 	if err := b.checkSecrets(in.Secrets, cur, preview); err != nil {
 		return validationResponse(err)

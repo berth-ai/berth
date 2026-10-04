@@ -16,9 +16,11 @@ import (
 	"time"
 
 	"github.com/berth-ai/berth/internal/agentlayer"
+	"github.com/berth-ai/berth/internal/agentset"
 	"github.com/berth-ai/berth/internal/config"
 	"github.com/berth-ai/berth/internal/locksource"
 	"github.com/berth-ai/berth/internal/login"
+	"github.com/berth-ai/berth/internal/registry"
 	"github.com/berth-ai/berth/internal/runner"
 	"github.com/berth-ai/berth/internal/status"
 	"github.com/berth-ai/berth/internal/supervisor"
@@ -78,6 +80,15 @@ type Broker struct {
 	// SkillsSettings is where the skills section is published for the
 	// converger, /var/lib/berth/skills.json; empty skips it.
 	SkillsSettings string
+	// Registry is the image's registry of addable agents,
+	// /usr/share/berth/registry; empty means none.
+	Registry string
+	// AgentsSettings is where agents.added is published for the agent
+	// side, /var/lib/berth/agents.json; empty skips it.
+	AgentsSettings string
+	// AgentsCmd is the argv prefix of berth agents, run as agent; empty
+	// means this broker manages no added agents.
+	AgentsCmd []string
 	// Fetch reads the agent lock on a ref for update.check.
 	Fetch func(ctx context.Context, ref string) (*locksource.Lock, error)
 	// Home holds the programs home-side verbs run as agent.
@@ -108,6 +119,11 @@ type Broker struct {
 
 	mcpRuns    serialJob // mcp.setup
 	skillsRuns serialJob // skills.sync
+	regOnce    sync.Once
+	reg        []registry.Entry
+	addedMu    sync.Mutex
+	added      agentset.Report // berth agents status, refreshed after each change
+	addedRuns  serialJob       // agents.sync
 }
 
 // New returns a broker in normal mode with the default config and the
@@ -156,6 +172,9 @@ func (b *Broker) Load() config.Config {
 		}
 		if werr := b.writeSkillsSettings(cfg.Skills); werr != nil {
 			b.logf("WARNING: skills settings: %v", werr)
+		}
+		if werr := b.writeAgentsSettings(cfg.Agents.Added); werr != nil {
+			b.logf("WARNING: agent settings: %v", werr)
 		}
 	}
 	return b.cfg
