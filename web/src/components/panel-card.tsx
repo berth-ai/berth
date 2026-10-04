@@ -31,7 +31,12 @@ export function PanelCard({
           {actions}
         </CardHeader>
       ) : null}
-      {children ? <CardContent className="flex flex-col gap-3 p-4">{children}</CardContent> : null}
+      {children ? (
+        // A table runs edge to edge: its outer cells carry the 16 px inset (DESIGN.md §4).
+        <CardContent className="flex flex-col gap-3 p-4 has-[>[data-slot=table-container]]:p-0">
+          {children}
+        </CardContent>
+      ) : null}
       {footer ? (
         <CardFooter className="flex flex-wrap gap-2 border-t px-4 py-3">{footer}</CardFooter>
       ) : null}
