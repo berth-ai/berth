@@ -126,6 +126,31 @@ func TestEnsure(t *testing.T) {
 	}
 }
 
+// A newer image whose lock changes only package.json (say, new descriptors)
+// names the installed set; ensure must still bring its package.json up to date.
+func TestEnsureRefreshesDescriptors(t *testing.T) {
+	cfg := testConfig(t)
+	run(t, cfg, "ensure")
+	seed := t.TempDir()
+	lockRaw, _ := os.ReadFile(filepath.Join(testutil.LockDir("lock-v1"), "package-lock.json"))
+	pkgRaw, _ := os.ReadFile(filepath.Join(testutil.LockDir("lock-v1"), "package.json"))
+	pkgRaw = []byte(strings.Replace(string(pkgRaw), `"private": true,`, `"private": true, "description": "new",`, 1))
+	os.WriteFile(filepath.Join(seed, "package-lock.json"), lockRaw, 0o644)
+	os.WriteFile(filepath.Join(seed, "package.json"), pkgRaw, 0o644)
+	cfg.SeedDir = seed
+	out, _, _ := run(t, cfg, "ensure", "--json")
+	if m := decode(t, out); m["action"] != "refreshed" || m["reason"] != "descriptors-changed" || current(t, cfg) != hashOf(t, "lock-v1") {
+		t.Fatalf("refresh %v", m)
+	}
+	got, _ := os.ReadFile(filepath.Join(cfg.AgentsDir, "versions", hashOf(t, "lock-v1"), "package.json"))
+	if string(got) != string(pkgRaw) {
+		t.Fatalf("package.json not refreshed: %s", got)
+	}
+	if out, _, _ := run(t, cfg, "ensure", "--json"); decode(t, out)["reason"] != "up-to-date" {
+		t.Fatal("a refreshed set must be up to date")
+	}
+}
+
 func TestEnsureRespectsPinnedChoices(t *testing.T) {
 	cfg := testConfig(t)
 	run(t, cfg, "ensure")

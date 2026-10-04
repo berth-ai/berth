@@ -275,14 +275,19 @@ func runEnsure(ctx context.Context, a *app, args []string) error {
 			res.Reason = "pinned"
 		case cur.Hash != seed.Hash:
 			res.Reason = "seed-changed"
+		case agentstore.PackageJSONStale(cur.Dir, seed.PackageJSON):
+			res.Reason = "descriptors-changed"
 		default:
 			res.Reason = "up-to-date"
 		}
-		if res.Reason == "no-current" || res.Reason == "seed-changed" {
+		if res.Reason != "pinned" && res.Reason != "up-to-date" {
 			if _, err := a.apply(ctx, seed, true); err != nil {
 				return err
 			}
 			res.Action = "installed"
+			if res.Reason == "descriptors-changed" {
+				res.Action = "refreshed"
+			}
 			a.gcQuietly()
 		}
 		if res.Current, _, err = a.views(); err != nil {

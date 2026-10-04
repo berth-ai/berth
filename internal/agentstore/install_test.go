@@ -89,6 +89,23 @@ func TestInstallIsIdempotent(t *testing.T) {
 	}
 }
 
+func TestInstallRefreshesPackageJSON(t *testing.T) {
+	testutil.FakeTools(t)
+	s := newStore(t)
+	lock := fixture(t, "lock-v1")
+	installer(s).Install(context.Background(), lock)
+	lock.PackageJSON = append([]byte(nil), lock.PackageJSON...)
+	lock.PackageJSON = append(lock.PackageJSON, '\n')
+	t.Setenv("BERTH_FAKE_NPM_FAIL", "1") // the set is reused, not rebuilt
+	v, installed, err := installer(s).Install(context.Background(), lock)
+	if err != nil || installed {
+		t.Fatalf("installed=%v err=%v", installed, err)
+	}
+	if PackageJSONStale(v.Dir, lock.PackageJSON) {
+		t.Fatal("package.json was not refreshed")
+	}
+}
+
 func TestInstallFailuresCleanUp(t *testing.T) {
 	cases := map[string]struct{ env, step string }{
 		"npm fails":        {"BERTH_FAKE_NPM_FAIL", "install"},

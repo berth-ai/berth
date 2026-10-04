@@ -1,6 +1,7 @@
 package agentstore
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -40,6 +41,9 @@ type Installer struct {
 func (in Installer) Install(ctx context.Context, lock *locksource.Lock) (*Version, bool, error) {
 	v, err := in.Store.Get(lock.Hash)
 	if err == nil {
+		if err := in.refresh(v, lock.PackageJSON); err != nil {
+			return nil, false, &StepError{Step: "publish", Err: err}
+		}
 		return v, false, nil
 	}
 	if !errors.Is(err, ErrNotFound) {
@@ -158,6 +162,28 @@ func installedVersions(dir string, deps []string) (map[string]string, error) {
 		out[dep] = pkg.Version
 	}
 	return out, nil
+}
+
+// PackageJSONStale reports whether the set in dir holds a package.json other
+// than pkg. A set is named by its package-lock.json alone, so a lock that
+// changes only the berthAgents descriptors names a set already installed.
+func PackageJSONStale(dir string, pkg []byte) bool {
+	raw, err := os.ReadFile(filepath.Join(dir, "package.json"))
+	return err != nil || !bytes.Equal(raw, pkg)
+}
+
+// refresh replaces a stale package.json in v; node_modules is unchanged,
+// since the package-lock.json that built it is the same.
+func (in Installer) refresh(v *Version, pkg []byte) error {
+	if !PackageJSONStale(v.Dir, pkg) {
+		return nil
+	}
+	in.logf("refreshing the descriptors of agent set %s", v.Hash)
+	path := filepath.Join(v.Dir, "package.json")
+	if err := os.WriteFile(path+".tmp", pkg, 0o644); err != nil {
+		return err
+	}
+	return os.Rename(path+".tmp", path)
 }
 
 func (in Installer) logf(format string, args ...any) {
