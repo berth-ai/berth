@@ -303,16 +303,49 @@ test("a skill is added, narrowed, updated and removed", async ({ page }) => {
   const pdf = page.getByRole("row").filter({ hasText: "anthropics/skills · skills/pdf" });
   await expect(pdf.getByText("main · 0123456789ab")).toBeVisible();
 
+  // Toasts are role=dialog too, so dialogs are found by name.
+  const addDialog = page.getByRole("dialog", { name: "Add a skill" });
   await page.getByRole("button", { name: "Add skill" }).click();
-  await dialog.getByRole("button", { name: "From a repository" }).click();
-  await dialog.getByLabel("Repository").fill("acme/eng-skills");
-  await dialog.getByLabel("Path").fill("release-notes");
-  await dialog.getByLabel("Ref").fill("missing");
-  await dialog.getByRole("button", { name: "Add skill" }).click();
-  await expect(dialog.getByText("Ref missing not found in that repository")).toBeVisible();
-  await dialog.getByLabel("Ref").fill("v1.2.0");
-  await dialog.getByRole("button", { name: "Add skill" }).click();
-  await expect(page.getByText(/Skill added\./)).toBeVisible();
+  await addDialog.getByRole("button", { name: "From a repository" }).click();
+  await addDialog.getByLabel("Repository").fill("acme/eng-skills");
+  await addDialog.getByLabel("Ref").fill("missing");
+  await addDialog.getByRole("button", { name: "Find skills" }).click();
+  await expect(addDialog.getByText("Ref missing not found in that repository")).toBeVisible();
+  await addDialog.getByLabel("Ref").fill("v1.2.0");
+  await addDialog.getByRole("button", { name: "Find skills" }).click();
+  await expect(addDialog.getByText("3 skills at")).toBeVisible();
+  const broken = addDialog.getByRole("checkbox", { name: /skills\/broken/ });
+  await expect(broken).toHaveAttribute("data-disabled", "");
+  await expect(addDialog.getByText("SKILL.md has no description")).toBeVisible();
+  await addDialog.getByRole("button", { name: "Select none" }).click();
+  await expect(addDialog.getByRole("button", { name: "Add 0 skills" })).toBeDisabled();
+  await addDialog.getByRole("button", { name: "Select all" }).click();
+  await addDialog.getByRole("button", { name: "Add 2 skills" }).click();
+  await expect(page.getByText(/2 skills added\./)).toBeVisible();
+  await expect(
+    page.getByRole("row").filter({ hasText: "acme/eng-skills · v1.2.0 · 2 skills" }),
+  ).toBeVisible();
+
+  const notes = page.getByRole("row").filter({ hasText: "skills/release-notes" });
+  await notes.getByRole("button", { name: "Update release-notes" }).click();
+  await page
+    .getByRole("alertdialog", { name: "Update release-notes?" })
+    .getByRole("button", { name: "Update all 2" })
+    .click();
+  await expect(page.getByText("Already up to date.")).toBeVisible();
+
+  const editDialog = page.getByRole("dialog", { name: "Edit release-notes" });
+  await notes.getByRole("button", { name: "Edit release-notes" }).click();
+  await expect(
+    editDialog.getByRole("checkbox", { name: "Apply to all 2 skills from acme/eng-skills" }),
+  ).toBeChecked();
+  await editDialog.getByLabel("Ref").fill("v2");
+  await editDialog.getByRole("button", { name: "Save" }).click();
+  await expect(page.getByText(/2 skills moved to v2\./)).toBeVisible();
+  await expect(
+    page.getByRole("row").filter({ hasText: "acme/eng-skills · v2 · 2 skills" }),
+  ).toBeVisible();
+  await expect(notes.getByText("v2 · 89abcdef0123")).toBeVisible();
 
   await pdf.getByRole("button", { name: "Choose agents for pdf" }).click();
   await page.getByRole("checkbox", { name: "Other Agent" }).click();
@@ -326,7 +359,7 @@ test("a skill is added, narrowed, updated and removed", async ({ page }) => {
   await expect(pdf.getByRole("switch", { name: "Turn on pdf" })).not.toBeChecked();
 
   await pdf.getByRole("button", { name: "Update pdf" }).click();
-  await expect(page.getByText("Already up to date.")).toBeVisible();
+  await expect(page.getByText("Already up to date.").last()).toBeVisible();
 
   await pdf.getByRole("button", { name: "Remove pdf" }).click();
   await page.getByRole("alertdialog").getByRole("button", { name: "Remove" }).click();
