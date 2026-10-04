@@ -86,7 +86,7 @@ func (e Env) Probe(ctx context.Context, a Agent, m locksource.LoginMethod) (Prob
 	}
 	if s.Key != "" {
 		var obj map[string]json.RawMessage
-		if err := json.Unmarshal(raw, &obj); err != nil {
+		if err := json.Unmarshal(stripComments(raw), &obj); err != nil {
 			return Probe{}, fmt.Errorf("%s: %w", s.File, err)
 		}
 		if v, ok := obj[s.Key]; !ok || string(v) == "null" {
@@ -109,7 +109,7 @@ func jsonString(path, key string) string {
 	}
 	var obj map[string]json.RawMessage
 	var s string
-	if json.Unmarshal(raw, &obj) != nil || json.Unmarshal(obj[key], &s) != nil {
+	if json.Unmarshal(stripComments(raw), &obj) != nil || json.Unmarshal(obj[key], &s) != nil {
 		return ""
 	}
 	return s
@@ -252,4 +252,44 @@ func (e Env) run(ctx context.Context, timeout time.Duration, bin string, args, e
 func lastLine(s string) string {
 	lines := strings.Split(strings.TrimSpace(s), "\n")
 	return strings.TrimSpace(lines[len(lines)-1])
+}
+
+// stripComments blanks // and /* */ comments outside strings, keeping
+// offsets and newlines, so JSONC files such as Copilot's config.json
+// decode as JSON. Plain JSON comes back unchanged.
+func stripComments(raw []byte) []byte {
+	out := bytes.Clone(raw)
+	inStr, esc := false, false
+	for i := 0; i < len(out); i++ {
+		c := out[i]
+		switch {
+		case inStr:
+			switch {
+			case esc:
+				esc = false
+			case c == '\\':
+				esc = true
+			case c == '"':
+				inStr = false
+			}
+		case c == '"':
+			inStr = true
+		case c == '/' && i+1 < len(out) && out[i+1] == '/':
+			for ; i < len(out) && out[i] != '\n'; i++ {
+				out[i] = ' '
+			}
+		case c == '/' && i+1 < len(out) && out[i+1] == '*':
+			stop := len(out)
+			if end := bytes.Index(out[i+2:], []byte("*/")); end >= 0 {
+				stop = i + 2 + end + 2
+			}
+			for ; i < stop; i++ {
+				if out[i] != '\n' {
+					out[i] = ' '
+				}
+			}
+			i--
+		}
+	}
+	return out
 }

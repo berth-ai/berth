@@ -176,3 +176,43 @@ func TestPrepare(t *testing.T) {
 		t.Error("nil prepare failed")
 	}
 }
+
+func TestStripComments(t *testing.T) {
+	for in, want := range map[string]string{
+		`{"a":"http://x//y"}`:          `{"a":"http://x//y"}`,
+		"{\"a\":1} // c":               "{\"a\":1}     ",
+		"{/* x\ny */\"a\":\"\\\"//\"}": "{    \n    \"a\":\"\\\"//\"}",
+		"{\"a\":1} /* open":            "{\"a\":1}        ",
+	} {
+		if got := string(stripComments([]byte(in))); got != want {
+			t.Errorf("stripComments(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
+
+func TestProbeFileReadsJSONC(t *testing.T) {
+	login := `{"methods":[{"id":"m","label":"M","flow":"device","args":[],
+	  "status":{"file":"~/.c/config.json","key":"authTokens","account_file":{"file":"~/.c/config.json","key":"user"}},
+	  "logout":{"remove":["~/.c/config.json"]}}]}`
+	f := newFixture(t, login, fakeCLI)
+	a, m, _ := f.env.Find("a", "m")
+	cfg := filepath.Join(f.home, ".c", "config.json")
+	must(t, os.MkdirAll(filepath.Dir(cfg), 0o700))
+	for content, want := range map[string]bool{
+		"// User settings belong in settings.json.\n{\n  \"loggedInUsers\": []\n}\n":                                   false,
+		"// managed\n{\n  /* tokens */ \"authTokens\": {\"https://github.com:you\": \"x\"},\n  \"user\": \"you\"\n}\n": true,
+	} {
+		must(t, os.WriteFile(cfg, []byte(content), 0o600))
+		p, err := f.env.Probe(context.Background(), a, m)
+		if err != nil || p.SignedIn != want {
+			t.Errorf("%q: %+v %v, want signed_in %v", content, p, err, want)
+		}
+		if want && p.Account != "you" {
+			t.Errorf("account = %q", p.Account)
+		}
+	}
+	must(t, os.WriteFile(cfg, []byte("// header\n{not json"), 0o600))
+	if _, err := f.env.Probe(context.Background(), a, m); err == nil {
+		t.Error("a broken JSONC file was not an error")
+	}
+}
