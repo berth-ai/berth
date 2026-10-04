@@ -220,38 +220,77 @@ func (b *Broker) skillsAdd(_ context.Context, body []byte) (int, any) {
 
 func (b *Broker) skillsUpdate(_ context.Context, body []byte) (int, any) {
 	var in struct {
-		ID  string `json:"id"`
-		Ref string `json:"ref"`
+		IDs []string `json:"ids"`
+		Ref string   `json:"ref"`
 	}
 	if err := decode(body, &in); err != nil {
 		return badRequest(err)
 	}
-	cur, _, _ := b.snapshot()
-	s, ok := cur.Skills[in.ID]
-	if !ok {
-		return fail(http.StatusNotFound, "unknown_skill", "no skill named %q", in.ID)
+	if len(in.IDs) == 0 || len(in.IDs) > maxSkillBatch {
+		return fieldInvalid("ids", fmt.Sprintf("Choose 1 to %d skills", maxSkillBatch))
 	}
-	ref := cmp.Or(in.Ref, s.Ref)
+	cur, _, _ := b.snapshot()
+	want := make(map[string]config.Skill, len(in.IDs))
+	for _, id := range in.IDs {
+		s, ok := cur.Skills[id]
+		_, dup := want[id]
+		switch {
+		case !ok:
+			return fieldInvalid("ids", fmt.Sprintf("No skill named %s is installed", id))
+		case dup:
+			return fieldInvalid("ids", "List each skill once")
+		case s.Repo != cur.Skills[in.IDs[0]].Repo:
+			return fieldInvalid("ids", "These skills come from different repositories; update one repository at a time")
+		}
+		want[id] = s
+	}
+	first := want[in.IDs[0]]
+	ref := cmp.Or(in.Ref, first.Ref)
 	if !config.ValidGitRef(ref) {
 		return fieldInvalid("ref", "The ref must be a branch, tag or commit")
 	}
 	if code, v, ok := b.normalMode(); !ok {
 		return code, v
 	}
-	return b.scanJob("skills.update", s.Repo, ref, []string{s.Path}, func(res skillScan) (json.RawMessage, error) {
-		row, ok := rowsByPath(res.Skills)[s.Path]
-		if !ok || row.Name != in.ID {
-			return nil, &skillError{Code: "name_changed", Field: "ref", Message: fmt.Sprintf("That ref no longer holds skill %s", in.ID)}
+	ids := slices.Sorted(maps.Keys(want))
+	var paths []string
+	for _, id := range ids {
+		paths = append(paths, want[id].Path)
+	}
+	slices.Sort(paths)
+	paths = slices.Compact(paths)
+	return b.scanJob("skills.update", first.Repo, ref, paths, func(s skillScan) (json.RawMessage, error) {
+		byPath := rowsByPath(s.Skills)
+		for _, id := range ids {
+			p := want[id].Path
+			row, ok := byPath[p]
+			at := cmp.Or(p, "the repository root")
+			switch {
+			case !ok:
+				return nil, &skillError{Code: "no_skill", Field: "ref",
+					Message: fmt.Sprintf("%s is no longer at %s in %s; remove it or update the others alone", id, at, ref)}
+			case row.Error != "":
+				return nil, &skillError{Code: "bad_skill", Field: "ref", Message: fmt.Sprintf("%s at %s in %s: %s", id, at, ref, row.Error)}
+			case row.Name != id:
+				return nil, &skillError{Code: "name_changed", Field: "ref",
+					Message: fmt.Sprintf("%s in %s holds skill %s, not %s", at, ref, row.Name, id)}
+			}
 		}
 		return b.applySkills(func(cur config.Config) (map[string]any, error) {
-			now, ok := cur.Skills[in.ID]
-			if !ok {
-				return nil, &skillError{Code: "unknown_skill", Message: fmt.Sprintf("The skill %s was removed", in.ID)}
+			changes := map[string]any{}
+			for _, id := range ids {
+				now, ok := cur.Skills[id]
+				if !ok || now.Repo != want[id].Repo || now.Path != want[id].Path {
+					return nil, &skillError{Code: "unknown_skill",
+						Message: fmt.Sprintf("The skill %s was removed or changed meanwhile; try again", id)}
+				}
+				row := byPath[now.Path]
+				if now.Ref == ref && now.Commit == s.Commit && now.Description == row.Description {
+					continue
+				}
+				changes[id] = map[string]any{"ref": ref, "commit": s.Commit, "description": row.Description}
 			}
-			if now.Ref == ref && now.Commit == res.Commit && now.Description == row.Description {
-				return nil, nil
-			}
-			return map[string]any{in.ID: map[string]any{"ref": ref, "commit": res.Commit, "description": row.Description}}, nil
+			return changes, nil
 		})
 	})
 }

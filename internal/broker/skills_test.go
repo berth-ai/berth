@@ -142,7 +142,11 @@ func skillJob(t *testing.T, tb *testBroker, verb, body string) Job {
 	if code != 202 {
 		t.Fatalf("%s = %d %v", verb, code, out)
 	}
-	id := int(out["job"].(map[string]any)["id"].(float64))
+	return waitSkillJob(t, tb, int(out["job"].(map[string]any)["id"].(float64)))
+}
+
+func waitSkillJob(t *testing.T, tb *testBroker, id int) Job {
+	t.Helper()
 	for range 500 {
 		if j, _ := tb.b.Jobs.Get(id); j.State != StateRunning {
 			return j
@@ -151,34 +155,6 @@ func skillJob(t *testing.T, tb *testBroker, verb, body string) Job {
 	}
 	t.Fatalf("job %d did not finish", id)
 	return Job{}
-}
-
-func TestSkillsUpdate(t *testing.T) {
-	t.Skip("replaced in Task 4")
-	tb := newTestBroker(t)
-	withSkills(t, tb)
-	fakeScan(t, tb)
-	skillJob(t, tb, "skills.add", `{"repo":"https://github.com/anthropics/skills","path":"skills/pdf","ref":"main"}`)
-	same := skillJob(t, tb, "skills.update", `{"id":"pdf"}`)
-	if same.State != StateSucceeded || !strings.Contains(string(same.Result), `"changed":false`) {
-		t.Errorf("unchanged = %s", same.Result)
-	}
-	moved := skillJob(t, tb, "skills.update", `{"id":"pdf","ref":"v2"}`)
-	if moved.State != StateSucceeded || !strings.Contains(string(moved.Result), `"changed":true`) {
-		t.Errorf("moved = %s", moved.Result)
-	}
-	_, out := tb.verb(t, "config.get", `{}`)
-	pdf := out["config"].(map[string]any)["skills"].(map[string]any)["pdf"].(map[string]any)
-	if pdf["ref"] != "v2" || pdf["description"] != "PDF tools v2" {
-		t.Errorf("pdf = %v", pdf)
-	}
-	renamed := skillJob(t, tb, "skills.update", `{"id":"pdf","ref":"other"}`)
-	if renamed.State != StateFailed || !strings.Contains(string(renamed.Result), "holds skill other, not pdf") {
-		t.Errorf("renamed = %s", renamed.Result)
-	}
-	if code, _ := tb.verb(t, "skills.update", `{"id":"nothere"}`); code != 404 {
-		t.Errorf("unknown = %d", code)
-	}
 }
 
 const skillCommit2 = "89abcdef0123456789abcdef0123456789abcdef"
@@ -389,6 +365,119 @@ func TestSkillsAddValidation(t *testing.T) {
 		code, out := tb.verb(t, "skills.add", body)
 		if code != 400 || !strings.Contains(fmt.Sprint(out), "field:"+field) {
 			t.Errorf("%.80s = %d %v", body, code, out)
+		}
+	}
+}
+
+// addPair adds pdf and docx at main in one revision.
+func addPair(t *testing.T, tb *testBroker) {
+	t.Helper()
+	j := skillJob(t, tb, "skills.add", `{"repo":"https://github.com/anthropics/skills","ref":"main","commit":"`+skillCommit+`","paths":["skills/pdf","skills/docx"]}`)
+	if j.State != StateSucceeded {
+		t.Fatalf("add = %s", j.Result)
+	}
+}
+
+func TestSkillsUpdateGroup(t *testing.T) {
+	tb := newTestBroker(t)
+	withSkills(t, tb)
+	fakeScan(t, tb)
+	addPair(t, tb)
+	same := skillJob(t, tb, "skills.update", `{"ids":["pdf","docx"]}`)
+	if same.State != StateSucceeded || !strings.Contains(string(same.Result), `"changed":false`) || !strings.Contains(string(same.Result), `"skills":[]`) {
+		t.Errorf("unchanged = %s", same.Result)
+	}
+	if got := lastScan(t, tb); got != "skills scan --json --repo https://github.com/anthropics/skills --ref main --path skills/docx --path skills/pdf" {
+		t.Errorf("each skill's own path is scanned: %s", got)
+	}
+	moved := skillJob(t, tb, "skills.update", `{"ids":["pdf","docx"],"ref":"v2"}`)
+	if moved.State != StateSucceeded || !strings.Contains(string(moved.Result), `"skills":["docx","pdf"]`) || !strings.Contains(string(moved.Result), `"revision":2`) {
+		t.Fatalf("moved = %s", moved.Result)
+	}
+	skills, rev := skillsOf(t, tb)
+	if rev != 2 {
+		t.Errorf("one update, one revision: %v", rev)
+	}
+	for id, desc := range map[string]string{"pdf": "PDF tools v2", "docx": "Word v2"} {
+		s := skills[id].(map[string]any)
+		if s["ref"] != "v2" || s["commit"] != skillCommit2 || s["description"] != desc {
+			t.Errorf("%s = %v", id, s)
+		}
+	}
+}
+
+func TestSkillsUpdateOne(t *testing.T) {
+	tb := newTestBroker(t)
+	withSkills(t, tb)
+	fakeScan(t, tb)
+	addPair(t, tb)
+	j := skillJob(t, tb, "skills.update", `{"ids":["pdf"],"ref":"v2"}`)
+	if j.State != StateSucceeded || !strings.Contains(string(j.Result), `"skills":["pdf"]`) {
+		t.Fatalf("job = %s", j.Result)
+	}
+	skills, _ := skillsOf(t, tb)
+	if docx := skills["docx"].(map[string]any); docx["ref"] != "main" || docx["commit"] != skillCommit {
+		t.Errorf("docx moved too: %v", docx)
+	}
+}
+
+func TestSkillsUpdateFailsWholeBatch(t *testing.T) {
+	tb := newTestBroker(t)
+	withSkills(t, tb)
+	fakeScan(t, tb)
+	addPair(t, tb)
+	for ref, want := range map[string]string{
+		"renamed": "skills/pdf in renamed holds skill other, not pdf",
+		"moved":   "pdf is no longer at skills/pdf in moved; remove it or update the others alone",
+	} {
+		j := skillJob(t, tb, "skills.update", `{"ids":["docx","pdf"],"ref":"`+ref+`"}`)
+		if j.State != StateFailed || !strings.Contains(string(j.Result), want) || !strings.Contains(string(j.Result), `"field":"ref"`) {
+			t.Errorf("%s: %s", ref, j.Result)
+		}
+	}
+	if skills, rev := skillsOf(t, tb); rev != 1 || skills["docx"].(map[string]any)["ref"] != "main" {
+		t.Errorf("a failed batch saved something: revision %v, %v", rev, skills)
+	}
+}
+
+func TestSkillsUpdateDoesNotResurrect(t *testing.T) {
+	tb := newTestBroker(t)
+	withSkills(t, tb)
+	fakeScan(t, tb)
+	addPair(t, tb)
+	code, out := tb.verb(t, "skills.update", `{"ids":["pdf"],"ref":"slow"}`)
+	if code != 202 {
+		t.Fatalf("update = %d %v", code, out)
+	}
+	if code, out := tb.verb(t, "config.apply", `{"base_revision":1,"patch":{"skills":{"pdf":null}}}`); code != 200 {
+		t.Fatalf("remove = %d %v", code, out)
+	}
+	j := waitSkillJob(t, tb, int(out["job"].(map[string]any)["id"].(float64)))
+	if j.State != StateFailed || !strings.Contains(string(j.Result), `"code":"unknown_skill"`) {
+		t.Errorf("job = %s", j.Result)
+	}
+	if skills, _ := skillsOf(t, tb); skills["pdf"] != nil {
+		t.Errorf("pdf came back: %v", skills["pdf"])
+	}
+}
+
+func TestSkillsUpdateValidation(t *testing.T) {
+	tb := newTestBroker(t)
+	withSkills(t, tb)
+	fakeScan(t, tb)
+	addPair(t, tb)
+	tb.verb(t, "config.apply", `{"base_revision":1,"patch":{"skills":{"elsewhere":{"repo":"https://x.example/r","path":"","ref":"main","commit":"`+skillCommit+`","description":"E"}}}}`)
+	for body, field := range map[string]string{
+		`{"ids":[]}`:                  "ids",
+		`{}`:                          "ids",
+		`{"ids":["nothere"]}`:         "ids",
+		`{"ids":["pdf","pdf"]}`:       "ids",
+		`{"ids":["pdf","elsewhere"]}`: "ids",
+		`{"ids":["pdf"],"ref":"-x"}`:  "ref",
+	} {
+		code, out := tb.verb(t, "skills.update", body)
+		if code != 400 || !strings.Contains(fmt.Sprint(out), "field:"+field) {
+			t.Errorf("%s = %d %v", body, code, out)
 		}
 	}
 }
