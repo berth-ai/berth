@@ -419,3 +419,33 @@ test("agents sign in with a pasted code and a device code, and sign out", async 
   await expect(example.getByText("Signed out")).toBeVisible();
   expect(problems).toEqual([]);
 });
+
+test("a registry agent is added, gets a Sign-in column and is removed", async ({ page }) => {
+  const problems = await watch(page);
+  await signIn(page);
+  await page.goto(`${NORMAL}/#/agents`);
+  await expect(h1(page, "Agents")).toBeVisible();
+  await page.getByRole("button", { name: "Add agent" }).click();
+  // Base UI toasts are dialogs too: scope by name.
+  const dialog = page.getByRole("dialog", { name: "Add an agent" });
+  await expect(dialog.getByText("GitHub Copilot CLI")).toBeVisible();
+  await dialog.getByRole("button", { name: "Add GitHub Copilot CLI" }).click();
+  await expect(page.getByText("GitHub Copilot CLI added. Sign in from its row.")).toBeVisible();
+  await expect(dialog).toBeHidden();
+  const row = page
+    .getByRole("table", { name: "Agents" })
+    .getByRole("row")
+    .filter({ hasText: "GitHub Copilot CLI" });
+  await expect(row.getByText("Added")).toBeVisible();
+  await expect(
+    row.getByRole("button", { name: "Sign in GitHub Copilot CLI with GitHub" }),
+  ).toBeVisible();
+  await expect(page.getByRole("button", { name: "Add agent" })).toBeHidden();
+  await row.getByRole("button", { name: "Remove GitHub Copilot CLI" }).click();
+  const confirm = page.getByRole("alertdialog", { name: "Remove GitHub Copilot CLI?" });
+  await expect(confirm.getByText("~/.copilot")).toBeVisible();
+  await confirm.getByRole("button", { name: "Remove" }).click();
+  await expect(row).toBeHidden();
+  await expect(page.getByRole("button", { name: "Add agent" })).toBeVisible();
+  expect(problems).toEqual([]);
+});
