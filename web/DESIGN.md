@@ -192,14 +192,16 @@ inherit`, weight 500. Compact controls inside cards and table rows are
   The Skills table puts skills sharing a repository and ref under a
   full-width header row on `--surface-sunken`: the repository in mono 600,
   then ref and count in `--fg-muted`. A single skill has no header row.
-- **Agent icons.** 16 px before the name in the Agents table only. A lock
+- **Agent icons.** Before the name in the Agents table only, centred on the
+  name and package lines: a 28 px frame (`--surface`, 1 px `--line`,
+  `--radius-m`) holding a 20 px mark. A lock
   `icon` slug draws a bundled LobeHub Icons mark in its own colours, the one
   exception to the single-accent rule: Claude Code's terracotta, the Gemini
   CLI and Codex tiles with their gradients. OpenCode's mark has no colour
   version and draws in `currentColor`. If the installed set has no `icon`
   metadata, the four built-in agents are recognized by package name.
-  Unknown agents get a monogram: the name's first letter, weight 600, on a
-  soft tint (`--accent-soft`, `--info-soft`, `--ok-soft`, `--warn-soft`,
+  Unknown agents get a 28 px monogram tile in place of the frame: the
+  name's first letter, `--text-xs` weight 600, on a soft tint (`--accent-soft`, `--info-soft`, `--ok-soft`, `--warn-soft`,
   `--idle-soft`) picked by a stable hash of the package id. Always
   `aria-hidden`; the name sits beside it. MCP servers, "Available to"
   checklists and sign-in dialog titles show names without brand icons.
