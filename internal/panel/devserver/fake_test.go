@@ -314,3 +314,54 @@ func TestFakeSignIns(t *testing.T) {
 		t.Errorf("first package = %v", pkgs[0])
 	}
 }
+
+func TestFakeAddsAndRemovesCopilot(t *testing.T) {
+	f := newFake("normal")
+	f.step = time.Millisecond
+	// verb expects f.mu held, as ServeHTTP holds it; jobs take it too.
+	call := func(name string, in map[string]any) (int, any) {
+		f.mu.Lock()
+		defer f.mu.Unlock()
+		return f.verb(name, in)
+	}
+	code, out := call("agents.registry", nil)
+	rows := out.(map[string]any)["agents"].([]map[string]any)
+	if code != 200 || len(rows) != 1 || rows[0]["id"] != "copilot" || rows[0]["added"] != false {
+		t.Fatalf("registry = %d %v", code, out)
+	}
+	code, out = call("agents.add", map[string]any{"id": "copilot"})
+	if code != 202 {
+		t.Fatalf("add = %d %v", code, out)
+	}
+	j := out.(map[string]any)["job"].(*job)
+	for deadline := time.Now().Add(2 * time.Second); time.Now().Before(deadline); time.Sleep(5 * time.Millisecond) {
+		f.mu.Lock()
+		state := j.State
+		f.mu.Unlock()
+		if state != "running" {
+			break
+		}
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock() // from here on, f.verb runs with the lock held
+	if j.State != "succeeded" {
+		t.Fatalf("job = %+v", j)
+	}
+	pkgs := f.packages()
+	i := slices.IndexFunc(pkgs, func(p map[string]any) bool { return p["package"] == "@github/copilot" })
+	if i < 0 || pkgs[i]["origin"] != "added" || pkgs[0]["origin"] != "locked" {
+		t.Errorf("packages = %v", pkgs)
+	}
+	if _, ok := f.loginStatus("")["agents"].(map[string]any)["@github/copilot"]; !ok {
+		t.Error("an added Copilot has no sign-in")
+	}
+	if code, _ := f.verb("agents.add", map[string]any{"id": "copilot"}); code != 409 {
+		t.Errorf("second add = %d", code)
+	}
+	if code, _ := f.verb("agents.remove", map[string]any{"package": "@github/copilot"}); code != 200 {
+		t.Errorf("remove = %d", code)
+	}
+	if slices.ContainsFunc(f.packages(), func(p map[string]any) bool { return p["package"] == "@github/copilot" }) {
+		t.Error("Copilot still listed after remove")
+	}
+}

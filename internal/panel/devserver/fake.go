@@ -63,7 +63,7 @@ func newFake(mode string) *fake {
 		signedIn: map[string]bool{},
 		mode:     mode, user: devUser, started: time.Now().UTC(), step: 400 * time.Millisecond,
 		cfg:    defaultConfig(1),
-		keys:   map[string]bool{"EXAMPLE_API_KEY": false},
+		keys:   map[string]bool{"EXAMPLE_API_KEY": false, "COPILOT_GITHUB_TOKEN": false},
 		git:    map[string]string{"name": "", "email": ""},
 		forges: map[string]bool{"gh": false, "glab": false},
 		tools:  []map[string]string{{"name": "terraform", "version": "1.1.0"}},
@@ -233,6 +233,25 @@ func (f *fake) verb(name string, in map[string]any) (int, any) {
 	case "login.logout":
 		delete(f.signedIn, str(in["agent"])+" "+str(in["method"]))
 		return http.StatusOK, f.loginStatus(str(in["agent"]))
+	case "agents.registry":
+		return http.StatusOK, map[string]any{"agents": f.registry()}
+	case "agents.add":
+		if str(in["id"]) != "copilot" {
+			return http.StatusNotFound, apiError("unknown_agent", "no agent "+strconv.Quote(str(in["id"]))+" in this image's registry")
+		}
+		if f.added(copilotPkg) {
+			return http.StatusConflict, apiError("already_added", "GitHub Copilot CLI is already added")
+		}
+		return f.start(name, in)
+	case "agents.remove", "agents.rollback":
+		if !f.added(str(in["package"])) {
+			return http.StatusNotFound, apiError("not_added", str(in["package"])+" is not an added agent")
+		}
+		if name == "agents.rollback" {
+			return f.start(name, in)
+		}
+		f.setAdded(str(in["package"]), false)
+		return http.StatusOK, map[string]any{"config": f.cfg}
 	case "update", "rollback", "gc", "tools.add", "tools.remove", "preset.install", "forge.login", "skills.scan", "skills.add":
 		return f.start(name, in)
 	}
@@ -362,16 +381,23 @@ func (f *fake) packages() []map[string]any {
 	for _, p := range f.cfg["agents"].(map[string]any)["disabled"].([]any) {
 		off[p.(string)] = true
 	}
-	return []map[string]any{
-		{"package": "@example/agent-cli", "name": "Example Agent", "kind": "agent", "version": "2.1.0", "enabled": !off["@example/agent-cli"], "icon": "claude",
+	pkgs := []map[string]any{
+		{"package": "@example/agent-cli", "name": "Example Agent", "kind": "agent", "version": "2.1.0", "origin": "locked", "enabled": !off["@example/agent-cli"], "icon": "claude",
 			"bins": []string{"example"}, "keys": []map[string]any{{"name": "EXAMPLE_API_KEY", "set": f.keys["EXAMPLE_API_KEY"]}},
 			"skills_dir": "~/.example/skills"},
-		{"package": "@example/other-cli", "name": "Other Agent", "kind": "agent", "version": "1.4.0", "enabled": !off["@example/other-cli"],
+		{"package": "@example/other-cli", "name": "Other Agent", "kind": "agent", "version": "1.4.0", "origin": "locked", "enabled": !off["@example/other-cli"],
 			"bins": []string{"other"}, "keys": []map[string]any{},
 			"skills_dir": "~/.other/skills", "skills_via": []string{"@example/agent-cli"}},
-		{"package": "@example/mcp-files", "name": "Files MCP", "kind": "mcp", "version": "0.6.2", "enabled": !off["@example/mcp-files"],
+		{"package": "@example/mcp-files", "name": "Files MCP", "kind": "mcp", "version": "0.6.2", "origin": "locked", "enabled": !off["@example/mcp-files"],
 			"bins": []string{}, "keys": []map[string]any{}, "mcp_id": "files"},
 	}
+	if f.added(copilotPkg) {
+		pkgs = slices.Insert(pkgs, 2, map[string]any{"package": copilotPkg, "name": "GitHub Copilot CLI", "kind": "agent",
+			"version": "1.0.91", "origin": "added", "enabled": !off[copilotPkg], "icon": "githubcopilot",
+			"bins": []string{"copilot"}, "keys": []map[string]any{{"name": "COPILOT_GITHUB_TOKEN", "set": f.keys["COPILOT_GITHUB_TOKEN"]}},
+			"skills_dir": "~/.copilot/skills"})
+	}
+	return pkgs
 }
 
 func (f *fake) check() map[string]any {
@@ -381,7 +407,8 @@ func (f *fake) check() map[string]any {
 
 var groups = map[string]string{"update": "agents", "rollback": "agents", "gc": "agents",
 	"tools.add": "tools", "tools.remove": "tools", "preset.install": "tools", "forge.login": "forge",
-	"skills.scan": "skills", "skills.add": "skills", "skills.update": "skills", "skills.sync": "skills-sync", "agent.login": "agent-login"}
+	"skills.scan": "skills", "skills.add": "skills", "skills.update": "skills", "skills.sync": "skills-sync", "agent.login": "agent-login",
+	"agents.add": "agents", "agents.rollback": "agents"}
 
 func (f *fake) start(verb string, in map[string]any) (int, any) {
 	group := groups[verb]
@@ -406,6 +433,10 @@ func (f *fake) start(verb string, in map[string]any) (int, any) {
 		args = []string{"/usr/local/bin/berth", "skills", "scan", "--json", "--repo", str(in["repo"]), "--ref", str(in["ref"]), "--path", str(in["path"])}
 	case "skills.add":
 		args = append([]string{"/usr/local/bin/berth", "skills", "scan", "--json", "--repo", str(in["repo"]), "--ref", str(in["commit"])}, strs(in["paths"])...)
+	case "agents.add":
+		args = []string{"/usr/local/bin/berth", "agents", "install", "--json", str(in["id"])}
+	case "agents.rollback":
+		args = []string{"/usr/local/bin/berth", "agents", "rollback", "--json", str(in["package"])}
 	case "skills.update":
 		args = append([]string{"/usr/local/bin/berth", "skills", "scan", "--json", "--ref", cmp.Or(str(in["ref"]), "(each skill's ref)")}, strs(in["ids"])...)
 	}
@@ -425,6 +456,11 @@ func (f *fake) run(j *job, in map[string]any) {
 	switch j.Verb {
 	case "rollback":
 		lines = []string{"starting rollback", "error: no previous agent set to switch to"}
+	case "agents.add":
+		lines = []string{"berth agents: installing GitHub Copilot CLI 1.0.91", "added 2 packages in 4s",
+			"berth agents: smoke-testing copilot", "installed @github/copilot 1.0.91"}
+	case "agents.rollback":
+		lines = []string{"starting rollback", "error: no previous version to roll back to"}
 	case "forge.login":
 		lines = []string{"! First copy your one-time code", "waiting for approval", "waiting for approval", "waiting for approval", "approved", "logged in"}
 	case "skills.scan", "skills.add", "skills.update":
@@ -458,6 +494,12 @@ func (f *fake) run(j *job, in map[string]any) {
 	case "rollback":
 		code, j.State = 1, "failed"
 		j.Result = json.RawMessage(`{"error":{"code":"rollback_failed","step":"switch","message":"no previous agent set to switch to"}}`)
+	case "agents.add":
+		f.setAdded(copilotPkg, true)
+		j.Result = json.RawMessage(`{"id":"copilot","package":"@github/copilot","version":"1.0.91","hash":"0123456789ab"}`)
+	case "agents.rollback":
+		code, j.State = 1, "failed"
+		j.Result = json.RawMessage(`{"error":{"code":"no_previous","message":"no previous version to roll back to"}}`)
 	case "forge.login":
 		f.forges[str(in["forge"])] = true
 	case "tools.add", "tools.remove":
@@ -595,6 +637,7 @@ var fakeLogins = []struct {
 }{
 	{"@example/agent-cli", "Example Agent", [][3]string{{"account", "Example account", "paste"}}},
 	{"@example/other-cli", "Other Agent", [][3]string{{"chatgpt", "ChatGPT", "device"}, {"copilot", "GitHub Copilot", "device"}}},
+	{copilotPkg, "GitHub Copilot CLI", [][3]string{{"github", "GitHub", "device"}}},
 }
 
 func fakeFlow(pkg, id string) string {
@@ -616,7 +659,7 @@ func (f *fake) loginStatus(only string) map[string]any {
 	}
 	agents := map[string]any{}
 	for _, a := range fakeLogins {
-		if off[a.pkg] || (only != "" && a.pkg != only) {
+		if off[a.pkg] || (only != "" && a.pkg != only) || (a.pkg == copilotPkg && !f.added(copilotPkg)) {
 			continue
 		}
 		methods := []map[string]any{}
@@ -782,4 +825,42 @@ func enabled(cfg map[string]any, frontend string) bool {
 
 func tz(cfg map[string]any) string {
 	return str(cfg["runtime"].(map[string]any)["tz"])
+}
+
+const copilotPkg = "@github/copilot"
+
+// added reports whether pkg is in agents.added. Caller holds f.mu.
+func (f *fake) added(pkg string) bool {
+	return slices.Contains(strs(f.cfg["agents"].(map[string]any)["added"]), pkg)
+}
+
+func (f *fake) registry() []map[string]any {
+	return []map[string]any{{"id": "copilot", "package": copilotPkg, "name": "GitHub Copilot CLI",
+		"description": "GitHub's coding agent, signed in with your GitHub account", "version": "1.0.91",
+		"icon": "githubcopilot", "keys": []string{"COPILOT_GITHUB_TOKEN"}, "login": []string{"GitHub"},
+		"added": f.added(copilotPkg)}}
+}
+
+// setAdded replaces agents.added (and drops pkg from disabled on removal)
+// as a new revision. Caller holds f.mu.
+func (f *fake) setAdded(pkg string, on bool) {
+	next := clone(f.cfg)
+	agents := next["agents"].(map[string]any)
+	list := slices.DeleteFunc(strs(agents["added"]), func(p string) bool { return p == pkg })
+	if on {
+		list = append(list, pkg)
+		slices.Sort(list)
+	} else {
+		agents["disabled"] = toAny(slices.DeleteFunc(strs(agents["disabled"]), func(p string) bool { return p == pkg }))
+	}
+	agents["added"] = toAny(list)
+	f.replace(next)
+}
+
+func toAny(list []string) []any {
+	out := make([]any, len(list))
+	for i, s := range list {
+		out[i] = s
+	}
+	return out
 }
