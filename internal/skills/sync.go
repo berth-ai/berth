@@ -2,7 +2,6 @@ package skills
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -14,7 +13,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/berth-ai/berth/internal/agentlayer"
+	"github.com/berth-ai/berth/internal/agentset"
 	"github.com/berth-ai/berth/internal/config"
 	"github.com/berth-ai/berth/internal/locksource"
 )
@@ -26,12 +25,12 @@ const SyncTimeout = 10 * time.Minute
 // per skill, linked into the skills directory of every agent it reaches.
 // It changes only links and copies it made itself.
 type Syncer struct {
-	Current    string // the installed agent set, /opt/agents/current
-	Layer      string // the wrapper layer, /var/lib/berth/bin
-	Home       string // the agent user's home
-	ConfigHome string // $XDG_CONFIG_HOME; empty means Home/.config
-	DataHome   string // $XDG_DATA_HOME; empty means Home/.local/share
-	Settings   string // skills.json; empty means no skills
+	Set        agentset.Set // the merged agent set
+	Layer      string       // the wrapper layer, /var/lib/berth/bin
+	Home       string       // the agent user's home
+	ConfigHome string       // $XDG_CONFIG_HOME; empty means Home/.config
+	DataHome   string       // $XDG_DATA_HOME; empty means Home/.local/share
+	Settings   string       // skills.json; empty means no skills
 	Git        Git
 	Log        io.Writer
 }
@@ -132,34 +131,13 @@ func (s Syncer) logf(format string, args ...any) {
 
 // targets lists the enabled agents with a skills descriptor, by package.
 func (s Syncer) targets() ([]target, error) {
-	if s.Current == "" {
-		return nil, nil
-	}
-	raw, err := os.ReadFile(filepath.Join(s.Current, "package.json"))
-	if err != nil {
-		return nil, err
-	}
-	var p struct {
-		Dependencies map[string]string `json:"dependencies"`
-	}
-	if err := json.Unmarshal(raw, &p); err != nil {
-		return nil, fmt.Errorf("package.json: %w", err)
-	}
-	meta, err := locksource.ParseMeta(raw, p.Dependencies)
-	if err != nil {
-		return nil, err
-	}
-	desc, err := locksource.ParseDescriptors(raw, meta)
-	if err != nil {
-		return nil, err
-	}
 	var out []target
-	for _, dep := range slices.Sorted(maps.Keys(desc.Agents)) {
-		t := desc.Agents[dep].Skills
-		if t == nil || !agentlayer.AgentEnabled(s.Current, s.Layer, dep) {
+	for _, dep := range slices.Sorted(maps.Keys(s.Set.Descriptors.Agents)) {
+		t := s.Set.Descriptors.Agents[dep].Skills
+		if t == nil || !s.Set.Enabled(s.Layer, dep) {
 			continue
 		}
-		out = append(out, target{dep: dep, name: meta[dep].Name, desc: t.Dir, dir: s.resolve(t.Dir), also: t.Also})
+		out = append(out, target{dep: dep, name: s.Set.Packages[dep].Meta.Name, desc: t.Dir, dir: s.resolve(t.Dir), also: t.Also})
 	}
 	return out, nil
 }

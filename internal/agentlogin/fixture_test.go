@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/berth-ai/berth/internal/agentset"
 	"github.com/berth-ai/berth/internal/locksource"
 )
 
@@ -46,8 +47,10 @@ func newFixture(t *testing.T, login, script string) fixture {
 		must(t, os.WriteFile(filepath.Join(bins, dep+"-cli"), []byte(script), 0o755))
 	}
 	must(t, os.WriteFile(filepath.Join(layer, "a-cli"), []byte("#!/bin/sh\n"), 0o755)) // only a is enabled
+	lockedSet, err := agentset.Load(&agentset.Locked{Dir: set, Link: root}, "", nil)
+	must(t, err)
 	return fixture{
-		env: Env{Current: set, Bins: bins, Layer: layer, Dirs: locksource.HomeDirs{Home: home},
+		env: Env{Set: lockedSet, Layer: layer, Dirs: locksource.HomeDirs{Home: home},
 			Environ: []string{"HOME=" + home, "PATH=" + os.Getenv("PATH")}},
 		home: home, root: root,
 	}

@@ -95,16 +95,12 @@ func (a *app) skillsSync(ctx context.Context, g skills.Git) error {
 	if err != nil {
 		return err
 	}
-	cur, err := a.store.Current()
+	set, err := a.agentSet(home)
 	if err != nil {
 		return output.Errorf(output.ExitFailure, "internal", "skills", "%v", err)
 	}
-	current := ""
-	if cur != nil {
-		current = cur.Dir
-	}
 	s := skills.Syncer{
-		Current:    current,
+		Set:        set,
 		Layer:      filepath.Join(a.cfg.ConfigDir, "bin"),
 		Home:       home,
 		ConfigHome: a.cfg.Getenv("XDG_CONFIG_HOME"),

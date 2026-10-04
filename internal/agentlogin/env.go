@@ -8,8 +8,7 @@ import (
 	"path/filepath"
 	"slices"
 
-	"github.com/berth-ai/berth/internal/agentlayer"
-	"github.com/berth-ai/berth/internal/agentstore"
+	"github.com/berth-ai/berth/internal/agentset"
 	"github.com/berth-ai/berth/internal/locksource"
 )
 
@@ -17,11 +16,10 @@ import (
 // sign-in method.
 var ErrUnknown = errors.New("no such agent or sign-in method")
 
-// Env locates the installed agents and the agent user's home.
+// Env locates the agents and the agent user's home.
 type Env struct {
-	Current string // the installed agent set; empty means none
-	Bins    string // the set's bin directory, /opt/agents/current/bin
-	Layer   string // the wrapper layer, /var/lib/berth/bin; a wrapper there means enabled
+	Set     agentset.Set // the merged agent set
+	Layer   string       // the wrapper layer, /var/lib/berth/bin; a wrapper there means enabled
 	Dirs    locksource.HomeDirs
 	Environ []string // the CLIs' environment; nil means os.Environ()
 }
@@ -35,42 +33,22 @@ type Agent struct {
 }
 
 // Agents lists the enabled agents that describe a login, by package name.
+// Bin is the package's own bin, not its wrapper: the wrapper loads API keys.
 func (e Env) Agents() ([]Agent, error) {
-	if e.Current == "" {
-		return nil, nil
-	}
-	meta, desc, err := locksource.ReadInstalled(e.Current)
-	if err != nil {
-		return nil, err
-	}
 	var out []Agent
-	for _, dep := range slices.Sorted(maps.Keys(desc.Agents)) {
-		l := desc.Agents[dep].Login
+	for _, dep := range slices.Sorted(maps.Keys(e.Set.Descriptors.Agents)) {
+		l := e.Set.Descriptors.Agents[dep].Login
 		if l == nil {
 			continue
 		}
-		bin := e.enabledBin(dep)
+		bin := e.Set.EnabledBin(e.Layer, dep)
 		if bin == "" {
 			continue
 		}
-		out = append(out, Agent{Package: dep, Name: meta[dep].Name, Bin: filepath.Join(e.Bins, bin), Methods: l.Methods})
+		p := e.Set.Packages[dep]
+		out = append(out, Agent{Package: dep, Name: p.Meta.Name, Bin: filepath.Join(p.Link, "bin", bin), Methods: l.Methods})
 	}
 	return out, nil
-}
-
-// enabledBin is the first of dep's bins, sorted, with a wrapper in Layer.
-// The wrapper loads API keys, so callers run the bin itself.
-func (e Env) enabledBin(dep string) string {
-	bins, err := agentstore.PackageBins(e.Current, dep)
-	if err != nil {
-		return ""
-	}
-	for _, b := range slices.Sorted(maps.Keys(bins)) {
-		if agentlayer.IsExecutable(filepath.Join(e.Layer, b)) {
-			return b
-		}
-	}
-	return ""
 }
 
 // Find returns an enabled agent and one of its methods.

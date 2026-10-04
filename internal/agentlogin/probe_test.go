@@ -5,11 +5,14 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/berth-ai/berth/internal/agentset"
 	"github.com/berth-ai/berth/internal/locksource"
+	"github.com/berth-ai/berth/internal/testutil"
 )
 
 func TestAgentsListsEnabledAgentsWithLogin(t *testing.T) {
@@ -214,5 +217,25 @@ func TestProbeFileReadsJSONC(t *testing.T) {
 	must(t, os.WriteFile(cfg, []byte("// header\n{not json"), 0o600))
 	if _, err := f.env.Probe(context.Background(), a, m); err == nil {
 		t.Error("a broken JSONC file was not an error")
+	}
+}
+
+func TestAgentsIncludesAddedAgent(t *testing.T) {
+	f := newFixture(t, argsLogin, fakeCLI)
+	addedRoot := t.TempDir()
+	testutil.AddedInstall(t, addedRoot, "copilot", "0123456789ab", "@github/copilot", "1.0.91", testutil.CopilotPackageJSON, "copilot")
+	installed, _ := agentset.Installed(addedRoot)
+	set, err := agentset.Load(&agentset.Locked{Dir: filepath.Join(f.root, "set"), Link: f.root}, addedRoot, installed)
+	must(t, err)
+	f.env.Set = set
+	must(t, os.WriteFile(filepath.Join(f.env.Layer, "copilot"), []byte("#!/bin/sh\n"), 0o755))
+	agents, err := f.env.Agents()
+	if err != nil {
+		t.Fatal(err)
+	}
+	i := slices.IndexFunc(agents, func(a Agent) bool { return a.Package == "@github/copilot" })
+	if i < 0 || agents[i].Name != "GitHub Copilot CLI" || agents[i].Methods[0].ID != "github" ||
+		agents[i].Bin != filepath.Join(addedRoot, "copilot", "current", "bin", "copilot") {
+		t.Errorf("agents = %+v", agents)
 	}
 }

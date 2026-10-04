@@ -146,21 +146,6 @@ func (b Builder) KeyNames(added []string) ([]string, error) {
 	return names, nil
 }
 
-// AgentEnabled reports whether package dep of the set in current has a
-// wrapper in layer, which is how Berth marks a package enabled.
-func AgentEnabled(current, layer, dep string) bool {
-	bins, err := agentstore.PackageBins(current, dep)
-	if err != nil {
-		return false
-	}
-	for bin := range bins {
-		if IsExecutable(filepath.Join(layer, bin)) {
-			return true
-		}
-	}
-	return false
-}
-
 // IsExecutable reports whether path is an executable regular file.
 func IsExecutable(path string) bool {
 	fi, err := os.Stat(path)

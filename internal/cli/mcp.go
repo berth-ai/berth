@@ -19,16 +19,16 @@ func runMCP(_ context.Context, a *app, args []string) error {
 	if home == "" {
 		return output.Errorf(output.ExitFailure, "no_home", "mcp", "HOME is not set")
 	}
-	cur, err := a.store.Current()
+	set, err := a.agentSet(home)
 	if err != nil {
 		return output.Errorf(output.ExitFailure, "internal", "mcp", "%v", err)
 	}
-	if cur == nil {
+	if len(set.Packages) == 0 {
 		a.p.Logf("no agent set installed; nothing to register")
 		return nil
 	}
 	s := mcpsync.Syncer{
-		Current:    cur.Dir,
+		Set:        set,
 		Layer:      filepath.Join(a.cfg.ConfigDir, "bin"),
 		Home:       home,
 		ConfigHome: a.cfg.Getenv("XDG_CONFIG_HOME"),

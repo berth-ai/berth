@@ -8,7 +8,9 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/berth-ai/berth/internal/agentset"
 	"github.com/berth-ai/berth/internal/config"
+	"github.com/berth-ai/berth/internal/testutil"
 )
 
 // world is an agent set with three agents (c, o reads c's directory, x has
@@ -18,6 +20,8 @@ type world struct {
 	current, layer, home, set string
 	repo                      *fixture
 	commit                    string
+	addedRoot                 string
+	added                     []agentset.Added
 }
 
 func newWorld(t *testing.T) *world {
@@ -71,9 +75,13 @@ func (w *world) write(s map[string]config.Skill) {
 
 func (w *world) run() (string, error) {
 	var log strings.Builder
-	s := Syncer{Current: w.current, Layer: w.layer, Home: w.home, ConfigHome: filepath.Join(w.home, ".config"),
+	set, err := agentset.Load(&agentset.Locked{Dir: w.current, Link: w.current}, w.addedRoot, w.added)
+	if err != nil {
+		return "", err
+	}
+	s := Syncer{Set: set, Layer: w.layer, Home: w.home, ConfigHome: filepath.Join(w.home, ".config"),
 		Settings: w.set, Git: testGit(), Log: &log}
-	err := s.Run(context.Background())
+	err = s.Run(context.Background())
 	return log.String(), err
 }
 
@@ -225,5 +233,20 @@ func TestSyncMissingAndNewerSettings(t *testing.T) {
 	os.WriteFile(w.set, []byte(`{"schema":2,"skills":{}}`), 0o640)
 	if _, err := w.run(); err == nil || !strings.Contains(err.Error(), "schema 2") {
 		t.Errorf("newer skills.json: %v", err)
+	}
+}
+
+func TestSyncLinksAddedAgent(t *testing.T) {
+	w := newWorld(t)
+	w.addedRoot = t.TempDir()
+	testutil.AddedInstall(t, w.addedRoot, "copilot", "0123456789ab", "@github/copilot", "1.0.91", testutil.CopilotPackageJSON, "copilot")
+	w.added, _ = agentset.Installed(w.addedRoot)
+	w.enable("copilot", true)
+	w.write(map[string]config.Skill{"pdf": w.skill("skills/pdf")})
+	if log, err := w.run(); err != nil {
+		t.Fatalf("%v\n%s", err, log)
+	}
+	if got := w.link(".copilot/skills", "pdf"); got != filepath.Join(StoreDir(w.home), "pdf") {
+		t.Errorf("copilot link = %q", got)
 	}
 }

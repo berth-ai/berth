@@ -5,7 +5,6 @@ package mcpsync
 
 import (
 	"bytes"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -16,6 +15,7 @@ import (
 	"strings"
 
 	"github.com/berth-ai/berth/internal/agentlayer"
+	"github.com/berth-ai/berth/internal/agentset"
 	"github.com/berth-ai/berth/internal/config"
 	"github.com/berth-ai/berth/internal/locksource"
 )
@@ -28,13 +28,13 @@ var errChanged = errors.New("changed while Berth edited it")
 // Syncer converges MCP registrations for the installed agent set. An agent
 // or server is enabled when its wrapper exists in Layer.
 type Syncer struct {
-	Current    string // the installed agent set, /opt/agents/current
-	Layer      string // the wrapper layer, /var/lib/berth/bin
-	Home       string // the agent user's home
-	ConfigHome string // $XDG_CONFIG_HOME; empty means Home/.config
-	DataHome   string // $XDG_DATA_HOME; empty means Home/.local/share
-	Settings   string // mcp.json, the user's MCP settings; empty means defaults
-	Keys       string // agents.env, which holds bearer tokens; empty means none
+	Set        agentset.Set // the merged agent set
+	Layer      string       // the wrapper layer, /var/lib/berth/bin
+	Home       string       // the agent user's home
+	ConfigHome string       // $XDG_CONFIG_HOME; empty means Home/.config
+	DataHome   string       // $XDG_DATA_HOME; empty means Home/.local/share
+	Settings   string       // mcp.json, the user's MCP settings; empty means defaults
+	Keys       string       // agents.env, which holds bearer tokens; empty means none
 	Log        io.Writer
 
 	// beforeRename runs between writing a temp file and replacing path;
@@ -45,24 +45,8 @@ type Syncer struct {
 // Run converges every enabled agent that has an MCP descriptor. One agent
 // failing does not stop the others; the error names every failed agent.
 func (s Syncer) Run() error {
-	raw, err := os.ReadFile(filepath.Join(s.Current, "package.json"))
-	if err != nil {
-		return err
-	}
-	var p struct {
-		Dependencies map[string]string `json:"dependencies"`
-	}
-	if err := json.Unmarshal(raw, &p); err != nil {
-		return fmt.Errorf("package.json: %w", err)
-	}
-	meta, err := locksource.ParseMeta(raw, p.Dependencies)
-	if err != nil {
-		return err
-	}
-	desc, err := locksource.ParseDescriptors(raw, meta)
-	if err != nil {
-		return err
-	}
+	desc := s.Set.Descriptors
+	var err error
 	settings := config.Defaults().MCP
 	if s.Settings != "" {
 		if settings, err = config.ReadMCPFile(s.Settings); err != nil {
@@ -86,11 +70,11 @@ func (s Syncer) Run() error {
 
 	var failed []string
 	for _, dep := range slices.Sorted(maps.Keys(desc.Agents)) {
-		t, name := desc.Agents[dep].MCP, meta[dep].Name
+		t, name := desc.Agents[dep].MCP, s.Set.Packages[dep].Meta.Name
 		if t == nil {
 			continue
 		}
-		if !agentlayer.AgentEnabled(s.Current, s.Layer, dep) {
+		if !s.Set.Enabled(s.Layer, dep) {
 			s.logf("%s not enabled; skipping", name)
 			continue
 		}

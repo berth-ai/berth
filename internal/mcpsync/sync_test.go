@@ -11,7 +11,9 @@ import (
 	"time"
 
 	"github.com/berth-ai/berth/internal/agentlayer"
+	"github.com/berth-ai/berth/internal/agentset"
 	"github.com/berth-ai/berth/internal/config"
+	"github.com/berth-ai/berth/internal/testutil"
 )
 
 const fixturePkg = `{
@@ -40,9 +42,12 @@ const fixturePkg = `{
 var fixtureDeps = []string{"a-cli", "c-cli", "o-cli", "p-mcp", "k-mcp"}
 
 type fixture struct {
-	t   *testing.T
-	s   Syncer
-	log *bytes.Buffer
+	t         *testing.T
+	s         Syncer
+	log       *bytes.Buffer
+	cur       string
+	addedRoot string
+	added     []agentset.Added
 }
 
 func must(t *testing.T, err error) {
@@ -65,14 +70,15 @@ func newFixture(t *testing.T) *fixture {
 	saved := legacyAgents
 	legacyAgents = []string{"a-cli", "c-cli", "o-cli"}
 	t.Cleanup(func() { legacyAgents = saved })
-	f := &fixture{t: t, log: &bytes.Buffer{}}
-	f.s = Syncer{Current: cur, Layer: filepath.Join(root, "bin"), Home: filepath.Join(root, "home"), Log: f.log,
+	f := &fixture{t: t, log: &bytes.Buffer{}, cur: cur}
+	f.s = Syncer{Layer: filepath.Join(root, "bin"), Home: filepath.Join(root, "home"), Log: f.log,
 		Settings: filepath.Join(root, "mcp.json"), Keys: filepath.Join(root, "agents.env")}
 	must(t, os.MkdirAll(f.s.Layer, 0o755))
 	must(t, os.MkdirAll(f.s.Home, 0o755))
 	for _, bin := range fixtureDeps {
 		f.enable(bin)
 	}
+	f.load()
 	return f
 }
 
@@ -100,7 +106,21 @@ func (f *fixture) servers(rel, key string) []string {
 	return keys
 }
 
-func (f *fixture) sync() { f.t.Helper(); must(f.t, f.s.Run()) }
+// load reads the set as it is on disk now; tests that call Run directly
+// use the set newFixture loaded.
+func (f *fixture) load() {
+	f.t.Helper()
+	set, err := agentset.Load(&agentset.Locked{Dir: f.cur, Link: f.cur}, f.addedRoot, f.added)
+	must(f.t, err)
+	f.s.Set = set
+}
+
+// sync loads the set as it is on disk now, then converges it.
+func (f *fixture) sync() {
+	f.t.Helper()
+	f.load()
+	must(f.t, f.s.Run())
+}
 
 func (f *fixture) state() map[string][]string {
 	var st map[string][]string
@@ -388,7 +408,7 @@ func TestConfigHome(t *testing.T) {
 func TestLockWithoutDescriptorsKeepsLegacyOwnership(t *testing.T) {
 	f := newFixture(t)
 	f.write(aFile, `{"mcpServers":{"context7":{"command":"/old"}}}`)
-	pkg := filepath.Join(f.s.Current, "package.json")
+	pkg := filepath.Join(f.cur, "package.json")
 	var p map[string]any
 	must(t, json.Unmarshal([]byte(fixturePkg), &p))
 	delete(p, "berthAgents")
@@ -540,5 +560,21 @@ func TestNewerSettingsSchemaFails(t *testing.T) {
 	must(t, os.WriteFile(f.s.Settings, []byte(`{"schema":2}`), 0o644))
 	if err := f.s.Run(); err == nil || !strings.Contains(err.Error(), "schema 2") {
 		t.Errorf("err = %v", err)
+	}
+}
+
+func TestRegistersWithAddedAgent(t *testing.T) {
+	f := newFixture(t)
+	f.addedRoot = t.TempDir()
+	testutil.AddedInstall(t, f.addedRoot, "copilot", "0123456789ab", "@github/copilot", "1.0.91", testutil.CopilotPackageJSON, "copilot")
+	f.added, _ = agentset.Installed(f.addedRoot)
+	f.sync()
+	if _, err := os.Stat(f.path(".copilot/mcp-config.json")); err == nil {
+		t.Fatal("a switched-off added agent got servers")
+	}
+	f.enable("copilot")
+	f.sync()
+	if got := f.servers(".copilot/mcp-config.json", "mcpServers"); !slices.Equal(got, []string{"context7", "playwright"}) {
+		t.Errorf("copilot servers = %v", got)
 	}
 }

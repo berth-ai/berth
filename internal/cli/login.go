@@ -78,20 +78,16 @@ func (a *app) loginEnv() (agentlogin.Env, error) {
 	if home == "" {
 		return agentlogin.Env{}, output.Errorf(output.ExitFailure, "no_home", "login", "HOME is not set")
 	}
-	cur, err := a.store.Current()
+	set, err := a.agentSet(home)
 	if err != nil {
 		return agentlogin.Env{}, output.Errorf(output.ExitFailure, "internal", "login", "%v", err)
 	}
-	env := agentlogin.Env{
-		Bins:  filepath.Join(a.cfg.AgentsDir, "current", "bin"),
+	return agentlogin.Env{
+		Set:   set,
 		Layer: filepath.Join(a.cfg.ConfigDir, "bin"),
 		Dirs: locksource.HomeDirs{Home: home, ConfigHome: a.cfg.Getenv("XDG_CONFIG_HOME"),
 			DataHome: a.cfg.Getenv("XDG_DATA_HOME")},
-	}
-	if cur != nil {
-		env.Current = cur.Dir
-	}
-	return env, nil
+	}, nil
 }
 
 func (a *app) loginLogout(ctx context.Context, env agentlogin.Env, pkg, id string) error {
