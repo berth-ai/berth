@@ -1,5 +1,6 @@
 import type { AgentPackage, Config, Job, ScanResult, ScanRow, Skill } from "@/api/types";
 import { count } from "@/lib/format";
+import { pickedAfter } from "./mcp-logic";
 
 /** normalizeRepo turns owner/repo and host/owner/repo into an https URL. */
 export function normalizeRepo(input: string): string {
@@ -169,3 +170,61 @@ export const agentsPatch = (id: string, agents: string[] | null) => ({
 });
 export const enabledPatch = (id: string, on: boolean) => ({ skills: { [id]: { enabled: on } } });
 export const removePatch = (id: string) => ({ skills: { [id]: null } });
+
+/** SkillView is the Skills table's layout: grouped by source, or one flat list. */
+export type SkillView = "source" | "flat";
+export const parseSkillView = (v: unknown): SkillView => (v === "flat" ? "flat" : "source");
+
+/** flatRows is every installed skill, by name. */
+export const flatRows = (groups: SkillGroup[]): SkillRow[] =>
+  groups.flatMap((g) => g.rows).sort((a, b) => a.id.localeCompare(b.id));
+
+/** drifted is how many commits a group's skills sit on, or 0 if they agree. */
+export function drifted(rows: SkillRow[]): number {
+  const n = new Set(rows.map((r) => r.skill.commit)).size;
+  return n > 1 ? n : 0;
+}
+
+const picks = (value: string[] | null, pkg: string) => value === null || value.includes(pkg);
+
+/** groupReach counts, per agent, the skills in rows that pick it directly. */
+export const groupReach = (rows: SkillRow[], agents: AgentPackage[]) =>
+  agents.map((agent) => ({
+    agent,
+    n: rows.filter((r) => picks(r.skill.agents, agent.package)).length,
+  }));
+
+/** usedBy names the agents a skill, or every skill of a group, reaches. */
+export function usedBy(rows: SkillRow[], agents: AgentPackage[]): string {
+  if (rows.every((r) => r.skill.agents === null)) return "All agents";
+  const labels = new Set(rows.map((r) => reachLabel(r.skill.agents, agents)));
+  return labels.size === 1 ? [...labels][0] : "Varies by skill";
+}
+
+/** enabledState is a group's switch: on only when every skill is on. */
+export function enabledState(rows: SkillRow[]): { on: boolean; word: string } {
+  const n = rows.filter((r) => r.skill.enabled).length;
+  if (n === rows.length) return { on: true, word: "On" };
+  return { on: false, word: n ? `${n} of ${rows.length}` : "Off" };
+}
+
+const each = (rows: SkillRow[], fn: (r: SkillRow) => object | null) => ({
+  skills: Object.fromEntries(rows.map((r) => [r.id, fn(r)])),
+});
+export const groupEnabledPatch = (rows: SkillRow[], on: boolean) =>
+  each(rows, () => ({ enabled: on }));
+export const groupRemovePatch = (rows: SkillRow[]) => each(rows, () => null);
+/** groupAgentsPatch gives, or takes, one agent for every skill in rows. */
+export const groupAgentsPatch = (rows: SkillRow[], all: string[], pkg: string, on: boolean) =>
+  each(rows, (r) => ({ agents: pickedAfter(r.skill.agents, all, pkg, on) }));
+
+/** commonDir is the deepest folder holding every one of paths' parents. */
+export function commonDir(paths: string[]): string {
+  const dirs = paths.map((p) => p.split("/").slice(0, -1));
+  const out: string[] = [];
+  for (let i = 0; dirs.every((d) => i < d.length && d[i] === dirs[0][i]); i++) out.push(dirs[0][i]);
+  return out.join("/");
+}
+
+/** skillLocation is where the broker keeps a skill's folder (skills.StoreDir). */
+export const skillLocation = (id: string) => `~/.local/share/berth/skills/${id}`;

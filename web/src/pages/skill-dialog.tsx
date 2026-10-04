@@ -1,5 +1,4 @@
-import { useId, useState } from "react";
-import { applyConfig } from "@/api/config";
+import { useEffect, useEffectEvent, useId, useRef, useState } from "react";
 import { keys, queryClient } from "@/api/queries";
 import { runJob } from "@/api/run-job";
 import type { AgentPackage, Job, ScanResult } from "@/api/types";
@@ -16,65 +15,60 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { Checkbox } from "@/components/ui/checkbox";
-import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
-import { errorText } from "@/lib/errors";
 import { count } from "@/lib/format";
 import { notify } from "@/lib/notify";
 import { AgentChecklist } from "./available-picker";
 import { ScanChecklist } from "./scan-checklist";
 import { CATALOG, type CatalogEntry } from "./skills-catalog";
 import {
-  agentsPatch,
   defaultPicks,
   normalizeRepo,
   pathError,
   refError,
   repoError,
-  repoLabel,
   scanOf,
-  type SkillRow,
   viaNotes,
 } from "./skills-logic";
-
-export type EditingSkill = SkillRow;
 
 type Tab = "catalog" | "repo";
 type Errors = Partial<Record<"repo" | "path" | "ref" | "form", string>>;
 
 const BG = " Agents pick it up in the background.";
 
-/** SkillDialog adds skills from the catalog or a repository, or edits one's
- * ref and agents; group is the edited skill's group ([] when adding). */
+/** SkillSource is a repository, ref and folder to scan when the dialog opens. */
+export interface SkillSource {
+  repo: string;
+  ref: string;
+  path: string;
+}
+
+/** SkillDialog adds skills from the catalog or a repository. Given a source,
+ * it opens on the repository tab and scans it at once. */
 export function SkillDialog({
   agents,
   unsupported,
   installed,
-  editing,
-  group,
+  source,
   onClose,
 }: {
   agents: AgentPackage[];
   unsupported: AgentPackage[];
   installed: string[];
-  editing: EditingSkill | null;
-  group: SkillRow[];
+  source?: SkillSource;
   onClose: () => void;
 }) {
-  const [tab, setTab] = useState<Tab>("catalog");
-  const [repo, setRepo] = useState("");
-  const [path, setPath] = useState("");
-  const [ref, setRef] = useState(editing?.skill.ref ?? "main");
+  const [tab, setTab] = useState<Tab>(source ? "repo" : "catalog");
+  const [repo, setRepo] = useState(source?.repo ?? "");
+  const [path, setPath] = useState(source?.path ?? "");
+  const [ref, setRef] = useState(source?.ref ?? "main");
   const [scan, setScan] = useState<ScanResult | null>(null);
   const [picks, setPicks] = useState<string[]>([]);
-  const [applyAll, setApplyAll] = useState(true);
-  const [picked, setPicked] = useState<string[] | null>(editing?.skill.agents ?? null);
+  const [picked, setPicked] = useState<string[] | null>(null);
   const [errors, setErrors] = useState<Errors>({});
   const [job, setJob] = useState<Job | null>(null);
   const [busy, setBusy] = useState(false);
   const ids = { repo: useId(), path: useId(), ref: useId() };
-  const grouped = editing !== null && group.length > 1;
 
   // run starts a job and returns it if it succeeded; a failure lands on its
   // field when that field is on screen, else under the form.
@@ -83,7 +77,7 @@ export function SkillDialog({
     const finished = await runJob(verb, body, setJob);
     if (!finished || finished.state === "succeeded") return finished;
     const err = finished.result?.error;
-    const shown = editing ? ["ref"] : tab === "repo" && !scan ? ["repo", "path", "ref"] : [];
+    const shown = tab === "repo" && !scan ? ["repo", "path", "ref"] : [];
     const key = err?.field && shown.includes(err.field) ? (err.field as keyof Errors) : "form";
     setErrors({ [key]: err?.message ?? "The job failed; open Activity for its log." });
     return null;
@@ -171,60 +165,36 @@ export function SkillDialog({
       finish(added, `${c.id} added.${BG}`);
     });
 
-  const saveEdit = () => {
-    if (!editing) return;
-    const r = ref.trim();
-    const e = refError(r);
-    if (e) {
-      setErrors({ ref: e });
-      return;
-    }
-    void busyWhile(async () => {
-      if (JSON.stringify(picked) !== JSON.stringify(editing.skill.agents)) {
-        try {
-          await applyConfig(agentsPatch(editing.id, picked));
-        } catch (err) {
-          setErrors({ form: errorText(err) });
-          return;
-        }
-      }
-      if (r !== editing.skill.ref) {
-        const targets = grouped && applyAll ? group.map((g) => g.id) : [editing.id];
-        const moved = await run("skills.update", { ids: targets, ref: r });
-        const who = targets.length > 1 ? count(targets.length, "skill", "skills") : editing.id;
-        finish(moved, `${who} moved to ${r}.${BG}`);
-        return;
-      }
-      void queryClient.invalidateQueries({ queryKey: keys.config });
-      notify(`${editing.id} saved.${BG}`);
-      onClose();
-    });
-  };
+  // A source scans once, on open: the ref stops later renders (and
+  // StrictMode's second run) from scanning again.
+  const scanned = useRef(false);
+  const scanSource = useEffectEvent(() => find());
+  useEffect(() => {
+    if (!source || scanned.current) return;
+    scanned.current = true;
+    scanSource();
+  }, [source]);
 
   return (
     <Dialog open onOpenChange={(open) => (open || busy ? undefined : onClose())}>
       <DialogContent className="sm:max-w-xl">
         <DialogHeader>
-          <DialogTitle>{editing ? `Edit ${editing.id}` : "Add a skill"}</DialogTitle>
+          <DialogTitle>Add a skill</DialogTitle>
         </DialogHeader>
-        {editing ? null : (
-          <>
-            <p className="text-xs text-fg-muted">
-              Skills are instructions and scripts your agents run. Add only sources you trust.
-            </p>
-            <Segmented
-              label="Skill source"
-              value={tab}
-              onChange={setTab}
-              className="w-full"
-              options={[
-                { value: "catalog", label: "Catalog" },
-                { value: "repo", label: "From a repository" },
-              ]}
-            />
-          </>
-        )}
-        {!editing && tab === "catalog" ? (
+        <p className="text-xs text-fg-muted">
+          Skills are instructions and scripts your agents run. Add only sources you trust.
+        </p>
+        <Segmented
+          label="Skill source"
+          value={tab}
+          onChange={setTab}
+          className="w-full"
+          options={[
+            { value: "catalog", label: "Catalog" },
+            { value: "repo", label: "From a repository" },
+          ]}
+        />
+        {tab === "catalog" ? (
           <ul className="flex max-h-72 flex-col overflow-y-auto" aria-label="Catalog">
             {CATALOG.map((c) => {
               const have = installed.includes(c.id);
@@ -251,7 +221,7 @@ export function SkillDialog({
             })}
           </ul>
         ) : null}
-        {!editing && tab === "repo" && !scan ? (
+        {tab === "repo" && !scan ? (
           <>
             <FormField
               id={ids.repo}
@@ -286,7 +256,7 @@ export function SkillDialog({
             </FormField>
           </>
         ) : null}
-        {editing || (tab === "repo" && !scan) ? (
+        {tab === "repo" && !scan ? (
           <FormField
             id={ids.ref}
             label="Ref"
@@ -303,17 +273,7 @@ export function SkillDialog({
             />
           </FormField>
         ) : null}
-        {grouped ? (
-          <Label className="flex items-center gap-2 font-normal leading-[inherit]">
-            <Checkbox
-              checked={applyAll}
-              disabled={busy}
-              onCheckedChange={(on) => setApplyAll(on)}
-            />
-            Apply to all {group.length} skills from {repoLabel(editing.skill.repo)}
-          </Label>
-        ) : null}
-        {!editing && tab === "repo" && scan ? (
+        {tab === "repo" && scan ? (
           <ScanChecklist
             rows={scan.skills}
             commit={scan.commit}
@@ -322,7 +282,7 @@ export function SkillDialog({
             onChange={setPicks}
           />
         ) : null}
-        {editing || tab === "catalog" || scan ? (
+        {tab === "catalog" || scan ? (
           <AgentChecklist
             value={picked}
             agents={agents}
@@ -338,11 +298,7 @@ export function SkillDialog({
           <Button variant="outline" disabled={busy} onClick={onClose}>
             Cancel
           </Button>
-          {editing ? (
-            <BusyButton busy={busy} busyLabel="Saving…" onClick={saveEdit}>
-              Save
-            </BusyButton>
-          ) : tab === "repo" && !scan ? (
+          {tab === "repo" && !scan ? (
             <BusyButton busy={busy} busyLabel="Finding…" onClick={find}>
               Find skills
             </BusyButton>

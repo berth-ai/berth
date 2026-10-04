@@ -1,6 +1,6 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { AgentPackage, Job, Skill } from "@/api/types";
+import type { AgentPackage, Job } from "@/api/types";
 import { AgentChecklist } from "./available-picker";
 import { SkillDialog } from "./skill-dialog";
 
@@ -44,17 +44,7 @@ const scanned = done("skills.scan", {
 });
 
 const dialog = (props: Partial<Parameters<typeof SkillDialog>[0]> = {}) =>
-  render(
-    <SkillDialog
-      agents={[]}
-      unsupported={[]}
-      installed={[]}
-      editing={null}
-      group={[]}
-      onClose={() => {}}
-      {...props}
-    />,
-  );
+  render(<SkillDialog agents={[]} unsupported={[]} installed={[]} onClose={() => {}} {...props} />);
 
 const button = (name: string | RegExp) => screen.getByRole<HTMLButtonElement>("button", { name });
 const box = (name: RegExp) => screen.getByRole("checkbox", { name });
@@ -219,62 +209,19 @@ describe("SkillDialog", () => {
     expect(button(/Add docx/).disabled).toBe(false);
   });
 
-  describe("edit", () => {
-    const acme: Skill = {
-      repo: "https://github.com/acme/eng-skills",
-      path: "skills/a",
-      ref: "main",
-      commit: COMMIT,
-      description: "Alpha",
-      agents: null,
-      enabled: true,
-    };
-    const group = [
-      { id: "a", skill: acme },
-      { id: "d", skill: { ...acme, path: "skills/d" } },
-    ];
-
-    it("moves the whole group to a new ref by default", async () => {
-      const { runJob } = await import("@/api/run-job");
-      vi.mocked(runJob).mockResolvedValue(
-        done("skills.update", { changed: true, skills: ["a", "d"] }),
-      );
-      dialog({ editing: group[0], group });
-      const all = screen.getByRole("checkbox", {
-        name: "Apply to all 2 skills from acme/eng-skills",
-      });
-      expect(all.getAttribute("aria-checked")).toBe("true");
-      type("Ref", "v2");
-      fireEvent.click(button("Save"));
-      await vi.waitFor(() =>
-        expect(runJob).toHaveBeenCalledWith(
-          "skills.update",
-          { ids: ["a", "d"], ref: "v2" },
-          expect.any(Function),
-        ),
-      );
+  it("opens on a source and scans it at once", async () => {
+    const { runJob } = await import("@/api/run-job");
+    vi.mocked(runJob).mockResolvedValue(scanned);
+    dialog({
+      source: { repo: "https://github.com/acme/eng-skills", ref: "v1.2.0", path: "skills" },
     });
-
-    it("moves only this skill when unticked", async () => {
-      const { runJob } = await import("@/api/run-job");
-      vi.mocked(runJob).mockResolvedValue(done("skills.update", { changed: true, skills: ["a"] }));
-      dialog({ editing: group[0], group });
-      fireEvent.click(screen.getByRole("checkbox", { name: /Apply to all/ }));
-      type("Ref", "v2");
-      fireEvent.click(button("Save"));
-      await vi.waitFor(() =>
-        expect(runJob).toHaveBeenCalledWith(
-          "skills.update",
-          { ids: ["a"], ref: "v2" },
-          expect.any(Function),
-        ),
-      );
-    });
-
-    it("offers no group option for a single skill", () => {
-      dialog({ editing: group[0], group: [group[0]] });
-      expect(screen.queryByRole("checkbox", { name: /Apply to all/ })).toBeNull();
-    });
+    await screen.findByText(/4 skills at/);
+    expect(runJob).toHaveBeenCalledWith(
+      "skills.scan",
+      { repo: "https://github.com/acme/eng-skills", ref: "v1.2.0", path: "skills" },
+      expect.any(Function),
+    );
+    expect(button("Add 2 skills")).toBeTruthy();
   });
 });
 

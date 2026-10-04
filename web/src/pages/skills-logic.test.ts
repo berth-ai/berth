@@ -22,6 +22,17 @@ import {
   sourceLabel,
   unsupportedAgents,
   viaNotes,
+  commonDir,
+  drifted,
+  enabledState,
+  flatRows,
+  groupAgentsPatch,
+  groupEnabledPatch,
+  groupReach,
+  groupRemovePatch,
+  parseSkillView,
+  skillLocation,
+  usedBy,
 } from "./skills-logic";
 
 const agent = (pkg: string, name: string, extra: Partial<AgentPackage> = {}): AgentPackage => ({
@@ -208,5 +219,89 @@ describe("update toasts", () => {
       "3 skills updated. BG",
     );
     expect(updateText(job({ changed: false, skills: [] }), " BG")).toBe("Already up to date.");
+  });
+});
+
+describe("skill groups on the page", () => {
+  const row = (id: string, extra: Partial<Skill> = {}) => ({
+    id,
+    skill: { ...skill, path: `skills/${id}`, ...extra },
+  });
+  const agents = [claude, opencode];
+  const all = agents.map((a) => a.package);
+
+  it("reads the view from the URL, defaulting to by source", () => {
+    expect(parseSkillView("flat")).toBe("flat");
+    expect(parseSkillView("source")).toBe("source");
+    expect(parseSkillView("nope")).toBe("source");
+    expect(parseSkillView(undefined)).toBe("source");
+  });
+
+  it("lists every skill by name in the flat view", () => {
+    const cfg = {
+      skills: { b: skill, a: { ...skill, repo: "https://github.com/zz/top" } },
+    } as unknown as Config;
+    expect(flatRows(skillGroups(cfg)).map((r) => r.id)).toEqual(["a", "b"]);
+  });
+
+  it("flags a group whose skills sit on different commits", () => {
+    expect(drifted([row("a"), row("b")])).toBe(0);
+    expect(drifted([row("a"), row("b", { commit: "f".repeat(40) })])).toBe(2);
+  });
+
+  it("counts how many skills in a group each agent gets", () => {
+    const rows = [row("a"), row("b", { agents: [opencode.package] })];
+    expect(groupReach(rows, agents)).toEqual([
+      { agent: claude, n: 1 },
+      { agent: opencode, n: 2 },
+    ]);
+  });
+
+  it("names who uses a skill or a group", () => {
+    expect(usedBy([row("a")], agents)).toBe("All agents");
+    expect(usedBy([row("a", { agents: [claude.package] })], agents)).toBe("Claude Code, OpenCode");
+    const same = [
+      row("a", { agents: [opencode.package] }),
+      row("b", { agents: [opencode.package] }),
+    ];
+    expect(usedBy(same, agents)).toBe("OpenCode");
+    expect(usedBy([row("a"), row("b", { agents: [opencode.package] })], agents)).toBe(
+      "Varies by skill",
+    );
+    expect(usedBy([row("a"), row("b")], agents)).toBe("All agents");
+  });
+
+  it("says whether a group is on, off or partly on", () => {
+    expect(enabledState([row("a"), row("b")])).toEqual({ on: true, word: "On" });
+    expect(enabledState([row("a"), row("b", { enabled: false })])).toEqual({
+      on: false,
+      word: "1 of 2",
+    });
+    expect(enabledState([row("a", { enabled: false })])).toEqual({ on: false, word: "Off" });
+  });
+
+  it("builds one patch for the whole group", () => {
+    const rows = [row("a"), row("b", { agents: [opencode.package] })];
+    expect(groupEnabledPatch(rows, false)).toEqual({
+      skills: { a: { enabled: false }, b: { enabled: false } },
+    });
+    expect(groupRemovePatch(rows)).toEqual({ skills: { a: null, b: null } });
+    expect(groupAgentsPatch(rows, all, claude.package, true)).toEqual({
+      skills: { a: { agents: null }, b: { agents: null } },
+    });
+    expect(groupAgentsPatch(rows, all, claude.package, false)).toEqual({
+      skills: { a: { agents: [opencode.package] }, b: { agents: [opencode.package] } },
+    });
+  });
+
+  it("finds the folder shared by a group's skills", () => {
+    expect(commonDir(["skills/a", "skills/b"])).toBe("skills");
+    expect(commonDir(["a/x/one", "a/y/two"])).toBe("a");
+    expect(commonDir(["one", "two"])).toBe("");
+    expect(commonDir(["skills/a"])).toBe("skills");
+  });
+
+  it("shows where Berth keeps a skill", () => {
+    expect(skillLocation("pdf")).toBe("~/.local/share/berth/skills/pdf");
   });
 });

@@ -309,12 +309,16 @@ test("a skill is added, narrowed, updated and removed", async ({ page }) => {
   await signIn(page);
   await page.goto(`${NORMAL}/#/skills`);
   await expect(page.getByText("No skills yet.")).toBeVisible();
+  // A skill's row is the one holding its Manage button; its panel is a row too.
+  const rowOf = (name: string) =>
+    page.getByRole("row").filter({ has: page.getByRole("button", { name: `Manage ${name}` }) });
 
   await page.getByRole("button", { name: "Add skill" }).click();
   const dialog = page.getByRole("dialog");
   await dialog.getByRole("button", { name: "Add pdf" }).click();
   await expect(page.getByText(/pdf added\./)).toBeVisible();
-  const pdf = page.getByRole("row").filter({ hasText: "anthropics/skills · skills/pdf" });
+  const pdf = rowOf("pdf");
+  await expect(pdf.getByText("anthropics/skills · skills/pdf")).toBeVisible();
   await expect(pdf.getByText("main · 0123456789ab")).toBeVisible();
 
   // Toasts are role=dialog too, so dialogs are found by name.
@@ -336,49 +340,58 @@ test("a skill is added, narrowed, updated and removed", async ({ page }) => {
   await addDialog.getByRole("button", { name: "Select all" }).click();
   await addDialog.getByRole("button", { name: "Add 2 skills" }).click();
   await expect(page.getByText(/2 skills added\./)).toBeVisible();
-  await expect(
-    page.getByRole("row").filter({ hasText: "acme/eng-skills · v1.2.0 · 2 skills" }),
-  ).toBeVisible();
 
-  const notes = page.getByRole("row").filter({ hasText: "skills/release-notes" });
-  await notes.getByRole("button", { name: "Update release-notes" }).click();
+  // By source: the two acme skills sit under one header row.
+  const acme = page
+    .getByRole("row")
+    .filter({ has: page.getByRole("button", { name: "Manage skills from acme/eng-skills" }) });
+  await expect(acme.getByText("v1.2.0")).toBeVisible();
+  await expect(acme.getByText("2 skills")).toBeVisible();
+  await acme.getByRole("switch", { name: "Turn off all skills from acme/eng-skills" }).click();
+  await expect(page.getByText(/2 skills from acme\/eng-skills are off\./)).toBeVisible();
+  await expect(acme.getByText("Off", { exact: true })).toBeVisible();
+  await acme.getByRole("switch", { name: "Turn on all skills from acme/eng-skills" }).click();
+  await expect(acme.getByText("On", { exact: true })).toBeVisible();
+
+  await acme.getByRole("button", { name: "Manage skills from acme/eng-skills" }).click();
+  await page.getByRole("button", { name: "Change ref" }).first().click();
+  const refDialog = page.getByRole("dialog", { name: "Change ref for acme/eng-skills" });
+  await expect(refDialog.getByText(/Applies to all 2 skills from this source\./)).toBeVisible();
+  await refDialog.getByLabel("Ref").fill("v2");
+  await refDialog.getByRole("button", { name: "Save" }).click();
+  await expect(page.getByText(/2 skills moved to v2\./)).toBeVisible();
+  await expect(acme.getByText("v2", { exact: true })).toBeVisible();
+  await expect(rowOf("release-notes").getByText("89abcdef0123")).toBeVisible();
+
+  // All skills: a grouped skill's Update asks whether its siblings move too.
+  await page.getByRole("button", { name: "All skills" }).click();
+  await expect(page).toHaveURL(/view=flat/);
+  await expect(acme).toHaveCount(0);
+  await rowOf("release-notes").getByRole("button", { name: "Manage release-notes" }).click();
+  await page.getByRole("button", { name: "Update release-notes" }).click();
   await page
     .getByRole("alertdialog", { name: "Update release-notes?" })
     .getByRole("button", { name: "Update all 2" })
     .click();
   await expect(page.getByText("Already up to date.")).toBeVisible();
+  await rowOf("release-notes").getByRole("button", { name: "Manage release-notes" }).click();
 
-  const editDialog = page.getByRole("dialog", { name: "Edit release-notes" });
-  await notes.getByRole("button", { name: "Edit release-notes" }).click();
-  await expect(
-    editDialog.getByRole("checkbox", { name: "Apply to all 2 skills from acme/eng-skills" }),
-  ).toBeChecked();
-  await editDialog.getByLabel("Ref").fill("v2");
-  await editDialog.getByRole("button", { name: "Save" }).click();
-  await expect(page.getByText(/2 skills moved to v2\./)).toBeVisible();
-  await expect(
-    page.getByRole("row").filter({ hasText: "acme/eng-skills · v2 · 2 skills" }),
-  ).toBeVisible();
-  await expect(notes.getByText("v2 · 89abcdef0123")).toBeVisible();
-
-  await pdf.getByRole("button", { name: "Choose agents for pdf" }).click();
+  await pdf.getByRole("button", { name: "Manage pdf" }).click();
+  await expect(page.getByText("~/.local/share/berth/skills/pdf")).toBeVisible();
   await page.getByRole("checkbox", { name: "Other Agent" }).click();
   // Other Agent reads Example Agent's directory, so it is still reached.
-  await expect(pdf.getByRole("button", { name: "Choose agents for pdf" })).toHaveText(
-    "Example Agent, Other Agent",
-  );
-  await page.keyboard.press("Escape");
+  await expect(pdf.getByText("Example Agent, Other Agent")).toBeVisible();
 
   await pdf.getByRole("switch", { name: "Turn off pdf" }).click();
   await expect(pdf.getByRole("switch", { name: "Turn on pdf" })).not.toBeChecked();
 
-  await pdf.getByRole("button", { name: "Update pdf" }).click();
+  await page.getByRole("button", { name: "Update pdf" }).click();
   await expect(page.getByText("Already up to date.").last()).toBeVisible();
 
-  await pdf.getByRole("button", { name: "Remove pdf" }).click();
+  await page.getByRole("button", { name: "Remove pdf" }).click();
   await page.getByRole("alertdialog").getByRole("button", { name: "Remove" }).click();
   await expect(page.getByText(/pdf removed\./)).toBeVisible();
-  await expect(page.getByRole("row").filter({ hasText: "skills/pdf" })).toHaveCount(0);
+  await expect(rowOf("pdf")).toHaveCount(0);
   expect(problems).toEqual([]);
 });
 
