@@ -82,9 +82,45 @@ class MiseToolsTest(unittest.TestCase):
             self.assertRegex(version, r"^\d+(\.\d+)+$", name)
 
 
+class RegistryLockTest(unittest.TestCase):
+    def entries(self):
+        return sorted(p for p in (REPO / "agents" / "registry").iterdir() if p.is_dir())
+
+    def test_entries_are_locked_single_agents(self):
+        entries = self.entries()
+        self.assertGreaterEqual(len(entries), 1)
+        for d in entries:
+            with self.subTest(entry=d.name):
+                self.assertRegex(d.name, r"^[a-z0-9-]{1,32}$")
+                pkg = json.loads((d / "package.json").read_text())
+                lock = json.loads((d / "package-lock.json").read_text())
+                self.assertTrue(pkg.get("private"))
+                self.assertEqual(lock["lockfileVersion"], 3)
+                self.assertEqual(lock["packages"][""]["dependencies"], pkg["dependencies"])
+                (name, version), = pkg["dependencies"].items()
+                self.assertRegex(version, EXACT)
+                self.assertEqual(list(pkg["berth"]), [name])
+                meta = pkg["berth"][name]
+                self.assertEqual(sorted(meta), ["description", "keys", "kind", "name"])
+                self.assertEqual(meta["kind"], "agent")
+                self.assertLessEqual(len(meta["description"]), 120)
+                block = pkg["berthAgents"]
+                self.assertEqual(block["schema"], 1)
+                self.assertEqual(list(block["agents"]), [name])
+                self.assertNotIn("servers", block)
+
+    def test_copilot_locks_both_linux_binaries(self):
+        paths = json.loads(read("agents/registry/copilot/package-lock.json"))["packages"]
+        for suffix in ("linux-x64", "linux-arm64"):
+            self.assertIn(f"node_modules/@github/copilot-{suffix}", paths)
+
+    def test_registry_is_shipped(self):
+        self.assertIn("COPY agents/registry/ /usr/share/berth/registry/", read("Dockerfile"))
+
+
 # package-lock.json is left out: dependency names such as "latest-version"
 # are legitimate there, and exact pins are enforced by AgentsLockTest.
-PINNED_FILES = ["Dockerfile", "compose.yaml", ".env.example", "tools/mise.toml", "agents/package.json"]
+PINNED_FILES = ["Dockerfile", "compose.yaml", ".env.example", "tools/mise.toml", "agents/package.json", "agents/registry/copilot/package.json"]
 
 
 class DockerfileTest(unittest.TestCase):
@@ -255,6 +291,11 @@ class RenovateTest(unittest.TestCase):
     def setUp(self):
         self.cfg = json.loads(read("renovate.json"))
         self.rules = self.cfg["packageRules"]
+
+    def test_agents_group_covers_registry(self):
+        entry = self.effective("npm", "minor", "agents/registry/copilot/package.json")
+        self.assertEqual(entry["groupName"], "agent CLIs")
+        self.assertEqual(entry["rangeStrategy"], "pin")
 
     def effective(self, manager, update_type, file_name):
         """Apply packageRules in order (later wins), as Renovate does."""

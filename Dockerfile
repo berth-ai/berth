@@ -141,6 +141,7 @@ COPY --from=tools /opt/mise /opt/mise
 COPY --from=go-build /out/berth /usr/local/bin/berth
 COPY rootfs/ /
 COPY agents/package.json agents/package-lock.json /usr/share/berth/agents/
+COPY agents/registry/ /usr/share/berth/registry/
 COPY tools/mise.toml /usr/share/berth/mise.toml
 COPY tools/presets/ /usr/share/berth/presets/
 

@@ -1,0 +1,38 @@
+{
+  "name": "berth-registry-copilot",
+  "private": true,
+  "dependencies": {
+    "@github/copilot": "1.0.91"
+  },
+  "berth": {
+    "@github/copilot": {
+      "kind": "agent",
+      "name": "GitHub Copilot CLI",
+      "description": "GitHub's coding agent, signed in with your GitHub account",
+      "keys": ["COPILOT_GITHUB_TOKEN"]
+    }
+  },
+  "berthAgents": {
+    "schema": 1,
+    "agents": {
+      "@github/copilot": {
+        "mcp": { "file": "~/.copilot/mcp-config.json", "style": "claude", "key": "mcpServers" },
+        "skills": { "dir": "~/.copilot/skills" },
+        "icon": "githubcopilot",
+        "login": {
+          "methods": [
+            {
+              "id": "github",
+              "label": "GitHub",
+              "flow": "device",
+              "args": ["login", "--device-code"],
+              "answers": [{ "expect": "Store token in plaintext", "send": "y\n" }],
+              "status": { "file": "~/.copilot/config.json", "key": "authTokens" },
+              "logout": { "remove": ["~/.copilot/config.json"] }
+            }
+          ]
+        }
+      }
+    }
+  }
+}
