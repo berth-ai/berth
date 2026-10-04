@@ -32,6 +32,7 @@ type Syncer struct {
 	Layer      string // the wrapper layer, /var/lib/berth/bin
 	Home       string // the agent user's home
 	ConfigHome string // $XDG_CONFIG_HOME; empty means Home/.config
+	DataHome   string // $XDG_DATA_HOME; empty means Home/.local/share
 	Settings   string // mcp.json, the user's MCP settings; empty means defaults
 	Keys       string // agents.env, which holds bearer tokens; empty means none
 	Log        io.Writer
@@ -126,14 +127,7 @@ func (s Syncer) logf(format string, args ...any) {
 
 // resolve expands a descriptor path; ParseDescriptors guarantees the prefix.
 func (s Syncer) resolve(file string) string {
-	if rest, ok := strings.CutPrefix(file, "~/"); ok {
-		return filepath.Join(s.Home, filepath.FromSlash(rest))
-	}
-	base := s.ConfigHome
-	if base == "" {
-		base = filepath.Join(s.Home, ".config")
-	}
-	return filepath.Join(base, filepath.FromSlash(strings.TrimPrefix(file, "$XDG_CONFIG_HOME/")))
+	return locksource.HomeDirs{Home: s.Home, ConfigHome: s.ConfigHome, DataHome: s.DataHome}.Expand(file)
 }
 
 func (s Syncer) enabledServers(d locksource.Descriptors) []server {

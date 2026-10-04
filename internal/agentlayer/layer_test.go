@@ -30,8 +30,8 @@ func fakeSet(t *testing.T) (Builder, string) {
 		},
 		"berthAgents": map[string]any{
 			"schema":  1,
-			"servers": map[string]any{"mcp-b": map[string]any{"id": "bee", "bin": "b-mcp"}},
-			"agents":  map[string]any{"agent-a": map[string]any{"skills": map[string]any{"dir": "~/.x/skills"}}},
+			"servers": map[string]any{"mcp-b": map[string]any{"id": "bee", "bin": "b-mcp", "icon": "upstash"}},
+			"agents":  map[string]any{"agent-a": map[string]any{"skills": map[string]any{"dir": "~/.x/skills"}, "icon": "claude"}},
 		},
 	}
 	raw, _ := json.Marshal(pkg)
@@ -80,6 +80,9 @@ func TestPackages(t *testing.T) {
 	}
 	if keys, _ := b.KeyNames(); !slices.Equal(keys, []string{"A_KEY"}) {
 		t.Errorf("keys = %v", keys)
+	}
+	if pkgs[0].Icon != "claude" || pkgs[1].Icon != "upstash" {
+		t.Errorf("icons = %q, %q", pkgs[0].Icon, pkgs[1].Icon)
 	}
 	empty := Builder{Root: t.TempDir(), Store: agentstore.Store{Root: t.TempDir()}}
 	if pkgs, err := empty.Packages(nil); err != nil || pkgs == nil || len(pkgs) != 0 {

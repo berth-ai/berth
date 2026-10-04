@@ -2,11 +2,15 @@ package locksource
 
 import (
 	"encoding/json"
+	"errors"
+	"fmt"
 	"maps"
 	"path"
 	"regexp"
 	"slices"
 	"strings"
+	"unicode"
+	"unicode/utf8"
 )
 
 // DescriptorSchema is the berthAgents schema this build reads.
@@ -28,10 +32,73 @@ type Descriptors struct {
 	Servers map[string]ServerDescriptor
 }
 
+// Login flows.
+const (
+	FlowDevice = "device" // the CLI shows a URL and a code to enter there
+	FlowPaste  = "paste"  // the CLI shows a URL and reads back the code that page shows
+)
+
 // AgentDescriptor describes one agent CLI.
 type AgentDescriptor struct {
 	MCP    *MCPTarget    `json:"mcp"`
 	Skills *SkillsTarget `json:"skills"`
+	Login  *LoginTarget  `json:"login"`
+	Icon   string        `json:"icon"` // a panel icon slug; empty means a monogram
+}
+
+// LoginTarget lists the ways an agent CLI signs in to its vendor account.
+type LoginTarget struct {
+	Methods []LoginMethod `json:"methods"`
+}
+
+// LoginMethod is one sign-in an agent CLI offers.
+type LoginMethod struct {
+	ID      string            `json:"id"`
+	Label   string            `json:"label"`
+	Flow    string            `json:"flow"`
+	Prompt  string            `json:"prompt"` // paste: what the CLI prints while it waits for the code
+	PTY     bool              `json:"pty"`
+	Args    []string          `json:"args"`
+	Env     map[string]string `json:"env"`
+	Answers []LoginAnswer     `json:"answers"`
+	Prepare *LoginPrepare     `json:"prepare"`
+	Status  LoginStatus       `json:"status"`
+	Logout  LoginLogout       `json:"logout"`
+}
+
+// LoginAnswer is a fixed keystroke sent once, when Expect first appears.
+type LoginAnswer struct {
+	Expect string `json:"expect"`
+	Send   string `json:"send"`
+}
+
+// LoginPrepare sets one key of a JSON settings file before the sign-in.
+type LoginPrepare struct {
+	File  string `json:"file"`
+	Set   string `json:"set"` // dot-separated object keys
+	Value string `json:"value"`
+}
+
+// LoginStatus says whether a method is signed in: Args exits 0, or File
+// exists (holding top-level Key when one is given).
+type LoginStatus struct {
+	Args        []string     `json:"args"`
+	Account     string       `json:"account"` // a regex over Args' output with one group
+	File        string       `json:"file"`
+	Key         string       `json:"key"`
+	AccountFile *AccountFile `json:"account_file"`
+}
+
+// AccountFile names the JSON file and top-level key that hold the account.
+type AccountFile struct {
+	File string `json:"file"`
+	Key  string `json:"key"`
+}
+
+// LoginLogout signs a method out: run Args, or remove the files in Remove.
+type LoginLogout struct {
+	Args   []string `json:"args"`
+	Remove []string `json:"remove"`
 }
 
 // SkillsTarget is the directory an agent loads user skills from.
@@ -52,12 +119,18 @@ type ServerDescriptor struct {
 	ID   string   `json:"id"`
 	Bin  string   `json:"bin"`
 	Args []string `json:"args"`
+	Icon string   `json:"icon"`
 }
 
 var (
 	serverIDPattern = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,62}$`)
 	jsonKeyPattern  = regexp.MustCompile(`^[A-Za-z][A-Za-z0-9_]{0,63}$`)
 	binNamePattern  = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$`)
+	// LoginIDPattern is the shape of a login method id.
+	LoginIDPattern = regexp.MustCompile(`^[a-z0-9-]{1,32}$`)
+	envNamePattern = regexp.MustCompile(`^[A-Z_][A-Z0-9_]{0,63}$`)
+	iconPattern    = regexp.MustCompile(`^[a-z0-9-]{1,32}$`)
+	fileKeyPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$`)
 )
 
 // ParseDescriptors reads the berthAgents block; meta is ParseMeta's result
@@ -108,6 +181,14 @@ func ParseDescriptors(pkg []byte, meta map[string]Meta) (Descriptors, error) {
 				a.Skills.Also = []string{}
 			}
 		}
+		if a.Login != nil {
+			if err := validLogin(name, a.Login); err != nil {
+				return out, err
+			}
+		}
+		if a.Icon != "" && !iconPattern.MatchString(a.Icon) {
+			return out, invalid("package.json berthAgents block: %s icon %q must match %s", name, a.Icon, iconPattern)
+		}
 		out.Agents[name] = a
 	}
 	ids := map[string]string{}
@@ -128,6 +209,9 @@ func ParseDescriptors(pkg []byte, meta map[string]Meta) (Descriptors, error) {
 		}
 		if s.Args == nil {
 			s.Args = []string{}
+		}
+		if s.Icon != "" && !iconPattern.MatchString(s.Icon) {
+			return out, invalid("package.json berthAgents block: %s icon %q must match %s", name, s.Icon, iconPattern)
 		}
 		out.Servers[name] = s
 	}
@@ -160,16 +244,20 @@ func validTarget(name string, t MCPTarget) error {
 			name, t.Style, StyleClaude, StyleOpenCode, StyleCodexTOML)
 	}
 	if !homePath(t.File) {
-		return invalid("package.json berthAgents block: %s mcp.file %q must be a path below ~/ or $XDG_CONFIG_HOME/", name, t.File)
+		return invalid("package.json berthAgents block: %s mcp.file %q must be a path below ~/, $XDG_CONFIG_HOME/ or $XDG_DATA_HOME/", name, t.File)
 	}
 	return nil
 }
 
-// homePath reports whether p is a plain path below ~/ or $XDG_CONFIG_HOME/.
+// homePath reports whether p is a plain path below ~/, $XDG_CONFIG_HOME/ or
+// $XDG_DATA_HOME/.
 func homePath(p string) bool {
-	rest, ok := strings.CutPrefix(p, "~/")
-	if !ok {
-		rest, ok = strings.CutPrefix(p, "$XDG_CONFIG_HOME/")
+	var rest string
+	ok := false
+	for _, prefix := range []string{"~/", "$XDG_CONFIG_HOME/", "$XDG_DATA_HOME/"} {
+		if rest, ok = strings.CutPrefix(p, prefix); ok {
+			break
+		}
 	}
 	return ok && rest != "" && rest != "." && rest != ".." && !path.IsAbs(rest) &&
 		path.Clean(rest) == rest && !strings.HasPrefix(rest, "../")
@@ -177,11 +265,11 @@ func homePath(p string) bool {
 
 func validSkills(name string, t SkillsTarget) error {
 	if !homePath(t.Dir) {
-		return invalid("package.json berthAgents block: %s skills.dir %q must be a path below ~/ or $XDG_CONFIG_HOME/", name, t.Dir)
+		return invalid("package.json berthAgents block: %s skills.dir %q must be a path below ~/, $XDG_CONFIG_HOME/ or $XDG_DATA_HOME/", name, t.Dir)
 	}
 	for _, d := range t.Also {
 		if !homePath(d) || d == t.Dir {
-			return invalid("package.json berthAgents block: %s skills.also %q must be another agent's path below ~/ or $XDG_CONFIG_HOME/", name, d)
+			return invalid("package.json berthAgents block: %s skills.also %q must be another agent's path below ~/, $XDG_CONFIG_HOME/ or $XDG_DATA_HOME/", name, d)
 		}
 	}
 	return nil
@@ -201,4 +289,129 @@ func (d Descriptors) SkillsVia(dep string) []string {
 		}
 	}
 	return out
+}
+
+func printable(s string, maxLen int) bool {
+	return s != "" && len(s) <= maxLen && utf8.ValidString(s) && strings.IndexFunc(s, unicode.IsControl) < 0
+}
+
+func validArgs(args []string) bool {
+	return !slices.ContainsFunc(args, func(a string) bool { return strings.ContainsRune(a, 0) })
+}
+
+// validKeyPath checks a dot-separated JSON key path of 1 to 8 keys.
+func validKeyPath(p string) bool {
+	keys := strings.Split(p, ".")
+	return len(keys) <= 8 && !slices.ContainsFunc(keys, func(k string) bool { return !jsonKeyPattern.MatchString(k) })
+}
+
+func validLogin(name string, l *LoginTarget) error {
+	bad := func(format string, args ...any) error {
+		return invalid("package.json berthAgents block: %s login: "+format, append([]any{name}, args...)...)
+	}
+	if len(l.Methods) == 0 {
+		return bad("needs at least one method")
+	}
+	seen := map[string]bool{}
+	for i := range l.Methods {
+		m := &l.Methods[i]
+		if !LoginIDPattern.MatchString(m.ID) || seen[m.ID] {
+			return bad("method id %q must match %s and be unique", m.ID, LoginIDPattern)
+		}
+		seen[m.ID] = true
+		if !printable(m.Label, 64) {
+			return bad("%s label must be 1 to 64 printable characters", m.ID)
+		}
+		switch m.Flow {
+		case FlowPaste:
+			if !printable(m.Prompt, 64) {
+				return bad("%s is a paste method and needs a prompt of 1 to 64 printable characters", m.ID)
+			}
+		case FlowDevice:
+			if m.Prompt != "" {
+				return bad("%s is a device method and takes no prompt", m.ID)
+			}
+		default:
+			return bad("%s flow %q, want %s or %s", m.ID, m.Flow, FlowDevice, FlowPaste)
+		}
+		if !validArgs(m.Args) {
+			return bad("%s args must not contain NUL", m.ID)
+		}
+		if m.Args == nil {
+			m.Args = []string{}
+		}
+		for k, v := range m.Env {
+			if !envNamePattern.MatchString(k) || strings.ContainsRune(v, 0) {
+				return bad("%s env %q must be a variable name with a value without NUL", m.ID, k)
+			}
+		}
+		if len(m.Answers) > 4 {
+			return bad("%s has more than 4 answers", m.ID)
+		}
+		for _, a := range m.Answers {
+			if !printable(a.Expect, 64) || a.Send == "" || len(a.Send) > 16 {
+				return bad("%s answers need an expect of 1 to 64 printable characters and a send of 1 to 16 bytes", m.ID)
+			}
+		}
+		if p := m.Prepare; p != nil && (!homePath(p.File) || !validKeyPath(p.Set)) {
+			return bad("%s prepare needs a file below ~/, $XDG_CONFIG_HOME/ or $XDG_DATA_HOME/ and a dotted key path", m.ID)
+		}
+		if err := validLoginStatus(m.Status); err != nil {
+			return bad("%s status: %v", m.ID, err)
+		}
+		if err := validLogout(m.Logout); err != nil {
+			return bad("%s logout: %v", m.ID, err)
+		}
+	}
+	return nil
+}
+
+func validLoginStatus(s LoginStatus) error {
+	switch {
+	case (s.Args != nil) == (s.File != ""):
+		return errors.New("needs exactly one of args or file")
+	case s.Args != nil:
+		if len(s.Args) == 0 || !validArgs(s.Args) {
+			return errors.New("args must be non-empty and without NUL")
+		}
+		if s.Key != "" || s.AccountFile != nil {
+			return errors.New("key and account_file go with file")
+		}
+		if s.Account != "" {
+			re, err := regexp.Compile(s.Account)
+			if err != nil || re.NumSubexp() != 1 {
+				return errors.New("account must be a regex with exactly one group")
+			}
+		}
+	default:
+		if !homePath(s.File) {
+			return errors.New("file must be below ~/, $XDG_CONFIG_HOME/ or $XDG_DATA_HOME/")
+		}
+		if s.Key != "" && !fileKeyPattern.MatchString(s.Key) {
+			return fmt.Errorf("key %q must match %s", s.Key, fileKeyPattern)
+		}
+		if s.Account != "" {
+			return errors.New("account goes with args; use account_file")
+		}
+		if a := s.AccountFile; a != nil && (!homePath(a.File) || !fileKeyPattern.MatchString(a.Key)) {
+			return errors.New("account_file needs a home path and a key")
+		}
+	}
+	return nil
+}
+
+func validLogout(l LoginLogout) error {
+	switch {
+	case (l.Args != nil) == (l.Remove != nil):
+		return errors.New("needs exactly one of args or remove")
+	case l.Args != nil:
+		if len(l.Args) == 0 || !validArgs(l.Args) {
+			return errors.New("args must be non-empty and without NUL")
+		}
+	default:
+		if len(l.Remove) == 0 || len(l.Remove) > 4 || slices.ContainsFunc(l.Remove, func(f string) bool { return !homePath(f) }) {
+			return errors.New("remove needs 1 to 4 paths below ~/, $XDG_CONFIG_HOME/ or $XDG_DATA_HOME/")
+		}
+	}
+	return nil
 }

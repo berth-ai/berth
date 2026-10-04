@@ -21,14 +21,61 @@
   "berthAgents": {
     "schema": 1,
     "agents": {
-      "@anthropic-ai/claude-code": { "mcp": { "file": "~/.claude.json", "style": "claude", "key": "mcpServers" }, "skills": { "dir": "~/.claude/skills" } },
-      "@google/gemini-cli": { "mcp": { "file": "~/.gemini/settings.json", "style": "claude", "key": "mcpServers" }, "skills": { "dir": "~/.gemini/skills" } },
-      "@openai/codex": { "mcp": { "file": "~/.codex/config.toml", "style": "codex-toml" }, "skills": { "dir": "~/.codex/skills" } },
-      "opencode-ai": { "mcp": { "file": "$XDG_CONFIG_HOME/opencode/opencode.json", "style": "opencode", "key": "mcp" }, "skills": { "dir": "$XDG_CONFIG_HOME/opencode/skills", "also": ["~/.claude/skills"] } }
+      "@anthropic-ai/claude-code": {
+        "mcp": { "file": "~/.claude.json", "style": "claude", "key": "mcpServers" },
+        "skills": { "dir": "~/.claude/skills" },
+        "icon": "claude",
+        "login": { "methods": [
+          { "id": "claude", "label": "Claude account", "flow": "paste", "prompt": "Paste code here",
+            "args": ["auth", "login", "--claudeai"],
+            "status": { "args": ["auth", "status", "--json"], "account": "\"email\":\\s*\"([^\"]+)\"" },
+            "logout": { "args": ["auth", "logout"] } }
+        ] }
+      },
+      "@google/gemini-cli": {
+        "mcp": { "file": "~/.gemini/settings.json", "style": "claude", "key": "mcpServers" },
+        "skills": { "dir": "~/.gemini/skills" },
+        "icon": "googlegemini",
+        "login": { "methods": [
+          { "id": "google", "label": "Google account", "flow": "paste", "pty": true,
+            "prompt": "Enter the authorization code",
+            "args": [], "env": { "NO_BROWSER": "true" },
+            "prepare": { "file": "~/.gemini/settings.json", "set": "security.auth.selectedType", "value": "oauth-personal" },
+            "status": { "file": "~/.gemini/oauth_creds.json",
+                        "account_file": { "file": "~/.gemini/google_accounts.json", "key": "active" } },
+            "logout": { "remove": ["~/.gemini/oauth_creds.json", "~/.gemini/google_accounts.json"] } }
+        ] }
+      },
+      "@openai/codex": {
+        "mcp": { "file": "~/.codex/config.toml", "style": "codex-toml" },
+        "skills": { "dir": "~/.codex/skills" },
+        "login": { "methods": [
+          { "id": "chatgpt", "label": "ChatGPT", "flow": "device",
+            "args": ["login", "--device-auth"],
+            "status": { "args": ["login", "status"] },
+            "logout": { "args": ["logout"] } }
+        ] }
+      },
+      "opencode-ai": {
+        "mcp": { "file": "$XDG_CONFIG_HOME/opencode/opencode.json", "style": "opencode", "key": "mcp" },
+        "skills": { "dir": "$XDG_CONFIG_HOME/opencode/skills", "also": ["~/.claude/skills"] },
+        "icon": "opencode",
+        "login": { "methods": [
+          { "id": "chatgpt", "label": "ChatGPT", "flow": "device",
+            "args": ["auth", "login", "-p", "openai", "-m", "ChatGPT Pro/Plus (headless)"],
+            "status": { "file": "$XDG_DATA_HOME/opencode/auth.json", "key": "openai" },
+            "logout": { "args": ["auth", "logout", "openai"] } },
+          { "id": "copilot", "label": "GitHub Copilot", "flow": "device", "pty": true,
+            "args": ["auth", "login", "-p", "github-copilot", "-m", "Login with GitHub Copilot"],
+            "answers": [{ "expect": "deployment type", "send": "\r" }],
+            "status": { "file": "$XDG_DATA_HOME/opencode/auth.json", "key": "github-copilot" },
+            "logout": { "args": ["auth", "logout", "github-copilot"] } }
+        ] }
+      }
     },
     "servers": {
       "@playwright/mcp": { "id": "playwright", "bin": "playwright-mcp", "args": ["--headless", "--no-sandbox"] },
-      "@upstash/context7-mcp": { "id": "context7", "bin": "context7-mcp" }
+      "@upstash/context7-mcp": { "id": "context7", "bin": "context7-mcp", "icon": "upstash" }
     }
   }
 }

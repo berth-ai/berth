@@ -90,6 +90,7 @@ func (a *app) skillsSync(ctx context.Context, g skills.Git) error {
 		Layer:      filepath.Join(a.cfg.ConfigDir, "bin"),
 		Home:       home,
 		ConfigHome: a.cfg.Getenv("XDG_CONFIG_HOME"),
+		DataHome:   a.cfg.Getenv("XDG_DATA_HOME"),
 		Settings:   filepath.Join(a.cfg.ConfigDir, "skills.json"),
 		Git:        g,
 		Log:        a.p.Stderr,

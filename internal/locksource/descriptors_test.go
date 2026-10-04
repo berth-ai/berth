@@ -15,7 +15,7 @@ var descMeta = map[string]Meta{
 
 func TestParseDescriptors(t *testing.T) {
 	pkg := []byte(`{"berthAgents":{"schema":1,"future":true,
-		"agents":{"@a/agent":{"mcp":{"file":"~/.a/settings.json","style":"claude","key":"mcpServers"},"login":{"x":1}}},
+		"agents":{"@a/agent":{"mcp":{"file":"~/.a/settings.json","style":"claude","key":"mcpServers"},"later":{"x":1}}},
 		"servers":{"b-mcp":{"id":"b","bin":"b-mcp","args":["--x"]},"c-mcp":{"id":"c","bin":"c-mcp"}}}}`)
 	d, err := ParseDescriptors(pkg, descMeta)
 	if err != nil {
@@ -120,6 +120,37 @@ func TestRepositoryLockDescriptors(t *testing.T) {
 	if m := lock.Meta["@google/gemini-cli"]; m.Name != "Gemini CLI" || len(m.Keys) != 1 || m.Keys[0] != "GEMINI_API_KEY" {
 		t.Errorf("gemini meta = %+v", m)
 	}
+	methods := map[string][]string{
+		"@anthropic-ai/claude-code": {"claude"},
+		"@openai/codex":             {"chatgpt"},
+		"@google/gemini-cli":        {"google"},
+		"opencode-ai":               {"chatgpt", "copilot"},
+	}
+	for dep, want := range methods {
+		l := lock.Descriptors.Agents[dep].Login
+		if l == nil {
+			t.Errorf("%s has no login", dep)
+			continue
+		}
+		var got []string
+		for _, m := range l.Methods {
+			got = append(got, m.ID)
+		}
+		if !slices.Equal(got, want) {
+			t.Errorf("%s methods = %v, want %v", dep, got, want)
+		}
+	}
+	for dep, icon := range map[string]string{
+		"@anthropic-ai/claude-code": "claude", "@google/gemini-cli": "googlegemini",
+		"opencode-ai": "opencode", "@openai/codex": "",
+	} {
+		if got := lock.Descriptors.Agents[dep].Icon; got != icon {
+			t.Errorf("%s icon = %q, want %q", dep, got, icon)
+		}
+	}
+	if got := lock.Descriptors.Servers["@upstash/context7-mcp"].Icon; got != "upstash" {
+		t.Errorf("context7 icon = %q", got)
+	}
 }
 
 func TestSkillsDescriptors(t *testing.T) {
@@ -170,5 +201,121 @@ func TestSkillsDescriptorRejects(t *testing.T) {
 				t.Errorf("ParseDescriptors = %v", err)
 			}
 		})
+	}
+}
+
+const goodLogin = `{"methods":[
+  {"id":"chatgpt","label":"ChatGPT","flow":"device","args":["login","--device-auth"],
+   "status":{"args":["login","status"]},"logout":{"args":["logout"]}},
+  {"id":"google","label":"Google account","flow":"paste","prompt":"Enter the authorization code","pty":true,
+   "env":{"NO_BROWSER":"true"},"answers":[{"expect":"deployment type","send":"\r"}],
+   "prepare":{"file":"~/.a/settings.json","set":"security.auth.selectedType","value":"oauth-personal"},
+   "status":{"file":"$XDG_DATA_HOME/a/auth.json","key":"github-copilot","account_file":{"file":"~/.a/accounts.json","key":"active"}},
+   "logout":{"remove":["~/.a/creds.json"]}}]}`
+
+func loginPkg(login, icon string) []byte {
+	return []byte(`{"dependencies":{"a":"1.0.0","s":"1.0.0"},
+	  "berth":{"a":{"kind":"agent","name":"A","keys":[]},"s":{"kind":"mcp","name":"S","keys":[]}},
+	  "berthAgents":{"schema":1,"agents":{"a":{"login":` + login + `,"icon":"` + icon + `"}},
+	    "servers":{"s":{"id":"s","bin":"s","icon":"upstash"}}}}`)
+}
+
+func parseLoginPkg(t *testing.T, pkg []byte) (Descriptors, error) {
+	t.Helper()
+	meta, err := ParseMeta(pkg, map[string]string{"a": "1.0.0", "s": "1.0.0"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return ParseDescriptors(pkg, meta)
+}
+
+func TestLoginDescriptors(t *testing.T) {
+	d, err := parseLoginPkg(t, loginPkg(goodLogin, "claude"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	a := d.Agents["a"]
+	if a.Icon != "claude" || d.Servers["s"].Icon != "upstash" {
+		t.Errorf("icons = %q %q", a.Icon, d.Servers["s"].Icon)
+	}
+	if a.Login == nil || len(a.Login.Methods) != 2 {
+		t.Fatalf("login = %+v", a.Login)
+	}
+	dev, paste := a.Login.Methods[0], a.Login.Methods[1]
+	if dev.Flow != FlowDevice || dev.PTY || !slices.Equal(dev.Status.Args, []string{"login", "status"}) {
+		t.Errorf("device = %+v", dev)
+	}
+	if paste.Flow != FlowPaste || !paste.PTY || paste.Prompt != "Enter the authorization code" ||
+		paste.Env["NO_BROWSER"] != "true" || paste.Answers[0].Send != "\r" ||
+		paste.Prepare.Set != "security.auth.selectedType" || paste.Status.Key != "github-copilot" ||
+		paste.Status.AccountFile.Key != "active" || paste.Logout.Remove[0] != "~/.a/creds.json" {
+		t.Errorf("paste = %+v", paste)
+	}
+}
+
+func TestLoginArgsDefaultEmpty(t *testing.T) {
+	login := `{"methods":[{"id":"x","label":"X","flow":"device","status":{"args":["s"]},"logout":{"args":["o"]}}]}`
+	d, err := parseLoginPkg(t, loginPkg(login, ""))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if args := d.Agents["a"].Login.Methods[0].Args; args == nil || len(args) != 0 {
+		t.Errorf("args = %#v, want empty non-nil", args)
+	}
+}
+
+func TestLoginDescriptorRejects(t *testing.T) {
+	// A later duplicate JSON key wins, so method(`,"flow":"link"`) overrides
+	// "device"; a duplicate object merges into the first, so "neither" cases
+	// spell the method out.
+	method := func(fields string) string {
+		return `{"methods":[{"id":"x","label":"X","flow":"device","status":{"args":["s"]},"logout":{"args":["o"]}` + fields + `}]}`
+	}
+	one := `{"id":"x","label":"X","flow":"device","status":{"args":["s"]},"logout":{"args":["o"]}}`
+	for name, login := range map[string]string{
+		"no methods":         `{"methods":[]}`,
+		"bad id":             `{"methods":[{"id":"X_1","label":"X","flow":"device","status":{"args":["s"]},"logout":{"args":["o"]}}]}`,
+		"duplicate id":       `{"methods":[` + one + `,` + one + `]}`,
+		"empty label":        `{"methods":[{"id":"x","label":"","flow":"device","status":{"args":["s"]},"logout":{"args":["o"]}}]}`,
+		"bad flow":           method(`,"flow":"link"`),
+		"device with prompt": method(`,"prompt":"Paste"`),
+		"paste no prompt":    method(`,"flow":"paste"`),
+		"bad env":            method(`,"env":{"lower":"x"}`),
+		"nul arg":            method(`,"args":["a\u0000b"]`),
+		"five answers":       method(`,"answers":[` + strings.Repeat(`{"expect":"a","send":"b"},`, 4) + `{"expect":"a","send":"b"}]`),
+		"long send":          method(`,"answers":[{"expect":"a","send":"12345678901234567"}]`),
+		"prepare outside":    method(`,"prepare":{"file":"/etc/x.json","set":"a","value":"b"}`),
+		"prepare bad set":    method(`,"prepare":{"file":"~/.x.json","set":"a..b","value":"b"}`),
+		"status both":        method(`,"status":{"args":["s"],"file":"~/.x"}`),
+		"status neither":     `{"methods":[{"id":"x","label":"X","flow":"device","status":{},"logout":{"args":["o"]}}]}`,
+		"status empty args":  method(`,"status":{"args":[]}`),
+		"account two groups": method(`,"status":{"args":["s"],"account":"(a)(b)"}`),
+		"account bad regex":  method(`,"status":{"args":["s"],"account":"("}`),
+		"account with file":  method(`,"status":{"file":"~/.x","account":"(a)"}`),
+		"key with args":      method(`,"status":{"args":["s"],"key":"k"}`),
+		"bad status key":     method(`,"status":{"file":"~/.x","key":"a b"}`),
+		"bad account file":   method(`,"status":{"file":"~/.x","account_file":{"file":"/x","key":"k"}}`),
+		"logout both":        method(`,"logout":{"args":["o"],"remove":["~/.x"]}`),
+		"logout neither":     `{"methods":[{"id":"x","label":"X","flow":"device","status":{"args":["s"]},"logout":{}}]}`,
+		"remove outside":     method(`,"logout":{"remove":["~/../x"]}`),
+		"remove five":        method(`,"logout":{"remove":["~/.a","~/.b","~/.c","~/.d","~/.e"]}`),
+	} {
+		t.Run(name, func(t *testing.T) {
+			if _, err := parseLoginPkg(t, loginPkg(login, "")); !errors.Is(err, ErrInvalid) || !strings.Contains(err.Error(), "login") {
+				t.Errorf("err = %v", err)
+			}
+		})
+	}
+	if _, err := parseLoginPkg(t, loginPkg(goodLogin, "Bad_Icon")); !errors.Is(err, ErrInvalid) {
+		t.Errorf("bad icon: err = %v", err)
+	}
+}
+
+func TestDataHomePaths(t *testing.T) {
+	pkg := []byte(`{"dependencies":{"a":"1.0.0"},"berth":{"a":{"kind":"agent","name":"A","keys":[]}},
+	  "berthAgents":{"schema":1,"agents":{"a":{"skills":{"dir":"$XDG_DATA_HOME/a/skills"}}}}}`)
+	meta, _ := ParseMeta(pkg, map[string]string{"a": "1.0.0"})
+	if _, err := ParseDescriptors(pkg, meta); err != nil {
+		t.Errorf("$XDG_DATA_HOME/ rejected: %v", err)
 	}
 }

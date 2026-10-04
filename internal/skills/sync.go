@@ -30,6 +30,7 @@ type Syncer struct {
 	Layer      string // the wrapper layer, /var/lib/berth/bin
 	Home       string // the agent user's home
 	ConfigHome string // $XDG_CONFIG_HOME; empty means Home/.config
+	DataHome   string // $XDG_DATA_HOME; empty means Home/.local/share
 	Settings   string // skills.json; empty means no skills
 	Git        Git
 	Log        io.Writer
@@ -165,14 +166,7 @@ func (s Syncer) targets() ([]target, error) {
 
 // resolve expands a descriptor path; ParseDescriptors guarantees the prefix.
 func (s Syncer) resolve(p string) string {
-	if rest, ok := strings.CutPrefix(p, "~/"); ok {
-		return filepath.Join(s.Home, filepath.FromSlash(rest))
-	}
-	base := s.ConfigHome
-	if base == "" {
-		base = filepath.Join(s.Home, ".config")
-	}
-	return filepath.Join(base, filepath.FromSlash(strings.TrimPrefix(p, "$XDG_CONFIG_HOME/")))
+	return locksource.HomeDirs{Home: s.Home, ConfigHome: s.ConfigHome, DataHome: s.DataHome}.Expand(p)
 }
 
 // reach lists the agents that get a link of their own: those in list (all

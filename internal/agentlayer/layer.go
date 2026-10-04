@@ -40,6 +40,7 @@ type Package struct {
 	MCPID     string   `json:"mcp_id,omitempty"`     // an MCP server's id in agent configs
 	SkillsDir string   `json:"skills_dir,omitempty"` // an agent's skills directory
 	SkillsVia []string `json:"skills_via,omitempty"` // agents whose skills directory it also reads
+	Icon      string   `json:"icon,omitempty"`       // a panel icon slug from the lock
 }
 
 // Packages describes the current set with disabled applied: agents first,
@@ -80,6 +81,7 @@ func (b Builder) Packages(disabled []string) ([]Package, error) {
 			Package: dep, Name: m.Name, Kind: m.Kind, Version: cur.Manifest.Packages[dep],
 			Enabled: !slices.Contains(disabled, dep), Bins: slices.Sorted(maps.Keys(bins)), Keys: []Key{},
 			MCPID: desc.Servers[dep].ID,
+			Icon:  cmp.Or(desc.Agents[dep].Icon, desc.Servers[dep].Icon),
 		}
 		if t := desc.Agents[dep].Skills; t != nil {
 			pkg.SkillsDir, pkg.SkillsVia = t.Dir, desc.SkillsVia(dep)
