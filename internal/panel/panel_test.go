@@ -431,7 +431,7 @@ func TestVerbAllowlist(t *testing.T) {
 	for _, verb := range []string{
 		"tools.list", "tools.versions", "tools.registry", "tools.add", "tools.remove",
 		"preset.install", "git.identity", "forge.status", "forge.login",
-		"skills.add", "skills.update",
+		"skills.scan", "skills.add", "skills.update",
 		"login.status", "login.start", "login.input", "login.cancel", "login.logout",
 	} {
 		resp, body := e.do(c, "POST", "/api/verbs/"+verb, `{}`, nil)

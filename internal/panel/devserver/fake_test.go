@@ -162,23 +162,60 @@ func TestFakeMCPServers(t *testing.T) {
 func TestFakeSkills(t *testing.T) {
 	f := newFake("normal")
 	f.step = 0
-	code, out := f.verb("skills.add", map[string]any{"repo": "https://github.com/anthropics/skills", "path": "skills/pdf", "ref": "main"})
-	if code != http.StatusAccepted {
-		t.Fatalf("add = %d %v", code, out)
+	last := func() *job {
+		waitFakeJobs(t, f)
+		f.mu.Lock()
+		defer f.mu.Unlock()
+		for i := len(f.jobs) - 1; i >= 0; i-- {
+			if f.jobs[i].Verb != "skills.sync" {
+				return f.jobs[i]
+			}
+		}
+		return nil
 	}
-	waitFakeJobs(t, f)
-	skills := f.cfg["skills"].(map[string]any)
-	if pdf, ok := skills["pdf"].(map[string]any); !ok || pdf["enabled"] != true {
-		t.Fatalf("skills = %v", skills)
+	repo := "https://github.com/acme/eng-skills"
+	f.verb("skills.scan", map[string]any{"repo": repo, "ref": "main", "path": ""})
+	if j := last(); j.State != "succeeded" || strings.Count(string(j.Result), `"path"`) != 3 ||
+		!strings.Contains(string(j.Result), `"error":"SKILL.md has no description"`) || !strings.Contains(string(j.Result), fakeCommit) {
+		t.Fatalf("scan = %+v %s", j, j.Result)
 	}
-	f.verb("skills.add", map[string]any{"repo": "https://github.com/acme/missing", "ref": "main"})
-	waitFakeJobs(t, f)
-	last := f.jobs[len(f.jobs)-1]
-	if last.State != "failed" || !strings.Contains(string(last.Result), `"field":"ref"`) {
-		t.Errorf("missing = %+v %s", last, last.Result)
+	f.verb("skills.add", map[string]any{"repo": repo, "ref": "main", "commit": fakeCommit,
+		"paths": []any{"skills/release-notes", "skills/changelog"}, "agents": nil})
+	if j := last(); j.State != "succeeded" || !strings.Contains(string(j.Result), `"skills":["changelog","release-notes"]`) {
+		t.Fatalf("add = %+v %s", j, j.Result)
 	}
-	if code, _ := f.verb("skills.update", map[string]any{"id": "nothere"}); code != http.StatusNotFound {
+	if s := f.cfg["skills"].(map[string]any); len(s) != 2 || s["changelog"].(map[string]any)["commit"] != fakeCommit {
+		t.Fatalf("skills = %v", s)
+	}
+	f.verb("skills.scan", map[string]any{"repo": repo, "ref": "main", "path": "skills/release-notes"})
+	if j := last(); strings.Count(string(j.Result), `"path"`) != 1 || !strings.Contains(string(j.Result), `"installed":true`) {
+		t.Errorf("rescan = %s", j.Result)
+	}
+	f.verb("skills.add", map[string]any{"repo": repo, "ref": "main", "commit": fakeCommit, "paths": []any{"skills/broken"}})
+	if j := last(); j.State != "failed" || !strings.Contains(string(j.Result), `"code":"bad_skill"`) {
+		t.Errorf("broken = %s", j.Result)
+	}
+	f.verb("skills.scan", map[string]any{"repo": "https://github.com/acme/missing", "ref": "main"})
+	if j := last(); j.State != "failed" || !strings.Contains(string(j.Result), `"field":"ref"`) {
+		t.Errorf("missing = %s", j.Result)
+	}
+	f.verb("skills.update", map[string]any{"ids": []any{"release-notes", "changelog"}})
+	if j := last(); !strings.Contains(string(j.Result), `"changed":false`) {
+		t.Errorf("same ref = %s", j.Result)
+	}
+	f.verb("skills.update", map[string]any{"ids": []any{"release-notes", "changelog"}, "ref": "v2"})
+	if j := last(); !strings.Contains(string(j.Result), `"skills":["changelog","release-notes"]`) {
+		t.Errorf("v2 = %s", j.Result)
+	}
+	if c := f.cfg["skills"].(map[string]any)["changelog"].(map[string]any); c["ref"] != "v2" || c["commit"] != fakeCommit2 {
+		t.Errorf("changelog = %v", c)
+	}
+	if code, _ := f.verb("skills.update", map[string]any{"ids": []any{"nothere"}}); code != http.StatusBadRequest {
 		t.Errorf("unknown update = %d", code)
+	}
+	f.verb("skills.scan", map[string]any{"repo": "https://github.com/anthropics/skills", "ref": "main", "path": "skills/pdf"})
+	if j := last(); strings.Count(string(j.Result), `"path"`) != 1 || !strings.Contains(string(j.Result), `"name":"pdf"`) {
+		t.Errorf("catalog scan = %s", j.Result)
 	}
 }
 

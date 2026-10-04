@@ -36,7 +36,7 @@ var browserVerbs = map[string]bool{
 	"config.get": true, "config.export": true, "config.apply": true, "config.revert": true, "config.reset": true,
 	"tools.list": true, "tools.versions": true, "tools.registry": true, "tools.add": true, "tools.remove": true,
 	"preset.install": true, "git.identity": true, "forge.status": true, "forge.login": true,
-	"skills.add": true, "skills.update": true,
+	"skills.scan": true, "skills.add": true, "skills.update": true,
 	"login.status": true, "login.start": true, "login.input": true, "login.cancel": true, "login.logout": true,
 }
 
