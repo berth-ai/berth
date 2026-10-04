@@ -1,7 +1,15 @@
 import { QueryClient, useQuery } from "@tanstack/react-query";
 import { jobsInterval } from "./jobs";
 import { get, shouldRetry, verb } from "./request";
-import type { ConfigView, ForgeStatus, Job, Session, Status, ToolsList } from "./types";
+import type {
+  ConfigView,
+  ForgeStatus,
+  Job,
+  LoginStatus,
+  Session,
+  Status,
+  ToolsList,
+} from "./types";
 
 export const queryClient = new QueryClient({ defaultOptions: { queries: { retry: shouldRetry } } });
 
@@ -13,6 +21,7 @@ export const keys = {
   config: ["config"],
   tools: ["tools"],
   forges: ["forges"],
+  logins: ["logins"],
   registry: ["registry"],
   versions: (tool: string) => ["versions", tool],
 } as const;
@@ -90,4 +99,12 @@ export function useToolVersions(tool: string) {
 /** refreshStatus reloads the status now, after an action changed it. */
 export function refreshStatus(): Promise<void> {
   return queryClient.invalidateQueries({ queryKey: keys.status });
+}
+
+export function useLogins() {
+  return useQuery({ queryKey: keys.logins, queryFn: () => verb<LoginStatus>("login.status") });
+}
+
+export function refreshLogins() {
+  return queryClient.invalidateQueries({ queryKey: keys.logins });
 }

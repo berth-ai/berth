@@ -63,6 +63,7 @@ export interface AgentPackage {
   mcp_id?: string;
   skills_dir?: string;
   skills_via?: string[];
+  icon?: string;
 }
 
 export type McpAuth = "none" | "bearer" | "oauth";
@@ -165,6 +166,33 @@ export interface Job {
   log?: string;
   log_truncated: boolean;
   device?: Device;
+  login?: LoginState;
+}
+
+export interface LoginState {
+  agent: string;
+  method: string;
+  flow: string;
+  url: string;
+  code: string;
+  waiting: boolean;
+  inputs: number;
+  signed_in: boolean;
+  account: string;
+  failed: string;
+}
+
+export interface LoginMethodStatus {
+  id: string;
+  label: string;
+  flow: string;
+  signed_in: boolean;
+  account: string;
+  error: string;
+}
+
+export interface LoginStatus {
+  agents: Record<string, { name: string; methods: LoginMethodStatus[] | null }> | null;
 }
 
 export interface Tool {

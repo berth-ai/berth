@@ -1,24 +1,23 @@
-import { Copy, ExternalLink } from "lucide-react";
 import { useEffect, useId, useRef, useState, type FormEvent } from "react";
 import { keys, queryClient, useForges, useJob, useJobs } from "@/api/queries";
 import { verb } from "@/api/request";
 import { jobStartError } from "@/api/run-job";
-import type { Device, Forge, ForgeStatus, Job } from "@/api/types";
+import type { Forge, ForgeStatus, Job } from "@/api/types";
 import { BusyButton } from "@/components/busy-button";
+import { DeviceBox } from "@/components/device-box";
 import { FormField, fieldProps } from "@/components/form-field";
 import { InlineAlert } from "@/components/inline-alert";
 import { LoadingRows } from "@/components/loading";
 import { CardGrid, Page, PageHeader } from "@/components/page";
 import { PanelCard } from "@/components/panel-card";
 import { StatusBadge } from "@/components/status-badge";
-import { Button, buttonVariants } from "@/components/ui/button";
+import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Spinner } from "@/components/ui/spinner";
-import { copyText } from "@/lib/copy";
 import { errorText } from "@/lib/errors";
 import { notify } from "@/lib/notify";
 import { useTitle } from "@/lib/use-title";
-import { deviceHost, forgeJobId } from "./accounts-logic";
+import { forgeJobId } from "./accounts-logic";
 
 const FORGES = [
   ["gh", "GitHub CLI"],
@@ -174,41 +173,5 @@ function ForgeCard({ id, label, forge }: { id: string; label: string; forge: For
         </div>
       ) : null}
     </PanelCard>
-  );
-}
-
-function DeviceBox({ device }: { device: Device }) {
-  return (
-    <div className="flex flex-col gap-2 rounded-md bg-info-soft p-4">
-      <span className="text-fg-muted">Enter this code on the code host:</span>
-      <span className="font-mono text-2xl font-semibold tracking-[.08em] wrap-anywhere text-fg">
-        {device.code}
-      </span>
-      <div className="flex flex-wrap items-center gap-2">
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={() =>
-            void copyText(device.code, "Code copied.", "Copy failed; type the code instead.")
-          }
-        >
-          <Copy aria-hidden />
-          Copy code
-        </Button>
-        <a
-          href={device.url}
-          target="_blank"
-          rel="noopener noreferrer"
-          className={buttonVariants({ variant: "outline", size: "sm" })}
-        >
-          <ExternalLink aria-hidden />
-          Open {deviceHost(device.url)}
-        </a>
-      </div>
-      <div className="flex items-center gap-2">
-        <Spinner className="size-3" />
-        <StatusBadge state="waiting" detail="for approval" />
-      </div>
-    </div>
   );
 }
