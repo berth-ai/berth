@@ -162,6 +162,17 @@ class DockerfileTest(unittest.TestCase):
             self.assertRegex(text, rf"ARG {name}_SHA256=[0-9a-f]{{64}}\n")
         self.assertNotRegex(text, r"\bcurl\s+-", "download only through fetch-artifact")
 
+    def test_every_copy_source_is_in_the_build_context(self):
+        # .dockerignore is an allowlist: a COPY source it does not re-include
+        # fails only at image build time, with "not found".
+        allowed = [l[1:] for l in read(".dockerignore").splitlines() if l.startswith("!")]
+        for line in self.lines:
+            if not line.startswith("COPY ") or "--from=" in line:
+                continue
+            for src in line.split()[1:-1]:
+                self.assertTrue(any(src == a or (a.endswith("/") and src.startswith(a)) for a in allowed),
+                                f"{src} is excluded by .dockerignore")
+
     def test_token_only_as_secret(self):
         text = read("Dockerfile")
         self.assertNotRegex(text, r"(ARG|ENV)\s+GITHUB_TOKEN")

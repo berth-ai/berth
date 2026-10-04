@@ -42,6 +42,9 @@ CI builds the image on every push but runs the smoke test only on demand: `gh wo
 - Every downloaded artifact has a sha256 `ARG`. When Renovate bumps a version
   `ARG`, update its checksums in the same PR:
   `curl -fsSL <url> | sha256sum`, once per architecture.
+- `.dockerignore` is an allowlist: every new `COPY` source needs a `!path`
+  entry in the same commit, or the image build fails with "not found".
+  `tests/test_build_config.py` checks this.
 - Split apt layers. On a failed install, read the first `E:`/`Err:` line, not the exit code.
 - Keep `/usr/sbin` and `/sbin` on `PATH`; keep `passwd` installed.
 - Expose mise tools through exec wrappers, never bare symlinks.

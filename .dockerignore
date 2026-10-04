@@ -6,6 +6,7 @@
 !rootfs/
 !agents/package.json
 !agents/package-lock.json
+!agents/registry/
 !tools/mise.toml
 !tools/presets/
 !build/
