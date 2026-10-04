@@ -3,6 +3,7 @@ package agentlayer
 import (
 	"cmp"
 	"errors"
+	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -40,6 +41,9 @@ type Builder struct {
 	Added func() agentset.Report
 	// RegistryRoot names and icons an added agent that is not installed.
 	RegistryRoot string
+	// SystemDirs are the directories after the layer on root's PATH; nil
+	// means the image's. An added agent's bin may not shadow a command there.
+	SystemDirs []string
 }
 
 // Package is one package of the merged set as the panel shows it.
@@ -59,6 +63,9 @@ type Package struct {
 	Previous  string   `json:"previous,omitempty"`   // an added agent's rollback version
 	Error     string   `json:"error,omitempty"`      // why an added agent is missing or out of date
 }
+
+// systemDirs are the image's PATH after the layer (Dockerfile ENV PATH).
+var systemDirs = []string{"/opt/mise/wrappers", "/usr/local/sbin", "/usr/local/bin", "/usr/sbin", "/usr/bin", "/sbin", "/bin"}
 
 // notInstalled explains an added agent without an install yet.
 const notInstalled = "Not installed yet; Berth installs it in the background."
@@ -80,7 +87,20 @@ func (b Builder) rows(disabled, added []string) ([]Package, agentset.Set, error)
 	if b.Added != nil && len(added) > 0 {
 		rep = b.Added()
 	}
-	set, err := agentset.Load(locked, b.AddedRoot, agentset.Pick(rep.Agents, added))
+	// The layer leads root's PATH as well as agent's, and an added agent's
+	// bins come from a tree agent can write: one named like a system command
+	// would make root run agent's code. Such an agent gets no wrappers.
+	refused := map[string]string{}
+	picked := slices.DeleteFunc(agentset.Pick(rep.Agents, added), func(a agentset.Added) bool {
+		for _, bin := range a.Bins {
+			if cmd := b.shadowed(bin); cmd != "" {
+				refused[a.Package] = fmt.Sprintf("its bin %s would shadow %s", bin, cmd)
+				return true
+			}
+		}
+		return false
+	})
+	set, err := agentset.Load(locked, b.AddedRoot, picked)
 	if err != nil {
 		return nil, agentset.Set{}, err
 	}
@@ -108,13 +128,35 @@ func (b Builder) rows(disabled, added []string) ([]Package, agentset.Set, error)
 	}
 	for _, name := range added {
 		if _, ok := set.Packages[name]; !ok {
-			out = append(out, b.missing(name, disabled, cmp.Or(set.Errors[name], rep.Errors[name], notInstalled)))
+			out = append(out, b.missing(name, disabled, cmp.Or(refused[name], set.Errors[name], rep.Errors[name], notInstalled)))
 		}
 	}
 	slices.SortStableFunc(out, func(a, b Package) int {
 		return cmp.Or(cmp.Compare(kindOrder(a.Kind), kindOrder(b.Kind)), cmp.Compare(a.Name, b.Name))
 	})
 	return out, set, nil
+}
+
+// shadowed is the system command bin would shadow on root's PATH, or "".
+func (b Builder) shadowed(bin string) string {
+	if !locksource.ValidBinName(bin) {
+		return "" // agentset.Load refuses it
+	}
+	dirs := b.SystemDirs
+	if dirs == nil {
+		dirs = systemDirs
+	}
+	for _, dir := range dirs {
+		if p := filepath.Join(dir, bin); exists(p) {
+			return p
+		}
+	}
+	return ""
+}
+
+func exists(path string) bool {
+	_, err := os.Lstat(path)
+	return err == nil
 }
 
 // missing is the row of an added agent that is not in the set.

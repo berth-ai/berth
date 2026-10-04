@@ -265,3 +265,27 @@ func TestBuildRefusesHostileReport(t *testing.T) {
 		t.Errorf("a no longer runs the locked bin:\n%s", raw)
 	}
 }
+
+// TestBuildRefusesShadowingBin: the layer leads root's PATH too, so an added
+// agent whose report claims a system command's name gets no wrapper at all.
+func TestBuildRefusesShadowingBin(t *testing.T) {
+	b, berth := fakeSet(t)
+	b.AddedRoot = t.TempDir()
+	b.SystemDirs = []string{t.TempDir()}
+	os.WriteFile(filepath.Join(b.SystemDirs[0], "git"), []byte("#!/bin/sh\n"), 0o755)
+	b.Added = func() agentset.Report {
+		rep := copilotReport(nil)()
+		rep.Agents[0].Bins = []string{"copilot", "git"}
+		return rep
+	}
+	pkgs, err := b.Build(nil, []string{"@github/copilot"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c, _ := findPkg(pkgs, "@github/copilot"); !strings.Contains(c.Error, "git") || len(c.Bins) != 0 {
+		t.Errorf("copilot = %+v", c)
+	}
+	if got := names(filepath.Join(berth, "bin")); !slices.Equal(got, []string{"a", "b-mcp"}) {
+		t.Errorf("bin = %v", got)
+	}
+}
