@@ -7,6 +7,7 @@ describe("brand icons", () => {
     expect(Object.keys(BRAND_ICONS).sort()).toEqual([
       "claude",
       "codex",
+      "githubcopilot",
       "googlegemini",
       "opencode",
     ]);

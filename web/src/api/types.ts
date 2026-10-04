@@ -64,6 +64,10 @@ export interface AgentPackage {
   skills_dir?: string;
   skills_via?: string[];
   icon?: string;
+  // An older broker omits these.
+  origin?: "locked" | "added";
+  previous?: string;
+  error?: string;
 }
 
 export type McpAuth = "none" | "bearer" | "oauth";
@@ -245,4 +249,19 @@ export interface Forge {
 export interface ForgeStatus {
   git: { name: string; email: string };
   forges: Record<string, Forge>;
+}
+
+/** RegistryAgent is one agent the image's registry lets a user add. */
+export interface RegistryAgent {
+  id: string;
+  package: string;
+  name: string;
+  description: string;
+  version: string;
+  icon?: string;
+  keys: string[] | null;
+  login: string[] | null;
+  added: boolean;
+  installed_version?: string;
+  error?: string;
 }

@@ -1,7 +1,15 @@
 import { ChevronRight } from "lucide-react";
 import { useId, useState } from "react";
 import { applyConfig } from "@/api/config";
-import { refreshLogins, refreshStatus, useConfig, useLogins, useStatus } from "@/api/queries";
+import {
+  refreshAgentRegistry,
+  refreshLogins,
+  refreshStatus,
+  useAgentRegistry,
+  useConfig,
+  useLogins,
+  useStatus,
+} from "@/api/queries";
 import { verb } from "@/api/request";
 import { runJob } from "@/api/run-job";
 import type {
@@ -34,7 +42,8 @@ import { errorText, fieldErrors } from "@/lib/errors";
 import { describeSource, short, when } from "@/lib/format";
 import { notify, type Tone } from "@/lib/notify";
 import { useTitle } from "@/lib/use-title";
-import { checkResult, versionLabel } from "./agents-logic";
+import { AddAgentDialog } from "./agent-dialog";
+import { addedToast, allAdded, checkResult, removeBody, versionLabel } from "./agents-logic";
 import { PackageSection } from "./package-table";
 import { useSignIn } from "./sign-in";
 
@@ -62,6 +71,35 @@ export function AgentsPage() {
           return false;
         }
       },
+    });
+  const registry = useAgentRegistry();
+  const [adding, setAdding] = useState(false);
+  const removeAgent = (p: AgentPackage) =>
+    ask({
+      title: `Remove ${p.name}?`,
+      body: removeBody(p),
+      confirm: "Remove",
+      danger: true,
+      action: async () => {
+        try {
+          await verb("agents.remove", { package: p.package });
+          notify(`${p.name} removed.`);
+          void refreshStatus();
+          void refreshLogins();
+          void refreshAgentRegistry();
+        } catch (err) {
+          notify(errorText(err), "bad");
+          return false;
+        }
+      },
+    });
+  const rollBack = (p: AgentPackage) =>
+    ask({
+      title: `Roll ${p.name} back to ${p.previous}?`,
+      body: "Berth switches back at once. It stays on that version until the image pins a newer one.",
+      confirm: "Roll back",
+      danger: true,
+      action: startJob("agents.rollback", `${p.name} rolled back.`, { package: p.package }),
     });
   return (
     <Page>
@@ -91,8 +129,29 @@ export function AgentsPage() {
             }),
           onSignOut: signOut,
         }}
+        actions={
+          allAdded(registry.data?.agents) ? null : (
+            <Button variant="outline" size="sm" onClick={() => setAdding(true)}>
+              Add agent
+            </Button>
+          )
+        }
+        added={{ onRollBack: rollBack, onRemove: removeAgent }}
       />
       {signIn.dialog}
+      {adding ? (
+        <AddAgentDialog
+          entries={registry.data?.agents}
+          failed={registry.isError ? errorText(registry.error) : ""}
+          onClose={() => setAdding(false)}
+          onAdded={(name) => {
+            notify(addedToast(name));
+            void refreshStatus();
+            void refreshLogins();
+            void refreshAgentRegistry();
+          }}
+        />
+      ) : null}
       {confirmDialog}
     </Page>
   );
@@ -105,13 +164,16 @@ function finishJob(job: Job | null, okText: string) {
     job.state === "succeeded" ? "ok" : "bad",
   );
   void refreshStatus();
+  if (job.verb === "agents.rollback") void refreshAgentRegistry();
 }
 
 /** startJob is a confirm action that starts a job and reports its outcome. */
-const startJob = (name: string, okText: string) => async () => {
-  void runJob(name, {}).then((job) => finishJob(job, okText));
-  return true;
-};
+const startJob =
+  (name: string, okText: string, body: unknown = {}) =>
+  async () => {
+    void runJob(name, body).then((job) => finishJob(job, okText));
+    return true;
+  };
 
 function SourceCard() {
   const config = useConfig();

@@ -1,4 +1,4 @@
-import { useId, useState } from "react";
+import { type ReactNode, useId, useState } from "react";
 import { applyConfig } from "@/api/config";
 import { refreshLogins, refreshStatus } from "@/api/queries";
 import type { AgentPackage, LoginMethodStatus, LoginStatus } from "@/api/types";
@@ -33,6 +33,12 @@ export interface SignInColumn {
   onSignOut: (p: AgentPackage, m: LoginMethodStatus) => void;
 }
 
+/** AddedActions are the buttons of an added agent's row. */
+export interface AddedActions {
+  onRollBack: (p: AgentPackage) => void;
+  onRemove: (p: AgentPackage) => void;
+}
+
 /** PackageSection lists the lock packages of one kind: a switch each, key
  * status, and key editors that expand in place. */
 export function PackageSection({
@@ -43,6 +49,8 @@ export function PackageSection({
   all,
   empty,
   signIn,
+  actions,
+  added,
 }: {
   title: string;
   kind: "agent" | "mcp";
@@ -51,11 +59,14 @@ export function PackageSection({
   all: AgentPackage[] | undefined;
   empty: string;
   signIn?: SignInColumn;
+  actions?: ReactNode;
+  added?: AddedActions;
 }) {
   const list = all?.filter((p) => p.kind === kind);
   return (
     <PanelCard
       title={title}
+      actions={actions}
       badge={
         list ? <span className="text-xs text-fg-muted">{count(list.length, ...noun)}</span> : null
       }
@@ -77,7 +88,7 @@ export function PackageSection({
           </TableHeader>
           <TableBody>
             {list.map((p) => (
-              <PackageRows key={p.package} p={p} all={all} signIn={signIn} />
+              <PackageRows key={p.package} p={p} all={all} signIn={signIn} added={added} />
             ))}
           </TableBody>
         </Table>
@@ -92,10 +103,12 @@ function PackageRows({
   p,
   all,
   signIn,
+  added,
 }: {
   p: AgentPackage;
   all: AgentPackage[];
   signIn?: SignInColumn;
+  added?: AddedActions;
 }) {
   const [open, setOpen] = useState(false);
   const [pending, setPending] = useState<boolean | null>(null);
@@ -134,9 +147,18 @@ function PackageRows({
             {p.kind === "agent" ? <BrandIcon slug={p.icon} name={p.name} id={p.package} /> : null}
             <div className="flex min-w-0 flex-col gap-0.5">
               <strong className="text-fg">{p.name}</strong>
-              <span className="font-mono text-xs break-all text-fg-muted">
+              <span className="flex flex-wrap items-center gap-2 font-mono text-xs break-all text-fg-muted">
                 {p.package} {p.version}
+                {p.origin === "added" ? <StatusBadge small state="added" /> : null}
               </span>
+              {p.error ? (
+                <span className="text-xs text-warn">
+                  {p.error}{" "}
+                  <a href="#/activity" className="underline">
+                    Open the job log
+                  </a>
+                </span>
+              ) : null}
             </div>
           </div>
         </TableCell>
@@ -175,18 +197,40 @@ function PackageRows({
           />
         </TableCell>
         <TableCell className="text-right">
-          {keys.length ? (
-            <Button
-              variant="outline"
-              size="sm"
-              aria-expanded={open}
-              aria-controls={open ? detailId : undefined}
-              aria-label={`Manage ${p.name}`}
-              onClick={() => setOpen((o) => !o)}
-            >
-              Manage
-            </Button>
-          ) : null}
+          <div className="flex flex-wrap justify-end gap-2">
+            {keys.length ? (
+              <Button
+                variant="outline"
+                size="sm"
+                aria-expanded={open}
+                aria-controls={open ? detailId : undefined}
+                aria-label={`Manage ${p.name}`}
+                onClick={() => setOpen((o) => !o)}
+              >
+                Manage
+              </Button>
+            ) : null}
+            {added && p.origin === "added" && p.previous ? (
+              <Button
+                variant="outline"
+                size="sm"
+                aria-label={`Roll back ${p.name}`}
+                onClick={() => added.onRollBack(p)}
+              >
+                Roll back
+              </Button>
+            ) : null}
+            {added && p.origin === "added" ? (
+              <Button
+                variant="outline"
+                size="sm"
+                aria-label={`Remove ${p.name}`}
+                onClick={() => added.onRemove(p)}
+              >
+                Remove
+              </Button>
+            ) : null}
+          </div>
         </TableCell>
       </TableRow>
       {open ? (

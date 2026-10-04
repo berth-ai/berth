@@ -1,6 +1,15 @@
 import { describe, expect, it } from "vitest";
-import type { AgentPackage } from "@/api/types";
-import { checkResult, disabledAfter, keyBadge, versionLabel } from "./agents-logic";
+import type { AgentPackage, RegistryAgent } from "@/api/types";
+import {
+  addedToast,
+  agentHome,
+  allAdded,
+  checkResult,
+  disabledAfter,
+  keyBadge,
+  removeBody,
+  versionLabel,
+} from "./agents-logic";
 
 const pkg = (name: string, enabled: boolean): AgentPackage => ({
   package: name,
@@ -43,5 +52,40 @@ describe("keyBadge", () => {
   it("maps a key onto a badge state", () => {
     expect(keyBadge({ name: "A", set: true })).toBe("set");
     expect(keyBadge({ name: "A", set: false })).toBe("not_set");
+  });
+});
+
+describe("added agents", () => {
+  const entry = (added: boolean): RegistryAgent => ({
+    id: "copilot",
+    package: "@github/copilot",
+    name: "GitHub Copilot CLI",
+    description: "",
+    version: "1.0.91",
+    keys: [],
+    login: [],
+    added,
+  });
+
+  it("hides Add agent only when every entry is added", () => {
+    expect(allAdded(undefined)).toBe(false);
+    expect(allAdded([entry(false)])).toBe(false);
+    expect(allAdded([entry(true)])).toBe(true);
+    expect(allAdded([])).toBe(true);
+  });
+
+  it("names the folder an agent keeps its settings in", () => {
+    expect(agentHome("~/.copilot/skills")).toBe("~/.copilot");
+    expect(agentHome("$XDG_CONFIG_HOME/opencode/skills")).toBe("$XDG_CONFIG_HOME/opencode");
+    expect(agentHome(undefined)).toBe("its own folder");
+  });
+
+  it("words the toast and the remove confirmation", () => {
+    expect(addedToast("GitHub Copilot CLI")).toBe(
+      "GitHub Copilot CLI added. Sign in from its row.",
+    );
+    expect(removeBody({ skills_dir: "~/.copilot/skills" })).toBe(
+      "Berth deletes its install. Its settings and sign-in in ~/.copilot stay.",
+    );
   });
 });

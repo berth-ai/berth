@@ -6,6 +6,7 @@ import type {
   ForgeStatus,
   Job,
   LoginStatus,
+  RegistryAgent,
   Session,
   Status,
   ToolsList,
@@ -23,6 +24,7 @@ export const keys = {
   forges: ["forges"],
   logins: ["logins"],
   registry: ["registry"],
+  agentRegistry: ["agent-registry"],
   versions: (tool: string) => ["versions", tool],
 } as const;
 
@@ -107,4 +109,15 @@ export function useLogins() {
 
 export function refreshLogins() {
   return queryClient.invalidateQueries({ queryKey: keys.logins });
+}
+
+export function useAgentRegistry() {
+  return useQuery({
+    queryKey: keys.agentRegistry,
+    queryFn: () => verb<{ agents: RegistryAgent[] }>("agents.registry"),
+  });
+}
+
+export function refreshAgentRegistry() {
+  return queryClient.invalidateQueries({ queryKey: keys.agentRegistry });
 }
