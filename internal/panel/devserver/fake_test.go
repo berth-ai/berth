@@ -195,3 +195,85 @@ func waitFakeJobs(t *testing.T, f *fake) {
 	}
 	t.Fatal("fake jobs did not finish")
 }
+
+func waitFakeJob(t *testing.T, c *client, id string, ok func(map[string]any) bool) map[string]any {
+	t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		_, out := c.call("GET", "/api/jobs/"+id, "")
+		if job, _ := out["job"].(map[string]any); job != nil && ok(job) {
+			return job
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	t.Fatalf("job %s never got there", id)
+	return nil
+}
+
+func loginOf(job map[string]any) map[string]any {
+	l, _ := job["login"].(map[string]any)
+	return l
+}
+
+func TestFakeSignIns(t *testing.T) {
+	c, _ := newClient(t, "normal")
+	c.call("POST", "/api/login", `{"user":"dev","password":"dev password"}`)
+
+	code, out := c.call("POST", "/api/verbs/login.start", `{"agent":"@example/agent-cli","method":"account"}`)
+	if code != 202 {
+		t.Fatalf("start = %d %v", code, out)
+	}
+	if code, _ := c.call("POST", "/api/verbs/login.start", `{"agent":"@example/other-cli","method":"chatgpt"}`); code != 409 {
+		t.Errorf("a second sign-in started: %d", code)
+	}
+	job := waitFakeJob(t, c, "1", func(j map[string]any) bool { return loginOf(j)["waiting"] == true })
+	first := loginOf(job)["url"]
+	c.call("POST", "/api/verbs/login.input", `{"job":1,"code":"wrong"}`)
+	job = waitFakeJob(t, c, "1", func(j map[string]any) bool {
+		return loginOf(j)["waiting"] == true && loginOf(j)["url"] != first
+	})
+	if loginOf(job)["inputs"] != float64(1) {
+		t.Errorf("login = %v", loginOf(job))
+	}
+	c.call("POST", "/api/verbs/login.input", `{"job":1,"code":"good"}`)
+	waitFakeJob(t, c, "1", func(j map[string]any) bool { return j["state"] == "succeeded" })
+
+	_, st := c.call("POST", "/api/verbs/login.status", `{}`)
+	ex := st["agents"].(map[string]any)["@example/agent-cli"].(map[string]any)["methods"].([]any)[0].(map[string]any)
+	if ex["signed_in"] != true || ex["account"] != "you@example.org" {
+		t.Errorf("status = %v", ex)
+	}
+
+	c.call("POST", "/api/verbs/login.start", `{"agent":"@example/other-cli","method":"copilot"}`)
+	job = waitFakeJob(t, c, "2", func(j map[string]any) bool { return j["state"] == "succeeded" })
+	if job["args"].([]any)[4] != "copilot" {
+		t.Errorf("args = %v", job["args"])
+	}
+
+	c.call("POST", "/api/verbs/login.start", `{"agent":"@example/agent-cli","method":"account"}`)
+	waitFakeJob(t, c, "3", func(j map[string]any) bool { return loginOf(j)["waiting"] == true })
+	if code, _ := c.call("POST", "/api/verbs/login.cancel", `{"job":3}`); code != 200 {
+		t.Fatalf("cancel = %d", code)
+	}
+	if code, _ := c.call("POST", "/api/verbs/login.cancel", `{"job":3}`); code != 409 {
+		t.Errorf("second cancel = %d", code)
+	}
+	job = waitFakeJob(t, c, "3", func(j map[string]any) bool { return j["state"] == "failed" })
+	if job["result"].(map[string]any)["error"].(map[string]any)["code"] != "cancelled" {
+		t.Errorf("result = %v", job["result"])
+	}
+
+	if code, _ := c.call("POST", "/api/verbs/login.logout", `{"agent":"@example/agent-cli","method":"account"}`); code != 200 {
+		t.Errorf("logout = %d", code)
+	}
+	_, st = c.call("POST", "/api/verbs/login.status", `{}`)
+	ex = st["agents"].(map[string]any)["@example/agent-cli"].(map[string]any)["methods"].([]any)[0].(map[string]any)
+	if ex["signed_in"] != false {
+		t.Errorf("still signed in after logout: %v", ex)
+	}
+
+	_, status := c.call("GET", "/api/status", "")
+	if pkgs := status["packages"].([]any); pkgs[0].(map[string]any)["icon"] != "claude" {
+		t.Errorf("first package = %v", pkgs[0])
+	}
+}

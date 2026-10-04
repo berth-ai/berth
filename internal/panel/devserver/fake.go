@@ -3,6 +3,7 @@ package main
 import (
 	"cmp"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"path"
 	"reflect"
@@ -32,29 +33,36 @@ type job struct {
 	Log          string            `json:"log,omitempty"`
 	LogTruncated bool              `json:"log_truncated"`
 	Device       map[string]string `json:"device,omitempty"`
+	Login        map[string]any    `json:"login,omitempty"`
+
+	input     chan string   // agent.login: pasted codes
+	cancel    chan struct{} // closed by login.cancel
+	cancelled bool
 }
 
 // fake answers like the broker for everything the panel's browser side
 // calls. Config is kept as decoded JSON so patches merge like the real
 // store's.
 type fake struct {
-	mu      sync.Mutex
-	mode    string
-	user    string
-	cfg     map[string]any
-	prev    map[string]any
-	keys    map[string]bool
-	git     map[string]string
-	forges  map[string]bool
-	tools   []map[string]string
-	jobs    []*job
-	started time.Time
-	step    time.Duration
+	mu       sync.Mutex
+	mode     string
+	user     string
+	cfg      map[string]any
+	prev     map[string]any
+	keys     map[string]bool
+	git      map[string]string
+	forges   map[string]bool
+	tools    []map[string]string
+	jobs     []*job
+	started  time.Time
+	step     time.Duration
+	signedIn map[string]bool // pkg + " " + method
 }
 
 func newFake(mode string) *fake {
 	return &fake{
-		mode: mode, user: devUser, started: time.Now().UTC(), step: 400 * time.Millisecond,
+		signedIn: map[string]bool{},
+		mode:     mode, user: devUser, started: time.Now().UTC(), step: 400 * time.Millisecond,
 		cfg:    defaultConfig(1),
 		keys:   map[string]bool{"EXAMPLE_API_KEY": false},
 		git:    map[string]string{"name": "", "email": ""},
@@ -194,6 +202,37 @@ func (f *fake) verb(name string, in map[string]any) (int, any) {
 			return http.StatusNotFound, apiError("unknown_skill", "no skill named "+id)
 		}
 		return f.start(name, in)
+	case "login.status":
+		return http.StatusOK, f.loginStatus("")
+	case "login.start":
+		if fakeFlow(str(in["agent"]), str(in["method"])) == "" {
+			return http.StatusBadRequest, apiError("invalid_request", "no such sign-in method")
+		}
+		return f.start("agent.login", in)
+	case "login.input", "login.cancel":
+		j := f.findJob(num(in["job"]))
+		switch {
+		case j == nil:
+			return http.StatusNotFound, apiError("no_job", "no such job")
+		case j.Verb != "agent.login" && (name != "login.cancel" || j.Verb != "forge.login"):
+			return http.StatusBadRequest, apiError("not_a_sign_in", "that job is not a sign-in")
+		case j.State != "running" || j.cancelled:
+			return http.StatusConflict, apiError("job_finished", "the sign-in has ended; start it again")
+		case name == "login.cancel":
+			j.cancelled = true
+			close(j.cancel)
+			return http.StatusOK, map[string]any{"ok": true}
+		case j.Login == nil || j.Login["flow"] != "paste":
+			return http.StatusBadRequest, apiError("no_code", "this sign-in takes no code")
+		}
+		select {
+		case j.input <- strings.TrimSpace(str(in["code"])):
+		default:
+		}
+		return http.StatusOK, map[string]any{"ok": true}
+	case "login.logout":
+		delete(f.signedIn, str(in["agent"])+" "+str(in["method"]))
+		return http.StatusOK, f.loginStatus(str(in["agent"]))
 	case "update", "rollback", "gc", "tools.add", "tools.remove", "preset.install", "forge.login", "skills.add":
 		return f.start(name, in)
 	}
@@ -324,7 +363,7 @@ func (f *fake) packages() []map[string]any {
 		off[p.(string)] = true
 	}
 	return []map[string]any{
-		{"package": "@example/agent-cli", "name": "Example Agent", "kind": "agent", "version": "2.1.0", "enabled": !off["@example/agent-cli"],
+		{"package": "@example/agent-cli", "name": "Example Agent", "kind": "agent", "version": "2.1.0", "enabled": !off["@example/agent-cli"], "icon": "claude",
 			"bins": []string{"example"}, "keys": []map[string]any{{"name": "EXAMPLE_API_KEY", "set": f.keys["EXAMPLE_API_KEY"]}},
 			"skills_dir": "~/.example/skills"},
 		{"package": "@example/other-cli", "name": "Other Agent", "kind": "agent", "version": "1.4.0", "enabled": !off["@example/other-cli"],
@@ -342,7 +381,7 @@ func (f *fake) check() map[string]any {
 
 var groups = map[string]string{"update": "agents", "rollback": "agents", "gc": "agents",
 	"tools.add": "tools", "tools.remove": "tools", "preset.install": "tools", "forge.login": "forge",
-	"skills.add": "skills", "skills.update": "skills", "skills.sync": "skills-sync"}
+	"skills.add": "skills", "skills.update": "skills", "skills.sync": "skills-sync", "agent.login": "agent-login"}
 
 func (f *fake) start(verb string, in map[string]any) (int, any) {
 	group := groups[verb]
@@ -361,16 +400,23 @@ func (f *fake) start(verb string, in map[string]any) (int, any) {
 		args = []string{"/opt/mise/bin/mise", "install", str(in["preset"])}
 	case "forge.login":
 		args = []string{"/usr/bin/" + str(in["forge"]), "auth", "login"}
+	case "agent.login":
+		args = []string{"/usr/local/bin/berth", "login", "run", str(in["agent"]), str(in["method"])}
 	case "skills.add", "skills.update":
 		args = []string{"/usr/local/bin/berth", "skills", "resolve", "--json", "--repo", str(in["repo"]), "--ref", str(in["ref"])}
 	}
-	j := &job{ID: len(f.jobs) + 1, Verb: verb, Group: group, Args: args, State: "running", StartedAt: time.Now().UTC(), Result: json.RawMessage("null")}
+	j := &job{ID: len(f.jobs) + 1, Verb: verb, Group: group, Args: args, State: "running", StartedAt: time.Now().UTC(),
+		Result: json.RawMessage("null"), input: make(chan string, 1), cancel: make(chan struct{})}
 	f.jobs = append(f.jobs, j)
 	go f.run(j, in)
 	return http.StatusAccepted, map[string]any{"job": j}
 }
 
 func (f *fake) run(j *job, in map[string]any) {
+	if j.Verb == "agent.login" {
+		f.runLogin(j, in)
+		return
+	}
 	lines := []string{"starting " + j.Verb, "resolving versions", "installing", "done"}
 	switch j.Verb {
 	case "rollback":
@@ -381,7 +427,14 @@ func (f *fake) run(j *job, in map[string]any) {
 		lines = []string{"fetch     " + str(in["repo"]) + "@" + str(in["ref"]), "read      SKILL.md", "verify    frontmatter ok"}
 	}
 	for i, line := range lines {
-		time.Sleep(f.step)
+		select {
+		case <-j.cancel:
+			f.mu.Lock()
+			f.finish(j, 1, "failed", `{"error":{"code":"cancelled","message":"cancelled"}}`)
+			f.mu.Unlock()
+			return
+		case <-time.After(f.step):
+		}
 		f.mu.Lock()
 		j.Log += line + "\n"
 		if j.Verb == "forge.login" && i == 0 {
@@ -445,6 +498,146 @@ func (f *fake) run(j *job, in map[string]any) {
 		j.Result = json.RawMessage(`{"skill":"` + id + `","changed":true}`)
 	}
 	j.FinishedAt, j.ExitCode = &now, &code
+}
+
+// fakeLogins are the fake agents' sign-in methods.
+var fakeLogins = []struct {
+	pkg, name string
+	methods   [][3]string // id, label, flow
+}{
+	{"@example/agent-cli", "Example Agent", [][3]string{{"account", "Example account", "paste"}}},
+	{"@example/other-cli", "Other Agent", [][3]string{{"chatgpt", "ChatGPT", "device"}, {"copilot", "GitHub Copilot", "device"}}},
+}
+
+func fakeFlow(pkg, id string) string {
+	for _, a := range fakeLogins {
+		for _, m := range a.methods {
+			if a.pkg == pkg && m[0] == id {
+				return m[2]
+			}
+		}
+	}
+	return ""
+}
+
+// loginStatus answers login.status; only, when set, keeps one agent.
+func (f *fake) loginStatus(only string) map[string]any {
+	off := map[string]bool{}
+	for _, p := range f.cfg["agents"].(map[string]any)["disabled"].([]any) {
+		off[p.(string)] = true
+	}
+	agents := map[string]any{}
+	for _, a := range fakeLogins {
+		if off[a.pkg] || (only != "" && a.pkg != only) {
+			continue
+		}
+		methods := []map[string]any{}
+		for _, m := range a.methods {
+			signed := f.signedIn[a.pkg+" "+m[0]]
+			account := ""
+			if signed {
+				account = "you@example.org"
+			}
+			methods = append(methods, map[string]any{"id": m[0], "label": m[1], "flow": m[2],
+				"signed_in": signed, "account": account, "error": ""})
+		}
+		agents[a.pkg] = map[string]any{"name": a.name, "methods": methods}
+	}
+	return map[string]any{"agents": agents, "schema": 1}
+}
+
+func (f *fake) findJob(id int) *job {
+	for _, j := range f.jobs {
+		if j.ID == id {
+			return j
+		}
+	}
+	return nil
+}
+
+// finish ends j. Caller holds f.mu.
+func (f *fake) finish(j *job, code int, state, result string) {
+	now := time.Now().UTC()
+	j.State, j.Result, j.FinishedAt, j.ExitCode = state, json.RawMessage(result), &now, &code
+}
+
+// runLogin plays berth login run: a device sign-in approves itself; a paste
+// sign-in waits for a code, and "wrong" gets a new URL.
+func (f *fake) runLogin(j *job, in map[string]any) {
+	pkg, id := str(in["agent"]), str(in["method"])
+	flow := fakeFlow(pkg, id)
+	login := map[string]any{"agent": pkg, "method": id, "flow": flow, "url": "", "code": "",
+		"waiting": false, "inputs": 0, "signed_in": false, "account": "", "failed": ""}
+	cancelled := func() {
+		f.mu.Lock()
+		defer f.mu.Unlock()
+		f.finish(j, 1, "failed", `{"error":{"code":"cancelled","message":"cancelled"}}`)
+	}
+	step := func(line string, change func()) bool {
+		select {
+		case <-j.cancel:
+			cancelled()
+			return false
+		case <-time.After(f.step):
+		}
+		f.mu.Lock()
+		defer f.mu.Unlock()
+		j.Log += line + "\n"
+		if change != nil {
+			change()
+		}
+		j.Login = clone(login)
+		return true
+	}
+	signed := func() {
+		f.signedIn[pkg+" "+id] = true
+		login["signed_in"], login["account"] = true, "you@example.org"
+	}
+	if !step("berth: login start "+flow, nil) {
+		return
+	}
+	if flow == "device" {
+		url := "https://example.com/device"
+		if !step("berth: login url "+url, func() { login["url"] = url }) ||
+			!step("berth: login device-code WXYZ-1234", func() { login["code"] = "WXYZ-1234" }) ||
+			!step("│ Waiting for authorization", nil) || !step("│ Waiting for authorization", nil) ||
+			!step("berth: login signed in as you@example.org", signed) {
+			return
+		}
+	} else {
+		for n := 1; ; n++ {
+			url := fmt.Sprintf("https://example.com/authorize?attempt=%d", n)
+			if !step("berth: login url "+url, func() { login["url"], login["waiting"] = url, false }) ||
+				!step("berth: login waiting for code", func() { login["waiting"] = true }) {
+				return
+			}
+			var code string
+			select {
+			case code = <-j.input:
+			case <-j.cancel:
+				cancelled()
+				return
+			}
+			if !step("berth: login input received", func() {
+				login["inputs"] = num(login["inputs"]) + 1
+				login["waiting"] = false
+			}) {
+				return
+			}
+			if code != "wrong" {
+				break
+			}
+			if !step("│ Failed to authenticate with authorization code:invalid_grant", nil) {
+				return
+			}
+		}
+		if !step("berth: login signed in as you@example.org", signed) {
+			return
+		}
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.finish(j, 0, "succeeded", "{}")
 }
 
 func apiError(code, msg string) map[string]any {
