@@ -10,6 +10,7 @@ import { InlineAlert } from "@/components/inline-alert";
 import { LoadingRows } from "@/components/loading";
 import { Page, PageHeader } from "@/components/page";
 import { PanelCard } from "@/components/panel-card";
+import { Segmented } from "@/components/segmented";
 import { StatusBadge } from "@/components/status-badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -21,13 +22,12 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { errorText } from "@/lib/errors";
 import { count } from "@/lib/format";
 import { notify } from "@/lib/notify";
 import { useTitle } from "@/lib/use-title";
 import { ToolDialog } from "./tool-dialog";
-import { TOOLS_TABS, parseToolsTab, presetPinned, upgradeTo, type ToolsTab } from "./tools-logic";
+import { TOOLS_TABS, presetPinned, upgradeTo, type ToolsTab } from "./tools-logic";
 
 const TAB_LABELS: Record<ToolsTab, string> = {
   builtin: "Built-in",
@@ -71,27 +71,23 @@ export function ToolsPage({ tab, onTab }: { tab: ToolsTab; onTab: (t: ToolsTab) 
           {w}
         </InlineAlert>
       ))}
-      <ToggleGroup
-        aria-label="Tool sections"
-        value={[tab]}
-        onValueChange={(value) => {
-          if (value[0] !== undefined) onTab(parseToolsTab(value[0]));
-        }}
-        className="gap-0.5 rounded-md bg-surface-sunken p-0.5 max-sm:w-full"
-      >
-        {TOOLS_TABS.map((t) => (
-          <ToggleGroupItem
-            key={t}
-            value={t}
-            className="h-7 gap-1.5 rounded-sm px-3 font-medium text-fg-muted data-pressed:bg-surface data-pressed:text-fg data-pressed:shadow-xs max-sm:flex-1 max-sm:px-2"
-          >
-            {TAB_LABELS[t]}
-            {counts[t] === undefined ? null : (
-              <span className="text-xs text-fg-muted tabular-nums">{counts[t]}</span>
-            )}
-          </ToggleGroupItem>
-        ))}
-      </ToggleGroup>
+      <Segmented
+        label="Tool sections"
+        value={tab}
+        onChange={onTab}
+        className="max-sm:w-full"
+        options={TOOLS_TABS.map((t) => ({
+          value: t,
+          label: (
+            <>
+              {TAB_LABELS[t]}
+              {counts[t] === undefined ? null : (
+                <span className="text-xs text-fg-muted tabular-nums">{counts[t]}</span>
+              )}
+            </>
+          ),
+        }))}
+      />
       {!data ? (
         tools.isError ? null : (
           <PanelCard>

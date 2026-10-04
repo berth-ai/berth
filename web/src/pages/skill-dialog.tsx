@@ -7,6 +7,7 @@ import { BusyButton } from "@/components/busy-button";
 import { FormField, fieldProps } from "@/components/form-field";
 import { InlineAlert } from "@/components/inline-alert";
 import { LogViewer } from "@/components/log-viewer";
+import { Segmented } from "@/components/segmented";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -16,8 +17,8 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Checkbox } from "@/components/ui/checkbox";
+import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
-import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { errorText } from "@/lib/errors";
 import { count } from "@/lib/format";
 import { notify } from "@/lib/notify";
@@ -211,29 +212,16 @@ export function SkillDialog({
             <p className="text-xs text-fg-muted">
               Skills are instructions and scripts your agents run. Add only sources you trust.
             </p>
-            <ToggleGroup
-              aria-label="Skill source"
-              value={[tab]}
-              onValueChange={(v) => {
-                if (v[0] !== undefined) setTab(v[0] as Tab);
-              }}
-              className="w-full gap-0.5 rounded-md bg-surface-sunken p-0.5"
-            >
-              {(
-                [
-                  ["catalog", "Catalog"],
-                  ["repo", "From a repository"],
-                ] as const
-              ).map(([value, label]) => (
-                <ToggleGroupItem
-                  key={value}
-                  value={value}
-                  className="h-7 flex-1 rounded-sm px-3 font-medium text-fg-muted data-pressed:bg-surface data-pressed:text-fg data-pressed:shadow-xs"
-                >
-                  {label}
-                </ToggleGroupItem>
-              ))}
-            </ToggleGroup>
+            <Segmented
+              label="Skill source"
+              value={tab}
+              onChange={setTab}
+              className="w-full"
+              options={[
+                { value: "catalog", label: "Catalog" },
+                { value: "repo", label: "From a repository" },
+              ]}
+            />
           </>
         )}
         {!editing && tab === "catalog" ? (
@@ -316,14 +304,14 @@ export function SkillDialog({
           </FormField>
         ) : null}
         {grouped ? (
-          <label className="flex items-center gap-2">
+          <Label className="flex items-center gap-2 font-normal leading-[inherit]">
             <Checkbox
               checked={applyAll}
               disabled={busy}
               onCheckedChange={(on) => setApplyAll(on)}
             />
             Apply to all {group.length} skills from {repoLabel(editing.skill.repo)}
-          </label>
+          </Label>
         ) : null}
         {!editing && tab === "repo" && scan ? (
           <ScanChecklist

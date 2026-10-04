@@ -2,6 +2,7 @@ import { useState } from "react";
 import type { AgentPackage } from "@/api/types";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
+import { Label } from "@/components/ui/label";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { availableLabel, pickedAfter } from "./mcp-logic";
 
@@ -28,19 +29,19 @@ export function AgentChecklist({
   return (
     <fieldset className="flex flex-col gap-2" disabled={disabled}>
       <legend className="mb-1 font-medium">Available to</legend>
-      <label className="flex items-center gap-2">
+      <Label className="flex items-center gap-2 font-normal leading-[inherit]">
         <Checkbox
           checked={value === null}
           disabled={disabled || value === null}
           onCheckedChange={(on) => (on ? onChange(null) : undefined)}
         />
         All agents
-      </label>
+      </Label>
       {agents.map((a) => {
         const note = notes[a.package];
         const on = ticked.has(a.package) || Boolean(note);
         return (
-          <label key={a.package} className="flex items-center gap-2">
+          <Label key={a.package} className="flex items-center gap-2 font-normal leading-[inherit]">
             <Checkbox
               checked={on}
               disabled={disabled || Boolean(note) || (on && ticked.size === 1)}
@@ -48,15 +49,18 @@ export function AgentChecklist({
             />
             {a.name}
             {note ? <span className="text-xs text-fg-muted">{note}</span> : null}
-          </label>
+          </Label>
         );
       })}
       {unsupported.map((a) => (
-        <label key={a.package} className="flex items-center gap-2 text-fg-muted">
+        <Label
+          key={a.package}
+          className="flex items-center gap-2 text-fg-muted font-normal leading-[inherit]"
+        >
           <Checkbox checked={false} disabled />
           {a.name}
           <span className="text-xs">Doesn't support skills</span>
-        </label>
+        </Label>
       ))}
     </fieldset>
   );

@@ -10,6 +10,7 @@ import { Facts, Mono } from "@/components/facts";
 import { InlineAlert } from "@/components/inline-alert";
 import { JobsTable } from "@/components/jobs-table";
 import { LoadingRows } from "@/components/loading";
+import { LogText } from "@/components/log-viewer";
 import { CardGrid, Page, PageHeader, SectionTitle } from "@/components/page";
 import { PanelCard } from "@/components/panel-card";
 import { StatusBadge } from "@/components/status-badge";
@@ -113,9 +114,10 @@ function ServiceCard({ name, svc }: { name: string; svc: ServiceStatus | undefin
         ]}
       />
       {troubled ? (
-        <pre className="m-0 max-h-40 overflow-auto rounded-md bg-log-bg px-3 py-2.5 font-mono text-xs/[1.6] whitespace-pre text-log-fg">
-          {(svc.log ?? []).slice(-8).join("\n") || "No output."}
-        </pre>
+        <LogText
+          className="max-h-40 rounded-md"
+          text={(svc.log ?? []).slice(-8).join("\n") || "No output."}
+        />
       ) : null}
     </PanelCard>
   );

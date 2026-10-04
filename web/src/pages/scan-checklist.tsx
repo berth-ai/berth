@@ -2,6 +2,7 @@ import { useId } from "react";
 import type { ScanRow } from "@/api/types";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
+import { Label } from "@/components/ui/label";
 import { count } from "@/lib/format";
 import { rowNote, selectable, shortCommit } from "./skills-logic";
 
@@ -47,7 +48,7 @@ export function ScanChecklist({
           const note = rowNote(r);
           return (
             <li key={r.path} className="border-b border-line py-2 last:border-b-0">
-              <label className="flex items-start gap-2">
+              <Label className="flex items-start gap-2 font-normal leading-[inherit]">
                 <Checkbox
                   className="mt-0.5"
                   checked={!note && picks.includes(r.path)}
@@ -63,7 +64,7 @@ export function ScanChecklist({
                   <span className="text-xs text-fg-muted">{note || r.description}</span>
                   <span className="font-mono text-xs break-all text-fg-muted">{r.path || "/"}</span>
                 </span>
-              </label>
+              </Label>
             </li>
           );
         })}
