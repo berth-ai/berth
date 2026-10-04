@@ -1,7 +1,8 @@
 import { useId, useState } from "react";
 import { applyConfig } from "@/api/config";
-import { refreshStatus } from "@/api/queries";
-import type { AgentPackage } from "@/api/types";
+import { refreshLogins, refreshStatus } from "@/api/queries";
+import type { AgentPackage, LoginMethodStatus, LoginStatus } from "@/api/types";
+import { BrandIcon } from "@/components/brand-icon";
 import { EmptyState } from "@/components/empty-state";
 import { LoadingRows } from "@/components/loading";
 import { OnOffSwitch } from "@/components/on-off-switch";
@@ -21,6 +22,16 @@ import { errorText, fieldErrors } from "@/lib/errors";
 import { count } from "@/lib/format";
 import { notify } from "@/lib/notify";
 import { disabledAfter, keyBadge } from "./agents-logic";
+import { SignInCell } from "./sign-in";
+
+/** SignInColumn feeds the agents table's Sign-in column. */
+export interface SignInColumn {
+  data: LoginStatus | undefined;
+  loading: boolean;
+  failed: boolean;
+  onSignIn: (p: AgentPackage, m: LoginMethodStatus) => void;
+  onSignOut: (p: AgentPackage, m: LoginMethodStatus) => void;
+}
 
 /** PackageSection lists the lock packages of one kind: a switch each, key
  * status, and key editors that expand in place. */
@@ -31,6 +42,7 @@ export function PackageSection({
   noun,
   all,
   empty,
+  signIn,
 }: {
   title: string;
   kind: "agent" | "mcp";
@@ -38,6 +50,7 @@ export function PackageSection({
   noun: [string, string];
   all: AgentPackage[] | undefined;
   empty: string;
+  signIn?: SignInColumn;
 }) {
   const list = all?.filter((p) => p.kind === kind);
   return (
@@ -55,6 +68,7 @@ export function PackageSection({
             <TableRow>
               <TableHead>{nameHeader}</TableHead>
               <TableHead>Keys</TableHead>
+              {signIn ? <TableHead>Sign-in</TableHead> : null}
               <TableHead>Enabled</TableHead>
               <TableHead>
                 <span className="sr-only">Actions</span>
@@ -63,7 +77,7 @@ export function PackageSection({
           </TableHeader>
           <TableBody>
             {list.map((p) => (
-              <PackageRows key={p.package} p={p} all={all} />
+              <PackageRows key={p.package} p={p} all={all} signIn={signIn} />
             ))}
           </TableBody>
         </Table>
@@ -74,7 +88,15 @@ export function PackageSection({
   );
 }
 
-function PackageRows({ p, all }: { p: AgentPackage; all: AgentPackage[] }) {
+function PackageRows({
+  p,
+  all,
+  signIn,
+}: {
+  p: AgentPackage;
+  all: AgentPackage[];
+  signIn?: SignInColumn;
+}) {
   const [open, setOpen] = useState(false);
   const [pending, setPending] = useState<boolean | null>(null);
   const detailId = useId();
@@ -86,6 +108,7 @@ function PackageRows({ p, all }: { p: AgentPackage; all: AgentPackage[] }) {
       await applyConfig({ agents: { disabled: disabledAfter(all, p.package, on) } });
       notify(`${p.name}${on ? " is on." : " is off."} MCP registrations update in the background.`);
       await refreshStatus();
+      void refreshLogins();
     } catch (err) {
       notify(errorText(err), "bad");
     }
@@ -107,11 +130,16 @@ function PackageRows({ p, all }: { p: AgentPackage; all: AgentPackage[] }) {
     <>
       <TableRow>
         <TableCell data-label="">
-          <div className="flex min-w-0 flex-col gap-0.5">
-            <strong className="text-fg">{p.name}</strong>
-            <span className="font-mono text-xs break-all text-fg-muted">
-              {p.package} {p.version}
+          <div className="flex min-w-0 items-start gap-2">
+            <span className="mt-0.5">
+              <BrandIcon slug={p.icon} name={p.name} id={p.package} />
             </span>
+            <div className="flex min-w-0 flex-col gap-0.5">
+              <strong className="text-fg">{p.name}</strong>
+              <span className="font-mono text-xs break-all text-fg-muted">
+                {p.package} {p.version}
+              </span>
+            </div>
           </div>
         </TableCell>
         <TableCell data-label="Keys">
@@ -128,6 +156,18 @@ function PackageRows({ p, all }: { p: AgentPackage; all: AgentPackage[] }) {
             <span className="text-xs text-fg-muted">None needed</span>
           )}
         </TableCell>
+        {signIn ? (
+          <TableCell data-label="Sign-in">
+            <SignInCell
+              pkg={p}
+              status={signIn.data?.agents?.[p.package] ?? undefined}
+              loading={signIn.loading}
+              failed={signIn.failed}
+              onSignIn={(m) => signIn.onSignIn(p, m)}
+              onSignOut={(m) => signIn.onSignOut(p, m)}
+            />
+          </TableCell>
+        ) : null}
         <TableCell data-label="Enabled">
           <OnOffSwitch
             checked={pending ?? p.enabled}
@@ -153,7 +193,7 @@ function PackageRows({ p, all }: { p: AgentPackage; all: AgentPackage[] }) {
       </TableRow>
       {open ? (
         <TableRow id={detailId} className="hover:bg-transparent">
-          <TableCell colSpan={4}>
+          <TableCell colSpan={signIn ? 5 : 4}>
             <div className="grid grid-cols-[repeat(auto-fill,minmax(min(280px,100%),1fr))] gap-3 py-1">
               {keys.map((k) => (
                 <SecretField

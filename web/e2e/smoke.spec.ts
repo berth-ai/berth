@@ -334,3 +334,41 @@ test("a skill is added, narrowed, updated and removed", async ({ page }) => {
   await expect(page.getByRole("row").filter({ hasText: "skills/pdf" })).toHaveCount(0);
   expect(problems).toEqual([]);
 });
+
+test("agents sign in with a pasted code and a device code, and sign out", async ({ page }) => {
+  const problems = await watch(page);
+  await signIn(page);
+  await page.goto(`${NORMAL}/#/agents`);
+  const example = page.getByRole("row").filter({ hasText: "@example/agent-cli" });
+  await expect(example.getByText("Signed out")).toBeVisible();
+
+  await example.getByRole("button", { name: "Sign in Example Agent with Example account" }).click();
+  // Toasts are dialogs too; name the sign-in one.
+  const dialog = page.getByRole("dialog", { name: /^Sign in to / });
+  await expect(dialog.getByText("Sign in to Example Agent · Example account")).toBeVisible();
+  await expect(dialog.getByRole("link", { name: "Open example.com/authorize" })).toBeVisible();
+  await dialog.getByLabel("Code").fill("wrong");
+  await dialog.getByRole("button", { name: "Submit code" }).click();
+  await expect(
+    dialog.getByText(/That code didn't work\. Open the sign-in page again/),
+  ).toBeVisible();
+  await dialog.getByLabel("Code").fill("  good-code ");
+  await dialog.getByRole("button", { name: "Submit code" }).click();
+  await expect(page.getByText("Example Agent: signed in as you@example.org.")).toBeVisible();
+  await expect(example.getByText("you@example.org")).toBeVisible();
+
+  const other = page.getByRole("row").filter({ hasText: "@example/other-cli" });
+  await other.getByRole("button", { name: "Sign in Other Agent with GitHub Copilot" }).click();
+  await expect(dialog.getByText("WXYZ-1234")).toBeVisible();
+  await expect(page.getByText("Other Agent: signed in as you@example.org.")).toBeVisible();
+
+  await other.getByRole("button", { name: "Sign in Other Agent with ChatGPT" }).click();
+  await dialog.getByRole("button", { name: "Cancel" }).click();
+  await expect(dialog).toHaveCount(0);
+
+  await example.getByRole("button", { name: "Sign Example Agent out of Example account" }).click();
+  await page.getByRole("alertdialog").getByRole("button", { name: "Sign out" }).click();
+  await expect(page.getByText("Example Agent is signed out of Example account.")).toBeVisible();
+  await expect(example.getByText("Signed out")).toBeVisible();
+  expect(problems).toEqual([]);
+});

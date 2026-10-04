@@ -1,5 +1,6 @@
 import { useState } from "react";
 import type { AgentPackage } from "@/api/types";
+import { BrandIcon } from "@/components/brand-icon";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -46,6 +47,7 @@ export function AgentChecklist({
               disabled={disabled || Boolean(note) || (on && ticked.size === 1)}
               onCheckedChange={(c) => onChange(pickedAfter(value, all, a.package, c))}
             />
+            <BrandIcon slug={a.icon} name={a.name} id={a.package} />
             {a.name}
             {note ? <span className="text-xs text-fg-muted">{note}</span> : null}
           </label>
@@ -54,6 +56,7 @@ export function AgentChecklist({
       {unsupported.map((a) => (
         <label key={a.package} className="flex items-center gap-2 text-fg-muted">
           <Checkbox checked={false} disabled />
+          <BrandIcon slug={a.icon} name={a.name} id={a.package} />
           {a.name}
           <span className="text-xs">Doesn't support skills</span>
         </label>

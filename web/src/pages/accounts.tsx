@@ -145,6 +145,15 @@ function ForgeCard({ id, label, forge }: { id: string; label: string; forge: For
     setStarting(false);
   };
 
+  const cancel = async () => {
+    if (jobId === null) return;
+    try {
+      await verb("login.cancel", { job: jobId });
+    } catch (err) {
+      notify(errorText(err), "bad");
+    }
+  };
+
   const signedIn = Boolean(forge?.signed_in);
   const facts = signedIn
     ? `${forge?.user || "Signed in"} on ${forge?.host}`
@@ -154,14 +163,21 @@ function ForgeCard({ id, label, forge }: { id: string; label: string; forge: For
       title={label}
       badge={<StatusBadge state={signedIn ? "signed_in" : "signed_out"} />}
       footer={
-        <Button
-          size="sm"
-          variant={signedIn ? "outline" : "default"}
-          disabled={starting || live}
-          onClick={() => void start()}
-        >
-          {signedIn ? "Sign in again" : "Sign in"}
-        </Button>
+        <div className="flex flex-wrap gap-2">
+          <Button
+            size="sm"
+            variant={signedIn ? "outline" : "default"}
+            disabled={starting || live}
+            onClick={() => void start()}
+          >
+            {signedIn ? "Sign in again" : "Sign in"}
+          </Button>
+          {live && jobId !== null ? (
+            <Button size="sm" variant="ghost" onClick={() => void cancel()}>
+              Cancel
+            </Button>
+          ) : null}
+        </div>
       }
     >
       <p className="text-fg-muted">{facts}</p>

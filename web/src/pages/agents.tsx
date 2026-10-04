@@ -1,10 +1,17 @@
 import { ChevronRight } from "lucide-react";
 import { useId, useState } from "react";
 import { applyConfig } from "@/api/config";
-import { refreshStatus, useConfig, useStatus } from "@/api/queries";
+import { refreshLogins, refreshStatus, useConfig, useLogins, useStatus } from "@/api/queries";
 import { verb } from "@/api/request";
 import { runJob } from "@/api/run-job";
-import type { AgentVersion, Job, Status, UpdateCheck } from "@/api/types";
+import type {
+  AgentPackage,
+  AgentVersion,
+  Job,
+  LoginMethodStatus,
+  Status,
+  UpdateCheck,
+} from "@/api/types";
 import { BusyButton } from "@/components/busy-button";
 import { useConfirm } from "@/components/confirm";
 import { EmptyState } from "@/components/empty-state";
@@ -29,12 +36,33 @@ import { notify, type Tone } from "@/lib/notify";
 import { useTitle } from "@/lib/use-title";
 import { checkResult, versionLabel } from "./agents-logic";
 import { PackageSection } from "./package-table";
+import { useSignIn } from "./sign-in";
 
 // Agents: update source and actions, version history, per-agent toggles and keys.
 export function AgentsPage() {
   useTitle("Agents");
   const status = useStatus();
   const pkgs = status.data ? (status.data.packages ?? []) : undefined;
+  const logins = useLogins();
+  const signIn = useSignIn(logins.data, pkgs);
+  const [confirmDialog, ask] = useConfirm();
+  const signOut = (p: AgentPackage, m: LoginMethodStatus) =>
+    ask({
+      title: `Sign ${p.name} out of ${m.label}?`,
+      body: "The agent loses access until you sign in again.",
+      confirm: "Sign out",
+      danger: true,
+      action: async () => {
+        try {
+          await verb("login.logout", { agent: p.package, method: m.id });
+          notify(`${p.name} is signed out of ${m.label}.`);
+          void refreshLogins();
+        } catch (err) {
+          notify(errorText(err), "bad");
+          return false;
+        }
+      },
+    });
   return (
     <Page>
       <PageHeader
@@ -50,7 +78,23 @@ export function AgentsPage() {
         noun={["agent", "agents"]}
         all={pkgs}
         empty="No agents installed yet."
+        signIn={{
+          data: logins.data,
+          loading: logins.isPending,
+          failed: logins.isError,
+          onSignIn: (p, m) =>
+            signIn.start({
+              agent: p.package,
+              agentName: p.name,
+              icon: p.icon,
+              method: m.id,
+              label: m.label,
+            }),
+          onSignOut: signOut,
+        }}
       />
+      {signIn.dialog}
+      {confirmDialog}
     </Page>
   );
 }

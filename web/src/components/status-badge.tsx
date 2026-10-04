@@ -35,6 +35,7 @@ const STATES: Record<string, [BadgeTone, LucideIcon, string]> = {
   outdated: ["warn", CircleArrowUp, "Update available"],
   update: ["warn", CircleArrowUp, "Update available"],
   clash: ["warn", CircleAlert, "Clashes with a built-in server"],
+  probe_failed: ["warn", CircleAlert, "Unknown"],
   in_progress: ["info", RefreshCw, "Running"],
   checking: ["info", RefreshCw, "Checking"],
   waiting: ["info", Clock, "Waiting"],

@@ -189,6 +189,29 @@ inherit`, weight 500. Compact controls inside cards and table rows are
   `--line` bottom. Body rows: same padding, 1 px `--line` rules, hover
   `--surface-sunken`. The primary cell is a quiet link (`--accent-text` 600)
   with mono detail below in `--fg-muted`.
+- **Agent and server icons.** 16 px before the name in the Agents and MCP
+  servers tables and in the "Available to" checklists; 20 px in the sign-in
+  dialog title. A lock `icon` slug draws a CC0 mark from `simple-icons`
+  (Claude, Gemini CLI, OpenCode, Context7's publisher Upstash) with its
+  colour in the `fill` attribute; a brand colour under 3:1 on either
+  theme's `--surface` draws in `currentColor` instead. Everything else, user
+  MCP servers included, gets a monogram: the name's first letter, weight
+  600, on a soft tint (`--accent-soft`, `--info-soft`, `--ok-soft`,
+  `--warn-soft`, `--idle-soft`) picked by a stable hash of the package or
+  server id. Always `aria-hidden`; the name sits beside it.
+- **Sign-in column** (Agents table, between Keys and Enabled). One line per
+  method: the method label when an agent has several, a small Signed in
+  (with the account) / Signed out badge, then compact buttons: Sign in, or
+  a ghost Sign in again and an outline Sign out (which confirms). A failed
+  probe shows a warn "Unknown" badge with its message below in `--text-xs`
+  `--fg-muted`; a switched-off agent shows "—".
+- **Sign-in dialog.** Title: icon, "Sign in to {agent} · {method}".
+  Starting: spinner and "Starting the sign-in…". Device: the device code
+  box. Paste: an "Open {host}" link button, a Code field (no autocomplete,
+  no spellcheck) and Submit code; "Checking the code…" after a submit; a
+  rejected code either asks again ("…open the sign-in page again; it has
+  changed") or ends with an error and Start again. Closing it while it runs
+  cancels the sign-in. A sign-in running in another tab reopens here.
 - **Form field.** Column, gap 6 px. Label weight 500. Input/select:
   `--control-h`, padding 0 10 px, `--surface`, 1 px `--line-control`,
   `--radius-m`. Hint `--text-xs` `--fg-muted`. Error `--text-xs` `--bad` with
