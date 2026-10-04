@@ -302,31 +302,47 @@ verb main update.check '{}' | jq -e '.check.ref == "main" and (.check.update_ava
   fail "update.check"
 x main berth status --json | jq -e '.versions | length >= 1' >/dev/null || fail "status lacks versions"
 
-step "a skill is pinned, linked into each agent, narrowed and removed"
+step "a skill collection is pinned, linked into each agent, updated, narrowed and removed"
 pin=8a1541c4a3ffa5a20a5a91de0dcf3f0bab1d1ef4
-verb main skills.add '{"repo":"https://github.com/anthropics/skills","path":"skills/pdf","ref":"'"$pin"'"}' >/dev/null ||
-  fail "skills.add"
-for ((i = 0; i < 120; i++)); do
-  state=$(x main curl -fsS --unix-socket /run/berth/broker.sock http://b/jobs | jq -r '[.jobs[] | select(.verb == "skills.add")][0].state')
-  [[ $state != running ]] && break
-  sleep 1
-done
-[[ $state == succeeded ]] || fail "skills.add ended $state"
-verb main config.get '{}' | jq -e --arg c "$pin" '.config.skills.pdf.commit == $c' >/dev/null || fail "pdf not pinned"
+anth=https://github.com/anthropics/skills
+# wait_job ID waits up to two minutes for a broker job and prints it as JSON.
+wait_job() {
+  local job
+  for ((i = 0; i < 120; i++)); do
+    job=$(x main curl -fsS --unix-socket /run/berth/broker.sock "http://b/jobs/$1" | jq -c .job)
+    [[ $(jq -r .state <<<"$job") != running ]] && break
+    sleep 1
+  done
+  printf '%s\n' "$job"
+}
+scan=$(wait_job "$(verb main skills.scan '{"repo":"'"$anth"'","ref":"'"$pin"'","path":"skills"}' | jq -r .job.id)")
+jq -e --arg c "$pin" '.state == "succeeded" and .result.commit == $c and
+  ([.result.skills[].name] | index("pdf") and index("docx") and index("xlsx"))' <<<"$scan" >/dev/null ||
+  fail "skills.scan: $scan"
+added=$(wait_job "$(verb main skills.add '{"repo":"'"$anth"'","ref":"'"$pin"'","commit":"'"$pin"'","paths":["skills/pdf","skills/docx","skills/xlsx"]}' | jq -r .job.id)")
+jq -e '.state == "succeeded" and .result.skills == ["docx","pdf","xlsx"]' <<<"$added" >/dev/null || fail "skills.add: $added"
+verb main config.get '{}' | jq -e --arg c "$pin" '[.config.skills[] | select(.commit == $c)] | length == 3' >/dev/null ||
+  fail "the collection is not pinned"
 [[ $(x main stat -c '%a %U %G' /var/lib/berth/skills.json) == "640 root agent" ]] || fail "skills.json ownership"
 for ((i = 0; i < 120; i++)); do
-  xa main test -L /home/agent/.gemini/skills/pdf && break
+  xa main test -L /home/agent/.gemini/skills/xlsx && break
   sleep 1
 done
-store=/home/agent/.local/share/berth/skills/pdf
-xa main test -f "$store/SKILL.md" || fail "pdf store copy missing"
-for d in .claude/skills .codex/skills .gemini/skills; do
-  [[ $(xa main readlink "/home/agent/$d/pdf") == "$store" ]] || fail "pdf not linked in ~/$d"
+for s in pdf docx xlsx; do
+  store=/home/agent/.local/share/berth/skills/$s
+  xa main test -f "$store/SKILL.md" || fail "$s store copy missing"
+  for d in .claude/skills .codex/skills .gemini/skills; do
+    [[ $(xa main readlink "/home/agent/$d/$s") == "$store" ]] || fail "$s not linked in ~/$d"
+  done
+  # OpenCode reads ~/.claude/skills, so it gets no link of its own.
+  if xa main test -e "/home/agent/.config/opencode/skills/$s"; then fail "$s linked twice for opencode"; fi
 done
-# OpenCode reads ~/.claude/skills, so it gets no link of its own.
-if xa main test -e /home/agent/.config/opencode/skills/pdf; then fail "pdf linked twice for opencode"; fi
 xa main gemini skills list 2>/dev/null | grep -q pdf || fail "gemini does not load the linked skill"
 
+updated=$(wait_job "$(verb main skills.update '{"ids":["pdf","docx","xlsx"]}' | jq -r .job.id)")
+jq -e '.state == "succeeded" and .result.changed == false' <<<"$updated" >/dev/null || fail "skills.update: $updated"
+
+store=/home/agent/.local/share/berth/skills/pdf
 verb main config.apply '{"base_revision":'"$(rev main)"',"patch":{"skills":{"pdf":{"agents":["@anthropic-ai/claude-code"]}}}}' >/dev/null ||
   fail "narrowing a skill"
 for ((i = 0; i < 60; i++)); do
@@ -337,14 +353,16 @@ if xa main test -e /home/agent/.gemini/skills/pdf; then fail "narrowed skill sti
 if xa main test -e /home/agent/.codex/skills/pdf; then fail "narrowed skill still linked for codex"; fi
 xa main test -L /home/agent/.claude/skills/pdf || fail "narrowing removed claude's link"
 
-verb main config.apply '{"base_revision":'"$(rev main)"',"patch":{"skills":{"pdf":null}}}' >/dev/null ||
-  fail "removing a skill"
+verb main config.apply '{"base_revision":'"$(rev main)"',"patch":{"skills":{"pdf":null,"docx":null,"xlsx":null}}}' >/dev/null ||
+  fail "removing the skills"
 for ((i = 0; i < 60; i++)); do
   ! xa main test -e "$store" && break
   sleep 1
 done
-if xa main test -e "$store"; then fail "removed skill's store copy kept"; fi
-if xa main test -e /home/agent/.claude/skills/pdf; then fail "removed skill still linked for claude"; fi
+for s in pdf docx xlsx; do
+  if xa main test -e "/home/agent/.local/share/berth/skills/$s"; then fail "removed $s's store copy kept"; fi
+  if xa main test -e "/home/agent/.claude/skills/$s"; then fail "removed $s still linked for claude"; fi
+done
 
 step "tools and accounts (as agent)"
 verb main tools.list '{}' | jq -e '(.base | map(.name) | index("node")) and (.presets | length == 4)' >/dev/null ||
