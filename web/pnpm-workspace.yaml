@@ -1,4 +1,6 @@
 saveExact: true
+overrides:
+  brace-expansion: 5.0.12
 minimumReleaseAgeExclude:
   - "@oxfmt/binding-android-arm-eabi@0.67.0"
   - "@oxfmt/binding-android-arm64@0.67.0"
