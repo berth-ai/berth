@@ -54,7 +54,7 @@ func (b *Broker) checkSecrets(secrets map[string]*string, cur, next config.Confi
 	var known []string
 	if b.Layer != nil {
 		var err error
-		if known, err = b.Layer.KeyNames(); err != nil {
+		if known, err = b.Layer.KeyNames(next.Agents.Added); err != nil {
 			return err
 		}
 	}
@@ -173,7 +173,7 @@ func (b *Broker) refreshAgents(old, next config.Config, tokens bool) {
 	disabled := b.Layer != nil && !slices.Equal(old.Agents.Disabled, next.Agents.Disabled)
 	settings := !sameMCP(old.MCP, next.MCP) || b.publishedStale(next.MCP)
 	if disabled {
-		if _, err := b.Layer.Build(next.Agents.Disabled); err != nil {
+		if _, err := b.Layer.Build(next.Agents.Disabled, next.Agents.Added); err != nil {
 			b.logf("WARNING: agent layer: %v", err)
 			return
 		}
@@ -213,7 +213,7 @@ func (b *Broker) secretStates(cfg config.Config) map[string]map[string]bool {
 	if b.Layer == nil {
 		return out
 	}
-	if pkgs, err := b.Layer.Packages(nil); err == nil {
+	if pkgs, err := b.Layer.Packages(nil, cfg.Agents.Added); err == nil {
 		for _, p := range pkgs {
 			for _, k := range p.Keys {
 				out[k.Name] = map[string]bool{"set": k.Set}

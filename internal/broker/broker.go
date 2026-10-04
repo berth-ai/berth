@@ -215,7 +215,7 @@ func (b *Broker) Status() StatusReport {
 	st.Packages = []agentlayer.Package{}
 	if b.Layer != nil {
 		// An error here already shows as agents_error.
-		if pkgs, err := b.Layer.Packages(cfg.Agents.Disabled); err == nil {
+		if pkgs, err := b.Layer.Packages(cfg.Agents.Disabled, cfg.Agents.Added); err == nil {
 			st.Packages = pkgs
 		}
 	}

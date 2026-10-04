@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/berth-ai/berth/internal/agentlayer"
+	"github.com/berth-ai/berth/internal/agentset"
 	"github.com/berth-ai/berth/internal/agentstore"
 	"github.com/berth-ai/berth/internal/config"
 	"github.com/berth-ai/berth/internal/locksource"
@@ -153,7 +154,11 @@ func (a *app) apply(ctx context.Context, lock *locksource.Lock, follow bool) (*u
 
 // layer is the wrapper layer under ConfigDir.
 func (a *app) layer() agentlayer.Builder {
-	return agentlayer.Builder{Root: a.cfg.ConfigDir, Store: a.store, KeysPath: a.cfg.KeysPath}
+	b := agentlayer.Builder{Root: a.cfg.ConfigDir, Store: a.store, KeysPath: a.cfg.KeysPath, RegistryRoot: a.cfg.RegistryDir}
+	if a.cfg.Agent != nil {
+		b.AddedRoot = agentset.StoreRoot(a.cfg.Agent.Home)
+	}
+	return b
 }
 
 // rebuildLayer refreshes /var/lib/berth/bin for the current set and the
@@ -167,7 +172,7 @@ func (a *app) rebuildLayer() {
 	if err != nil {
 		c = config.Defaults()
 	}
-	if _, err := a.layer().Build(c.Agents.Disabled); err != nil {
+	if _, err := a.layer().Build(c.Agents.Disabled, c.Agents.Added); err != nil {
 		a.p.Logf("warning: agent layer: %v", err)
 	}
 }

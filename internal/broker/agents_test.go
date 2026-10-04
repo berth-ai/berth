@@ -107,7 +107,7 @@ func TestSecretValidation(t *testing.T) {
 func TestDisablingRebuildsLayerAndRunsMCP(t *testing.T) {
 	tb := newTestBroker(t)
 	withAgents(t, tb)
-	tb.b.Layer.Build(nil)
+	tb.b.Layer.Build(nil, nil)
 	code, out := tb.verb(t, "config.apply", `{"base_revision":0,"patch":{"agents":{"disabled":["mcp-b"]}}}`)
 	if code != 200 {
 		t.Fatalf("apply = %d %v", code, out)
@@ -137,7 +137,7 @@ func TestStatusListsPackages(t *testing.T) {
 	tb := newTestBroker(t)
 	withAgents(t, tb)
 	st := tb.b.Status()
-	if len(st.Packages) != 2 || st.Packages[0].Package != "agent-a" || !slices.ContainsFunc(st.Packages, func(p agentlayer.Package) bool { return p.Kind == "mcp" }) {
+	if len(st.Packages) != 2 || st.Packages[0].Package != "agent-a" || st.Packages[0].Origin != "locked" || !slices.ContainsFunc(st.Packages, func(p agentlayer.Package) bool { return p.Kind == "mcp" }) {
 		t.Errorf("packages = %+v", st.Packages)
 	}
 }

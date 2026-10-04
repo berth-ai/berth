@@ -2,25 +2,18 @@ package agentlayer
 
 import (
 	"cmp"
-	"encoding/json"
 	"errors"
 	"io/fs"
-	"maps"
 	"os"
 	"path/filepath"
 	"slices"
 	"syscall"
 
+	"github.com/berth-ai/berth/internal/agentset"
 	"github.com/berth-ai/berth/internal/agentstore"
 	"github.com/berth-ai/berth/internal/locksource"
+	"github.com/berth-ai/berth/internal/registry"
 )
-
-// Builder builds Root/bin from the current agent set.
-type Builder struct {
-	Root     string // /var/lib/berth
-	Store    agentstore.Store
-	KeysPath string // /var/lib/berth/secrets/agents.env
-}
 
 // Key reports whether an API key has a value, never the value itself.
 type Key struct {
@@ -28,12 +21,34 @@ type Key struct {
 	Set  bool   `json:"set"`
 }
 
-// Package is one package of the current set as the panel shows it.
+// Builder builds Root/bin from the merged agent set: the locked set in
+// Store and the added agents in agent's home.
+//
+// Nothing in Berth runs a layer binary as root: login, status, MCP and
+// skills sync and sessions all run as agent. That matters because an added
+// agent's wrapper points into a tree agent can write. Root never opens a
+// file there either: it learns the installs from Added, which runs berth
+// agents status as agent.
+type Builder struct {
+	Root     string // /var/lib/berth
+	Store    agentstore.Store
+	KeysPath string // /var/lib/berth/secrets/agents.env
+	// AddedRoot is agentset.StoreRoot of agent's home; wrappers of added
+	// agents exec AddedRoot/<id>/current/bin/<bin>.
+	AddedRoot string
+	// Added reports the added agents installed in agent's home; nil means none.
+	Added func() agentset.Report
+	// RegistryRoot names and icons an added agent that is not installed.
+	RegistryRoot string
+}
+
+// Package is one package of the merged set as the panel shows it.
 type Package struct {
 	Package   string   `json:"package"`
 	Name      string   `json:"name"`
 	Kind      string   `json:"kind"`
 	Version   string   `json:"version"`
+	Origin    string   `json:"origin"` // locked or added
 	Enabled   bool     `json:"enabled"`
 	Bins      []string `json:"bins"`
 	Keys      []Key    `json:"keys"`
@@ -41,60 +56,94 @@ type Package struct {
 	SkillsDir string   `json:"skills_dir,omitempty"` // an agent's skills directory
 	SkillsVia []string `json:"skills_via,omitempty"` // agents whose skills directory it also reads
 	Icon      string   `json:"icon,omitempty"`       // a panel icon slug from the lock
+	Previous  string   `json:"previous,omitempty"`   // an added agent's rollback version
+	Error     string   `json:"error,omitempty"`      // why an added agent is missing or out of date
 }
 
-// Packages describes the current set with disabled applied: agents first,
-// then MCP servers, each by name. It is empty when nothing is installed.
-func (b Builder) Packages(disabled []string) ([]Package, error) {
-	out := []Package{}
-	cur, err := b.Store.Current()
-	if err != nil || cur == nil {
-		return out, err
-	}
-	raw, err := os.ReadFile(filepath.Join(cur.Dir, "package.json"))
+// notInstalled explains an added agent without an install yet.
+const notInstalled = "Not installed yet; Berth installs it in the background."
+
+// Packages describes the merged set for added (agents.added) with disabled
+// applied: agents first, then MCP servers, each by name. An added agent
+// that is not installed, or failed to load, still gets a row with Error.
+func (b Builder) Packages(disabled, added []string) ([]Package, error) {
+	pkgs, _, err := b.rows(disabled, added)
+	return pkgs, err
+}
+
+func (b Builder) rows(disabled, added []string) ([]Package, agentset.Set, error) {
+	locked, err := agentset.FromStore(b.Store)
 	if err != nil {
-		return nil, err
+		return nil, agentset.Set{}, err
 	}
-	var p struct {
-		Dependencies map[string]string `json:"dependencies"`
+	var rep agentset.Report
+	if b.Added != nil && len(added) > 0 {
+		rep = b.Added()
 	}
-	if err := json.Unmarshal(raw, &p); err != nil {
-		return nil, err
-	}
-	meta, err := locksource.ParseMeta(raw, p.Dependencies)
+	set, err := agentset.Load(locked, b.AddedRoot, agentset.Pick(rep.Agents, added))
 	if err != nil {
-		return nil, err
+		return nil, agentset.Set{}, err
 	}
-	// A bad berthAgents block costs only the ids; the converger reports it.
-	desc, _ := locksource.ParseDescriptors(raw, meta)
 	keys, err := ReadKeys(b.KeysPath)
 	if err != nil {
-		return nil, err
+		return nil, agentset.Set{}, err
 	}
-	for _, dep := range slices.Sorted(maps.Keys(p.Dependencies)) {
-		bins, err := agentstore.PackageBins(cur.Dir, dep)
-		if err != nil {
-			return nil, err
-		}
-		m := meta[dep]
+	out := []Package{}
+	for _, name := range set.Names() {
+		p := set.Packages[name]
 		pkg := Package{
-			Package: dep, Name: m.Name, Kind: m.Kind, Version: cur.Manifest.Packages[dep],
-			Enabled: !slices.Contains(disabled, dep), Bins: slices.Sorted(maps.Keys(bins)), Keys: []Key{},
-			MCPID: desc.Servers[dep].ID,
-			Icon:  cmp.Or(desc.Agents[dep].Icon, desc.Servers[dep].Icon),
+			Package: name, Name: p.Meta.Name, Kind: p.Meta.Kind, Version: p.Version, Origin: p.Origin,
+			Enabled: !slices.Contains(disabled, name), Bins: append([]string{}, p.Bins...), Keys: []Key{},
+			MCPID:    set.Descriptors.Servers[name].ID,
+			Icon:     cmp.Or(set.Descriptors.Agents[name].Icon, set.Descriptors.Servers[name].Icon),
+			Previous: p.PreviousVersion, Error: rep.Errors[name],
 		}
-		if t := desc.Agents[dep].Skills; t != nil {
-			pkg.SkillsDir, pkg.SkillsVia = t.Dir, desc.SkillsVia(dep)
+		if t := set.Descriptors.Agents[name].Skills; t != nil {
+			pkg.SkillsDir, pkg.SkillsVia = t.Dir, set.Descriptors.SkillsVia(name)
 		}
-		for _, k := range m.Keys {
+		for _, k := range p.Meta.Keys {
 			pkg.Keys = append(pkg.Keys, Key{Name: k, Set: keys[k] != ""})
 		}
 		out = append(out, pkg)
 	}
+	for _, name := range added {
+		if _, ok := set.Packages[name]; !ok {
+			out = append(out, b.missing(name, disabled, cmp.Or(set.Errors[name], rep.Errors[name], notInstalled)))
+		}
+	}
 	slices.SortStableFunc(out, func(a, b Package) int {
 		return cmp.Or(cmp.Compare(kindOrder(a.Kind), kindOrder(b.Kind)), cmp.Compare(a.Name, b.Name))
 	})
-	return out, nil
+	return out, set, nil
+}
+
+// missing is the row of an added agent that is not in the set.
+func (b Builder) missing(name string, disabled []string, msg string) Package {
+	p := Package{Package: name, Name: name, Kind: locksource.KindAgent, Origin: agentset.OriginAdded,
+		Enabled: !slices.Contains(disabled, name), Bins: []string{}, Keys: []Key{}, Error: msg}
+	if b.RegistryRoot != "" {
+		entries, _ := registry.Load(b.RegistryRoot)
+		if e, ok := registry.ByPackage(entries, name); ok {
+			p.Name, p.Icon = e.Meta.Name, e.Agent.Icon
+		}
+	}
+	return p
+}
+
+// KeyNames is the union of the merged set's API key names, sorted.
+func (b Builder) KeyNames(added []string) ([]string, error) {
+	pkgs, err := b.Packages(nil, added)
+	if err != nil {
+		return nil, err
+	}
+	var names []string
+	for _, p := range pkgs {
+		for _, k := range p.Keys {
+			names = append(names, k.Name)
+		}
+	}
+	slices.Sort(names)
+	return names, nil
 }
 
 // AgentEnabled reports whether package dep of the set in current has a
@@ -125,27 +174,11 @@ func kindOrder(kind string) int {
 	return 1
 }
 
-// KeyNames is the union of the current set's API key names, sorted.
-func (b Builder) KeyNames() ([]string, error) {
-	pkgs, err := b.Packages(nil)
-	if err != nil {
-		return nil, err
-	}
-	var names []string
-	for _, p := range pkgs {
-		for _, k := range p.Keys {
-			names = append(names, k.Name)
-		}
-	}
-	slices.Sort(names)
-	return names, nil
-}
-
-// Build writes a fresh layer for disabled and swaps Root/bin to it. A shell
+// Build writes a fresh layer for disabled and added and swaps Root/bin to it. A shell
 // that already started a wrapper keeps running; the next invocation sees
 // the new set. A file lock keeps the CLI and the supervisor from building
 // at once.
-func (b Builder) Build(disabled []string) ([]Package, error) {
+func (b Builder) Build(disabled, added []string) ([]Package, error) {
 	layers := filepath.Join(b.Root, "layers")
 	if err := os.MkdirAll(layers, 0o755); err != nil {
 		return nil, err
@@ -155,7 +188,7 @@ func (b Builder) Build(disabled []string) ([]Package, error) {
 		return nil, err
 	}
 	defer unlock()
-	pkgs, err := b.Packages(disabled)
+	pkgs, set, err := b.rows(disabled, added)
 	if err != nil {
 		return nil, err
 	}
@@ -166,17 +199,19 @@ func (b Builder) Build(disabled []string) ([]Package, error) {
 	if err := os.Chmod(dir, 0o755); err != nil {
 		return nil, err
 	}
-	current := filepath.Join(b.Store.Root, "current", "bin")
 	for _, p := range pkgs {
-		if !p.Enabled {
+		sp, ok := set.Packages[p.Package]
+		if !p.Enabled || !ok {
 			continue
 		}
 		keys := make([]string, len(p.Keys))
 		for i, k := range p.Keys {
 			keys[i] = k.Name
 		}
+		// Bin names were validated: by WriteWrappers for the locked set,
+		// and by agentset.Load for the added agents agent reported.
 		for _, bin := range p.Bins {
-			script := wrapperScript(filepath.Join(current, bin), b.KeysPath, keys)
+			script := wrapperScript(filepath.Join(sp.Link, "bin", bin), b.KeysPath, keys)
 			if err := os.WriteFile(filepath.Join(dir, bin), []byte(script), 0o755); err != nil {
 				return nil, err
 			}

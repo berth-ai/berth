@@ -15,6 +15,7 @@ import (
 	"github.com/berth-ai/berth/internal/config"
 	"github.com/berth-ai/berth/internal/locksource"
 	"github.com/berth-ai/berth/internal/output"
+	"github.com/berth-ai/berth/internal/registry"
 	"github.com/berth-ai/berth/internal/runner"
 	"github.com/berth-ai/berth/internal/smoke"
 	"github.com/berth-ai/berth/internal/status"
@@ -30,6 +31,7 @@ type Config struct {
 	ProcRoot    string
 	MCPSetup    []string // argv of the MCP converger; empty skips it
 	SkillsSync  []string // argv of the skills converger; empty skips it
+	RegistryDir string   // the image's registry of addable agents
 	GitHub      locksource.GitHub
 	Keep        int
 	LockTimeout time.Duration
@@ -82,6 +84,7 @@ func defaultConfig(getenv func(string) string, b Build, isRoot bool, lookup func
 		ProcRoot:    "/proc",
 		MCPSetup:    []string{"/usr/local/bin/berth", "mcp", "sync"},
 		SkillsSync:  []string{"/usr/local/bin/berth", "skills", "sync"},
+		RegistryDir: registry.DefaultRoot,
 		GitHub:      locksource.GitHub{Repo: repo, Token: getenv("GITHUB_TOKEN")},
 		LockTimeout: 30 * time.Second,
 		IsRoot:      isRoot,
