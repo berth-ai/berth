@@ -4,6 +4,7 @@ import (
 	"cmp"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"net/http"
 	"reflect"
 	"slices"
@@ -74,12 +75,12 @@ func newFake(mode string) *fake {
 
 func defaultConfig(rev int) map[string]any {
 	return map[string]any{
-		"schema": 5, "revision": rev,
+		"schema": 6, "revision": rev,
 		"frontends":  map[string]any{"terminal": map[string]any{"enabled": true}, "ide": map[string]any{"enabled": false}},
 		"agents":     map[string]any{"ref": "main", "disabled": []any{}, "added": []any{}, "keep": 2, "boot_timeout": 600, "mcp_timeout": 300},
 		"runtime":    map[string]any{"tz": "Etc/UTC"},
-		"mcp":        map[string]any{"servers": map[string]any{}, "available": map[string]any{}},
-		"skills":     map[string]any{},
+		"mcp":        map[string]any{"servers": map[string]any{}, "available": map[string]any{}, "workspaces": map[string]any{}},
+		"skills":     map[string]any{"sources": map[string]any{}},
 		"workspaces": map[string]any{},
 	}
 }
@@ -198,13 +199,43 @@ func (f *fake) verb(name string, in map[string]any) (int, any) {
 		}
 		f.git = map[string]string{"name": name, "email": email}
 		return http.StatusOK, f.git
-	case "skills.update":
-		for _, id := range strs(in["ids"]) {
-			if _, ok := f.cfg["skills"].(map[string]any)[id]; !ok {
-				return http.StatusBadRequest, fieldError("invalid_request", "ids", "No skill named "+id+" is installed")
-			}
+	case "skills.sources.preview", "skills.sources.update":
+		if id := str(in["id"]); (id != "" || name == "skills.sources.update") && f.source(id) == nil {
+			return http.StatusNotFound, apiError("unknown_source", "No source named "+id)
 		}
 		return f.start(name, in)
+	case "skills.sources.add":
+		if other := f.tracking(str(in["repo"]), str(in["ref"]), str(in["path"])); other != "" {
+			return http.StatusBadRequest, fieldError("source_exists", "repo", "Source "+other+" already tracks this repository at that ref and path")
+		}
+		if id := str(in["id"]); id != "" && f.source(id) != nil {
+			return http.StatusBadRequest, fieldError("id_exists", "id", "A source named "+id+" exists; choose another id")
+		}
+		return f.start(name, in)
+	case "skills.sources.remove":
+		id := str(in["id"])
+		if f.source(id) == nil {
+			return http.StatusNotFound, apiError("unknown_source", "No source named "+id)
+		}
+		next := clone(f.cfg)
+		delete(sourcesOf(next), id)
+		f.replace(next)
+		f.start("skills.sync", nil)
+		return http.StatusOK, map[string]any{"id": id, "revision": f.cfg["revision"]}
+	case "config.upgrade":
+		cfg, _ := in["config"].(map[string]any)
+		switch {
+		case cfg == nil:
+			return http.StatusBadRequest, apiError("invalid_request", "send the exported config")
+		case num(cfg["schema"]) > 6:
+			return http.StatusBadRequest, apiError("invalid_config", "That file is not a config this Berth can read: its schema is newer")
+		}
+		out := clone(cfg)
+		if num(out["schema"]) < 6 {
+			out["skills"] = map[string]any{"sources": map[string]any{}} // the real broker migrates C2's skills
+		}
+		out["schema"] = 6
+		return http.StatusOK, map[string]any{"config": out}
 	case "login.status":
 		return http.StatusOK, f.loginStatus("")
 	case "login.start":
@@ -272,7 +303,7 @@ func (f *fake) verb(name string, in map[string]any) (int, any) {
 		return f.start(name, in)
 	case "workspaces.add":
 		return f.start(name, in)
-	case "update", "rollback", "gc", "tools.add", "tools.remove", "preset.install", "forge.login", "skills.scan", "skills.add":
+	case "update", "rollback", "gc", "tools.add", "tools.remove", "preset.install", "forge.login":
 		return f.start(name, in)
 	}
 	return http.StatusNotFound, apiError("unknown_verb", "unknown verb")
@@ -427,7 +458,7 @@ func (f *fake) check() map[string]any {
 
 var groups = map[string]string{"update": "agents", "rollback": "agents", "gc": "agents",
 	"tools.add": "tools", "tools.remove": "tools", "preset.install": "tools", "forge.login": "forge",
-	"skills.scan": "skills", "skills.add": "skills", "skills.update": "skills", "skills.sync": "skills-sync", "agent.login": "agent-login",
+	"skills.sources.preview": "skills", "skills.sources.add": "skills", "skills.sources.update": "skills", "skills.sync": "skills-sync", "agent.login": "agent-login",
 	"agents.add": "agents", "agents.rollback": "agents", "workspaces.add": "workspaces", "workspaces.forget": "workspaces"}
 
 func (f *fake) start(verb string, in map[string]any) (int, any) {
@@ -449,10 +480,15 @@ func (f *fake) start(verb string, in map[string]any) (int, any) {
 		args = []string{"/usr/bin/" + str(in["forge"]), "auth", "login"}
 	case "agent.login":
 		args = []string{"/usr/local/bin/berth", "login", "run", str(in["agent"]), str(in["method"])}
-	case "skills.scan":
-		args = []string{"/usr/local/bin/berth", "skills", "scan", "--json", "--repo", str(in["repo"]), "--ref", str(in["ref"]), "--path", str(in["path"])}
-	case "skills.add":
-		args = append([]string{"/usr/local/bin/berth", "skills", "scan", "--json", "--repo", str(in["repo"]), "--ref", str(in["commit"])}, strs(in["paths"])...)
+	case "skills.sources.preview", "skills.sources.add", "skills.sources.update":
+		repo, ref, p := str(in["repo"]), cmp.Or(str(in["commit"]), str(in["ref"])), str(in["path"])
+		if s := f.source(str(in["id"])); s != nil {
+			repo, p, ref = str(s["repo"]), str(s["path"]), cmp.Or(str(in["commit"]), str(in["ref"]), str(s["ref"]))
+		}
+		args = []string{"/usr/local/bin/berth", "skills", "scan", "--json", "--repo", repo, "--ref", ref}
+		if p != "" {
+			args = append(args, "--path", p)
+		}
 	case "agents.add":
 		args = []string{"/usr/local/bin/berth", "agents", "install", "--json", str(in["id"])}
 	case "agents.rollback":
@@ -464,8 +500,6 @@ func (f *fake) start(verb string, in map[string]any) (int, any) {
 		}
 	case "workspaces.forget":
 		args = []string{"/usr/local/bin/berth", "workspaces", "kill", "--json", "--id", str(in["id"])}
-	case "skills.update":
-		args = append([]string{"/usr/local/bin/berth", "skills", "scan", "--json", "--ref", cmp.Or(str(in["ref"]), "(each skill's ref)")}, strs(in["ids"])...)
 	}
 	j := &job{ID: len(f.jobs) + 1, Verb: verb, Group: group, Args: args, State: "running", StartedAt: time.Now().UTC(),
 		Result: json.RawMessage("null"), input: make(chan string, 1), cancel: make(chan struct{})}
@@ -501,8 +535,8 @@ func (f *fake) run(j *job, in map[string]any) {
 		if in["delete"] == true {
 			lines = append(lines, "remove    the folder of "+str(in["id"])) // run reads f.cfg only under f.mu
 		}
-	case "skills.scan", "skills.add", "skills.update":
-		lines = []string{"fetch     " + str(in["repo"]) + "@" + cmp.Or(str(in["commit"]), str(in["ref"])), "list      SKILL.md files", "read      frontmatter"}
+	case "skills.sources.preview", "skills.sources.add", "skills.sources.update":
+		lines = []string{"fetch     " + j.Args[5] + "@" + j.Args[7], "list      SKILL.md files", "read      frontmatter"}
 	}
 	for i, line := range lines {
 		select {
@@ -557,84 +591,15 @@ func (f *fake) run(j *job, in map[string]any) {
 		if j.Verb == "tools.add" {
 			f.tools = append(f.tools, map[string]string{"name": name, "version": str(in["version"])})
 		}
-	case "skills.scan":
-		if strings.Contains(str(in["repo"])+str(in["ref"]), "missing") {
-			code, j.State = 1, "failed"
-			j.Result = json.RawMessage(`{"error":{"code":"ref_not_found","field":"ref","message":"Ref ` + str(in["ref"]) + ` not found in that repository"}}`)
+	case "skills.sources.preview", "skills.sources.add", "skills.sources.update":
+		res, failure := f.fakeSource(j.Verb, in)
+		if failure != "" {
+			code, j.State, j.Result = 1, "failed", json.RawMessage(failure)
 			break
 		}
-		rows := fakeScanRows(str(in["repo"]), []string{str(in["path"])})
-		if len(rows) == 0 {
-			code, j.State = 1, "failed"
-			j.Result = json.RawMessage(`{"error":{"code":"no_skill","field":"path","message":"No SKILL.md at or below ` + str(in["path"]) + ` in that commit"}}`)
-			break
-		}
-		for _, r := range rows {
-			if _, ok := f.cfg["skills"].(map[string]any)[str(r["name"])]; ok {
-				r["installed"] = true
-			}
-		}
-		commit := fakeCommit
-		if strings.Contains(str(in["ref"]), "v2") {
-			commit = fakeCommit2
-		}
-		j.Result, _ = json.Marshal(map[string]any{"commit": commit, "skills": rows})
-	case "skills.add":
-		next, names, fail := f.fakeAdd(in)
-		if fail != "" {
-			code, j.State, j.Result = 1, "failed", json.RawMessage(fail)
-			break
-		}
-		f.replace(next)
-		f.start("skills.sync", nil) // start takes no lock; the broker syncs after every skills change
-		j.Result, _ = json.Marshal(map[string]any{"skills": names, "changed": true})
-	case "skills.update":
-		next := clone(f.cfg)
-		changed := []string{}
-		for _, id := range strs(in["ids"]) {
-			s, _ := next["skills"].(map[string]any)[id].(map[string]any)
-			ref := cmp.Or(str(in["ref"]), str(s["ref"]))
-			if s == nil || !strings.Contains(ref, "v2") || s["commit"] == fakeCommit2 {
-				continue
-			}
-			s["ref"], s["commit"] = ref, fakeCommit2
-			changed = append(changed, id)
-		}
-		slices.Sort(changed)
-		if len(changed) > 0 {
-			f.replace(next)
-			f.start("skills.sync", nil) // start takes no lock; the broker syncs after every skills change
-		}
-		j.Result, _ = json.Marshal(map[string]any{"skills": changed, "changed": len(changed) > 0})
+		j.Result, _ = json.Marshal(res)
 	}
 	j.FinishedAt, j.ExitCode = &now, &code
-}
-
-// fakeAdd builds the config after a skills.add, or the job's failure JSON;
-// like the broker, it saves every requested skill or none.
-func (f *fake) fakeAdd(in map[string]any) (map[string]any, []string, string) {
-	byPath := map[string]map[string]any{}
-	for _, r := range fakeScanRows(str(in["repo"]), strs(in["paths"])) {
-		byPath[str(r["path"])] = r
-	}
-	next := clone(f.cfg)
-	var names []string
-	for _, p := range strs(in["paths"]) {
-		r := byPath[p]
-		switch {
-		case r == nil:
-			return nil, nil, `{"error":{"code":"no_skill","field":"path","message":"No SKILL.md at ` + p + ` in that commit"}}`
-		case r["error"] != nil:
-			return nil, nil, `{"error":{"code":"bad_skill","field":"path","message":"` + p + `: ` + str(r["error"]) + `"}}`
-		case f.cfg["skills"].(map[string]any)[str(r["name"])] != nil:
-			return nil, nil, `{"error":{"code":"skill_exists","field":"path","message":"A skill named ` + str(r["name"]) + ` is already installed"}}`
-		}
-		names = append(names, str(r["name"]))
-		next["skills"].(map[string]any)[str(r["name"])] = map[string]any{"repo": str(in["repo"]), "path": p, "ref": str(in["ref"]),
-			"commit": str(in["commit"]), "description": str(r["description"]), "agents": in["agents"], "enabled": true}
-	}
-	slices.Sort(names)
-	return next, names, ""
 }
 
 const (
@@ -645,28 +610,168 @@ const (
 var fakeCatalog = []string{"brand-guidelines", "canvas-design", "docx", "frontend-design", "mcp-builder",
 	"pdf", "pptx", "skill-creator", "webapp-testing", "xlsx"}
 
-// fakeScanRows is the devserver's stand-in for a repository: the catalog
-// for anthropics/skills, a three-skill collection with one broken skill for
-// any other, keeping rows at or below paths. Each call returns new maps.
-func fakeScanRows(repo string, paths []string) []map[string]any {
-	var rows []map[string]any
-	if strings.HasSuffix(repo, "/anthropics/skills") {
-		for _, id := range fakeCatalog {
-			rows = append(rows, map[string]any{"path": "skills/" + id, "name": id, "description": "A skill from anthropics/skills"})
-		}
-	} else {
-		rows = []map[string]any{
-			{"path": "skills/broken", "error": "SKILL.md has no description"},
-			{"path": "skills/changelog", "name": "changelog", "description": "Keep CHANGELOG.md in step with tags"},
-			{"path": "skills/release-notes", "name": "release-notes", "description": "Draft release notes from merged pull requests"},
+// sourcesOf is cfg's skill sources.
+func sourcesOf(cfg map[string]any) map[string]any {
+	return cfg["skills"].(map[string]any)["sources"].(map[string]any)
+}
+
+// source is the current source id, or nil.
+func (f *fake) source(id string) map[string]any {
+	s, _ := sourcesOf(f.cfg)[id].(map[string]any)
+	return s
+}
+
+// tracking names the source that tracks repo at ref and path, or "".
+func (f *fake) tracking(repo, ref, path string) string {
+	for _, id := range slices.Sorted(maps.Keys(sourcesOf(f.cfg))) {
+		if s := f.source(id); str(s["repo"]) == repo && str(s["ref"]) == ref && str(s["path"]) == path {
+			return id
 		}
 	}
-	return slices.DeleteFunc(rows, func(r map[string]any) bool {
-		p := str(r["path"])
-		return !slices.ContainsFunc(paths, func(want string) bool {
-			return want == "" || p == want || strings.HasPrefix(p, want+"/")
-		})
-	})
+	return ""
+}
+
+// sourceID derives an id the way the broker does, close enough for the
+// fake: owner-repo, then -<ref>, then -2.
+func (f *fake) sourceID(repo, ref string) string {
+	segs := strings.Split(strings.TrimSuffix(repo, ".git"), "/")
+	base := strings.ToLower(strings.Join(segs[max(0, len(segs)-2):], "-"))
+	id := base
+	if f.source(id) != nil {
+		id = base + "-" + strings.ToLower(strings.ReplaceAll(ref, "/", "-"))
+	}
+	for n := 2; f.source(id) != nil; n++ {
+		id = fmt.Sprintf("%s-%s-%d", base, ref, n)
+	}
+	return id
+}
+
+// provided says whether any source attaches name.
+func (f *fake) provided(name string) bool {
+	for _, s := range sourcesOf(f.cfg) {
+		if s.(map[string]any)["attached"].(map[string]any)[name] != nil {
+			return true
+		}
+	}
+	return false
+}
+
+// fakeScan is the devserver's stand-in for berth skills scan: the commit
+// ref resolves to and the found rows there (new maps on every call), or
+// the job's failure JSON.
+func fakeScan(repo, ref string) (string, map[string]any, string) {
+	if strings.Contains(repo+ref, "missing") {
+		return "", nil, `{"error":{"code":"ref_not_found","field":"ref","message":"Ref ` + ref + ` not found in that repository"}}`
+	}
+	found := map[string]any{}
+	if strings.HasSuffix(repo, "/anthropics/skills") {
+		for _, id := range fakeCatalog {
+			found[id] = map[string]any{"path": "skills/" + id, "description": "A skill from anthropics/skills"}
+		}
+		return fakeCommit, found, ""
+	}
+	found["broken"] = map[string]any{"path": "skills/broken", "error": "SKILL.md has no description"}
+	if strings.Contains(ref, "v2") || ref == fakeCommit2 {
+		found["release-notes"] = map[string]any{"path": "skills/release-notes", "description": "Draft release notes from merged pull requests and tags"}
+		found["triage"] = map[string]any{"path": "skills/triage", "description": "Label and route new issues"}
+		return fakeCommit2, found, ""
+	}
+	found["changelog"] = map[string]any{"path": "skills/changelog", "description": "Keep CHANGELOG.md in step with tags"}
+	found["release-notes"] = map[string]any{"path": "skills/release-notes", "description": "Draft release notes from merged pull requests"}
+	return fakeCommit, found, ""
+}
+
+// fakeSource finishes a skills.sources job like the broker: a preview of a
+// new or an existing source, an add or an update.
+func (f *fake) fakeSource(verb string, in map[string]any) (map[string]any, string) {
+	id := str(in["id"])
+	src := f.source(id)
+	repo, ref, p := str(in["repo"]), str(in["ref"]), str(in["path"])
+	if src != nil {
+		repo, p, ref = str(src["repo"]), str(src["path"]), cmp.Or(ref, str(src["ref"]))
+	}
+	commit, found, failure := fakeScan(repo, cmp.Or(str(in["commit"]), ref))
+	if failure != "" {
+		return nil, failure
+	}
+	switch {
+	case verb == "skills.sources.preview" && src == nil:
+		return map[string]any{"commit": commit, "found": found, "id": f.sourceID(repo, ref), "exists": f.tracking(repo, ref, p)}, ""
+	case verb == "skills.sources.preview":
+		return fakeDiff(id, ref, src, commit, found), ""
+	case verb == "skills.sources.add":
+		id = cmp.Or(id, f.sourceID(repo, ref))
+		attached, names, skipped := map[string]any{}, []string{}, []string{}
+		for _, name := range slices.Sorted(maps.Keys(found)) {
+			switch {
+			case in["attach_all"] != true || found[name].(map[string]any)["error"] != nil:
+			case f.provided(name):
+				skipped = append(skipped, name)
+			default:
+				attached[name] = map[string]any{"enabled": true, "agents": nil, "workspaces": map[string]any{}}
+				names = append(names, name)
+			}
+		}
+		next := clone(f.cfg)
+		sourcesOf(next)[id] = map[string]any{"repo": repo, "ref": ref, "path": p, "commit": commit, "found": found, "attached": attached}
+		f.replace(next)
+		f.start("skills.sync", nil) // start takes no lock; the broker syncs after every skills change
+		return map[string]any{"id": id, "commit": commit, "attached": names, "skipped": skipped, "changed": true, "revision": f.cfg["revision"]}, ""
+	}
+	next := clone(f.cfg)
+	s := sourcesOf(next)[id].(map[string]any)
+	changed := s["commit"] != commit || s["ref"] != ref
+	missing := []string{}
+	for _, name := range slices.Sorted(maps.Keys(s["attached"].(map[string]any))) {
+		if row, _ := found[name].(map[string]any); row == nil || row["error"] != nil {
+			missing = append(missing, name)
+		}
+	}
+	if changed {
+		s["ref"], s["commit"], s["found"] = ref, commit, found
+		f.replace(next)
+		f.start("skills.sync", nil) // start takes no lock; the broker syncs after every skills change
+	}
+	return map[string]any{"id": id, "commit": commit, "changed": changed, "revision": f.cfg["revision"], "missing": missing}, ""
+}
+
+// fakeDiff is a preview of source id at ref, with the broker's diff kinds.
+func fakeDiff(id, ref string, src map[string]any, commit string, found map[string]any) map[string]any {
+	d := map[string]any{"id": id, "ref": ref, "from": src["commit"], "commit": commit,
+		"changed": commit != src["commit"] || ref != src["ref"], "added": []any{}, "removed": []any{}, "moved": []any{}, "described": []any{}}
+	if commit == src["commit"] {
+		return d
+	}
+	old, _ := src["found"].(map[string]any)
+	attached, _ := src["attached"].(map[string]any)
+	row := func(name string, fr map[string]any) map[string]any {
+		r := map[string]any{"name": name, "path": fr["path"], "attached": attached[name] != nil}
+		for _, k := range []string{"description", "error"} {
+			if v, ok := fr[k]; ok {
+				r[k] = v
+			}
+		}
+		return r
+	}
+	add := func(kind string, r map[string]any) { d[kind] = append(d[kind].([]any), r) }
+	for _, name := range slices.Sorted(maps.Keys(found)) {
+		n, r := found[name].(map[string]any), row(name, found[name].(map[string]any))
+		switch o, had := old[name].(map[string]any); {
+		case !had:
+			add("added", r)
+		case o["path"] != n["path"]:
+			r["from"] = o["path"]
+			add("moved", r)
+		case o["description"] != n["description"] || o["error"] != n["error"]:
+			add("described", r)
+		}
+	}
+	for _, name := range slices.Sorted(maps.Keys(old)) {
+		if found[name] == nil {
+			add("removed", row(name, old[name].(map[string]any)))
+		}
+	}
+	return d
 }
 
 func strs(v any) []string {

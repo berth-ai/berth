@@ -159,7 +159,7 @@ func TestFakeMCPServers(t *testing.T) {
 	}
 }
 
-func TestFakeSkills(t *testing.T) {
+func TestFakeSources(t *testing.T) {
 	f := newFake("normal")
 	f.step = 0
 	last := func() *job {
@@ -173,49 +173,67 @@ func TestFakeSkills(t *testing.T) {
 		}
 		return nil
 	}
+	res := func(j *job) map[string]any {
+		var m map[string]any
+		json.Unmarshal(j.Result, &m)
+		return m
+	}
+	names := func(v any) string {
+		var out []string
+		for _, r := range v.([]any) {
+			out = append(out, r.(map[string]any)["name"].(string))
+		}
+		return fmt.Sprint(out)
+	}
 	repo := "https://github.com/acme/eng-skills"
-	f.verb("skills.scan", map[string]any{"repo": repo, "ref": "main", "path": ""})
-	if j := last(); j.State != "succeeded" || strings.Count(string(j.Result), `"path"`) != 3 ||
-		!strings.Contains(string(j.Result), `"error":"SKILL.md has no description"`) || !strings.Contains(string(j.Result), fakeCommit) {
-		t.Fatalf("scan = %+v %s", j, j.Result)
+	f.verb("skills.sources.preview", map[string]any{"repo": repo, "ref": "main", "path": ""})
+	if r := res(last()); r["id"] != "acme-eng-skills" || r["commit"] != fakeCommit || len(r["found"].(map[string]any)) != 3 {
+		t.Fatalf("preview new = %v", r)
 	}
-	f.verb("skills.add", map[string]any{"repo": repo, "ref": "main", "commit": fakeCommit,
-		"paths": []any{"skills/release-notes", "skills/changelog"}, "agents": nil})
-	if j := last(); j.State != "succeeded" || !strings.Contains(string(j.Result), `"skills":["changelog","release-notes"]`) {
-		t.Fatalf("add = %+v %s", j, j.Result)
+	f.verb("skills.sources.add", map[string]any{"repo": repo, "ref": "main", "path": "", "commit": fakeCommit, "attach_all": true})
+	if r := res(last()); fmt.Sprint(r["attached"]) != "[changelog release-notes]" {
+		t.Fatalf("add = %v", r)
 	}
-	if s := f.cfg["skills"].(map[string]any); len(s) != 2 || s["changelog"].(map[string]any)["commit"] != fakeCommit {
-		t.Fatalf("skills = %v", s)
+	if s := f.source("acme-eng-skills"); s == nil || s["commit"] != fakeCommit || len(s["attached"].(map[string]any)) != 2 {
+		t.Fatalf("source = %v", s)
 	}
-	f.verb("skills.scan", map[string]any{"repo": repo, "ref": "main", "path": "skills/release-notes"})
-	if j := last(); strings.Count(string(j.Result), `"path"`) != 1 || !strings.Contains(string(j.Result), `"installed":true`) {
-		t.Errorf("rescan = %s", j.Result)
+	if code, out := f.verb("skills.sources.add", map[string]any{"repo": repo, "ref": "main", "path": ""}); code != http.StatusBadRequest ||
+		!strings.Contains(fmt.Sprint(out), "source_exists") {
+		t.Errorf("again = %d %v", code, out)
 	}
-	f.verb("skills.add", map[string]any{"repo": repo, "ref": "main", "commit": fakeCommit, "paths": []any{"skills/broken"}})
-	if j := last(); j.State != "failed" || !strings.Contains(string(j.Result), `"code":"bad_skill"`) {
-		t.Errorf("broken = %s", j.Result)
+	f.verb("skills.sources.preview", map[string]any{"id": "acme-eng-skills", "ref": "v2"})
+	d := res(last())
+	if d["changed"] != true || names(d["removed"]) != "[changelog]" || names(d["added"]) != "[triage]" || names(d["described"]) != "[release-notes]" {
+		t.Errorf("diff = %v", d)
 	}
-	f.verb("skills.scan", map[string]any{"repo": "https://github.com/acme/missing", "ref": "main"})
+	if !d["removed"].([]any)[0].(map[string]any)["attached"].(bool) {
+		t.Error("the removed skill is attached")
+	}
+	f.verb("skills.sources.update", map[string]any{"id": "acme-eng-skills", "ref": "v2", "commit": fakeCommit2})
+	if r := res(last()); r["changed"] != true || fmt.Sprint(r["missing"]) != "[changelog]" {
+		t.Errorf("update = %v", r)
+	}
+	if s := f.source("acme-eng-skills"); s["ref"] != "v2" || s["commit"] != fakeCommit2 {
+		t.Errorf("after update = %v", s)
+	}
+	f.verb("skills.sources.preview", map[string]any{"id": "acme-eng-skills"})
+	if r := res(last()); r["changed"] != false {
+		t.Errorf("up to date = %v", r)
+	}
+	f.verb("skills.sources.preview", map[string]any{"repo": "https://github.com/acme/missing", "ref": "main"})
 	if j := last(); j.State != "failed" || !strings.Contains(string(j.Result), `"field":"ref"`) {
 		t.Errorf("missing = %s", j.Result)
 	}
-	f.verb("skills.update", map[string]any{"ids": []any{"release-notes", "changelog"}})
-	if j := last(); !strings.Contains(string(j.Result), `"changed":false`) {
-		t.Errorf("same ref = %s", j.Result)
+	if code, _ := f.verb("skills.sources.preview", map[string]any{"id": "nope"}); code != http.StatusNotFound {
+		t.Errorf("unknown preview = %d", code)
 	}
-	f.verb("skills.update", map[string]any{"ids": []any{"release-notes", "changelog"}, "ref": "v2"})
-	if j := last(); !strings.Contains(string(j.Result), `"skills":["changelog","release-notes"]`) {
-		t.Errorf("v2 = %s", j.Result)
+	if code, out := f.verb("skills.sources.remove", map[string]any{"id": "acme-eng-skills"}); code != http.StatusOK || f.source("acme-eng-skills") != nil {
+		t.Errorf("remove = %d %v", code, out)
 	}
-	if c := f.cfg["skills"].(map[string]any)["changelog"].(map[string]any); c["ref"] != "v2" || c["commit"] != fakeCommit2 {
-		t.Errorf("changelog = %v", c)
-	}
-	if code, _ := f.verb("skills.update", map[string]any{"ids": []any{"nothere"}}); code != http.StatusBadRequest {
-		t.Errorf("unknown update = %d", code)
-	}
-	f.verb("skills.scan", map[string]any{"repo": "https://github.com/anthropics/skills", "ref": "main", "path": "skills/pdf"})
-	if j := last(); strings.Count(string(j.Result), `"path"`) != 1 || !strings.Contains(string(j.Result), `"name":"pdf"`) {
-		t.Errorf("catalog scan = %s", j.Result)
+	code, out := f.verb("config.upgrade", map[string]any{"config": map[string]any{"schema": 4, "skills": map[string]any{"pdf": map[string]any{}}}})
+	up, _ := out.(map[string]any)["config"].(map[string]any)
+	if code != http.StatusOK || num(up["schema"]) != 6 || up["skills"].(map[string]any)["sources"] == nil {
+		t.Errorf("upgrade = %d %v", code, out)
 	}
 }
 
