@@ -306,6 +306,121 @@ test("an MCP server is added, narrowed, edited and removed", async ({ page }) =>
   expect(problems).toEqual([]);
 });
 
+test("a skill source is added, attached, updated and removed", async ({ page }) => {
+  const problems = await watch(page);
+  await signIn(page);
+  await page.goto(`${NORMAL}/#/skills`);
+  // Toasts are role=dialog too, so dialogs are found by name.
+  const add = page.getByRole("dialog", { name: "Add a skill source" });
+
+  // The suggested source opens already found; attach everything at once.
+  await page.getByRole("button", { name: "Add anthropics/skills" }).click();
+  await expect(add.getByText("10 skills at")).toBeVisible();
+  await add.getByRole("checkbox", { name: "Attach all to all agents" }).click();
+  await add.getByRole("button", { name: "Add source" }).click();
+  await expect(
+    page.getByText(/anthropics-skills added; 10 skills attached to all agents\./),
+  ).toBeVisible();
+  await expect(page).toHaveURL(/#\/skills\/anthropics-skills$/);
+  await expect(page.getByRole("heading", { name: "anthropics/skills" })).toBeVisible();
+
+  // Any repository: a bad ref, then the skills with a broken one.
+  await page.goto(`${NORMAL}/#/skills`);
+  await expect(page.getByRole("button", { name: "Add anthropics/skills" })).toHaveCount(0);
+  await page.getByRole("button", { name: "Add source" }).click();
+  await add.getByLabel("Repository").fill("acme/eng-skills");
+  await add.getByLabel("Ref").fill("missing");
+  await add.getByRole("button", { name: "Find skills" }).click();
+  await expect(add.getByText("Ref missing not found in that repository")).toBeVisible();
+  await add.getByLabel("Ref").fill("main");
+  await add.getByRole("button", { name: "Find skills" }).click();
+  await expect(add.getByText("2 skills at")).toBeVisible();
+  await expect(add.getByText("SKILL.md has no description")).toBeVisible();
+  await expect(add.getByLabel("Id")).toHaveValue("acme-eng-skills");
+  await add.getByRole("button", { name: "Add source" }).click();
+  await expect(page.getByText(/acme-eng-skills added\./)).toBeVisible();
+  await expect(page).toHaveURL(/#\/skills\/acme-eng-skills$/);
+
+  // changelog for Example Agent only (Other Agent reads its folder); release-notes for all.
+  await page.getByRole("button", { name: "Attach changelog" }).click();
+  const picker = page.getByRole("dialog", { name: "Attach changelog" });
+  await picker.getByRole("checkbox", { name: /^All agents, including ones added later/ }).click();
+  await picker.getByRole("checkbox", { name: /^Other Agent/ }).click();
+  await expect(picker.getByText("Through Example Agent")).toBeVisible();
+  await picker.getByRole("button", { name: "Attach" }).click();
+  await expect(page.getByText(/changelog is attached to Example Agent, Other Agent/)).toBeVisible();
+  const changelog = page.getByRole("row").filter({ hasText: "Keep CHANGELOG.md" });
+  await expect(changelog.getByText(/^Example Agent, Other Agent/)).toBeVisible();
+  await page.getByRole("button", { name: "Attach release-notes" }).click();
+  await page
+    .getByRole("dialog", { name: "Attach release-notes" })
+    .getByRole("button", { name: "Attach" })
+    .click();
+  await expect(page.getByText(/release-notes is attached to all agents\./)).toBeVisible();
+  await page.getByRole("switch", { name: "Turn off release-notes" }).click();
+  await expect(page.getByText(/release-notes is off\./)).toBeVisible();
+
+  // Change ref: v2 drops changelog, which is attached.
+  await page.getByRole("button", { name: "Change ref" }).click();
+  const update = page.getByRole("dialog", { name: "Change ref for acme-eng-skills" });
+  await update.getByLabel("Ref").fill("v2");
+  await update.getByRole("button", { name: "Preview" }).click();
+  await expect(
+    update.getByRole("region", { name: "Removed" }).getByText("changelog", { exact: true }),
+  ).toBeVisible();
+  await expect(update.getByRole("region", { name: "Added" }).getByText("triage")).toBeVisible();
+  await expect(update.getByText(/changelog is attached and will be missing/)).toBeVisible();
+  await update.getByRole("button", { name: "Update to 89abcdef0123" }).click();
+  await expect(
+    page.getByText(
+      /acme-eng-skills updated to 89abcdef0123\. changelog is no longer in the source/,
+    ),
+  ).toBeVisible();
+
+  // The missing skill keeps its row until it is detached.
+  await expect(page.getByText("Missing from 89abcdef0123")).toBeVisible();
+  await page.getByRole("button", { name: "Detach changelog" }).click();
+  await page.getByRole("alertdialog").getByRole("button", { name: "Detach" }).click();
+  await expect(page.getByText(/changelog detached\./)).toBeVisible();
+  await expect(page.getByRole("button", { name: "Detach changelog" })).toHaveCount(0);
+
+  // Update with nothing new.
+  await page.getByRole("button", { name: "Update", exact: true }).click();
+  const again = page.getByRole("dialog", { name: "Update acme-eng-skills" });
+  await expect(again.getByText(/Already up to date/)).toBeVisible();
+  // The footer's Close, not the dialog's own close button.
+  await again.getByRole("button", { name: "Close" }).and(again.getByText("Close")).click();
+
+  // All skills lists attachments across sources and links to them.
+  await page.goto(`${NORMAL}/#/skills?view=flat`);
+  await expect(
+    page
+      .getByRole("row")
+      .filter({ hasText: "release-notes" })
+      .getByRole("link", { name: "acme-eng-skills" }),
+  ).toBeVisible();
+  await expect(
+    page
+      .getByRole("row")
+      .filter({ hasText: "xlsx" })
+      .getByRole("link", { name: "anthropics-skills" }),
+  ).toBeVisible();
+
+  // Remove both; with skills attached, the id is typed first.
+  for (const id of ["acme-eng-skills", "anthropics-skills"]) {
+    await page.goto(`${NORMAL}/#/skills/${id}`);
+    await page.getByRole("button", { name: "Remove", exact: true }).click();
+    const remove = page.getByRole("dialog", { name: `Remove ${id}?` });
+    await expect(remove.getByRole("button", { name: "Remove source" })).toBeDisabled();
+    await remove.getByLabel(`Type ${id} to confirm`).fill(id);
+    await remove.getByRole("button", { name: "Remove source" }).click();
+    await expect(page.getByText(new RegExp(`${id} removed\\.`))).toBeVisible();
+    await expect(page).toHaveURL(/#\/skills$/);
+  }
+  await expect(page.getByRole("button", { name: "Add anthropics/skills" })).toBeVisible();
+  expect(problems).toEqual([]);
+});
+
 test("agents sign in with a pasted code and a device code, and sign out", async ({ page }) => {
   const problems = await watch(page);
   await signIn(page);
