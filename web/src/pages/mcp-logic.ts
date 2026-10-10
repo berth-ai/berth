@@ -108,5 +108,5 @@ export const enabledPatch = (id: string, on: boolean) => ({
   mcp: { servers: { [id]: { enabled: on } } },
 });
 export const removePatch = (id: string) => ({
-  mcp: { servers: { [id]: null }, available: { [id]: null } },
+  mcp: { servers: { [id]: null }, available: { [id]: null }, workspaces: { [id]: null } },
 });

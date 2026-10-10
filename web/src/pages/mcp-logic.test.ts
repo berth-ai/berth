@@ -90,6 +90,8 @@ describe("patches", () => {
     expect(serverPatch("l", { url: "u", auth: "none", enabled: true }, null)).toEqual({
       mcp: { servers: { l: { url: "u", auth: "none", enabled: true } }, available: { l: null } },
     });
-    expect(removePatch("l")).toEqual({ mcp: { servers: { l: null }, available: { l: null } } });
+    expect(removePatch("l")).toEqual({
+      mcp: { servers: { l: null }, available: { l: null }, workspaces: { l: null } },
+    });
   });
 });

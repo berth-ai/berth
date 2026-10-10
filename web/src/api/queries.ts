@@ -11,6 +11,7 @@ import type {
   Session,
   Status,
   ToolsList,
+  WorkspaceReport,
   WorkspaceState,
 } from "./types";
 
@@ -28,6 +29,7 @@ export const keys = {
   registry: ["registry"],
   agentRegistry: ["agent-registry"],
   versions: (tool: string) => ["versions", tool],
+  workspaceReport: (id: string) => ["workspace-report", id],
   workspaceStatus: ["workspace-status"],
   candidates: ["workspace-candidates"],
 } as const;
@@ -150,4 +152,19 @@ export function refreshWorkspaces(): Promise<unknown> {
       queryClient.invalidateQueries({ queryKey }),
     ),
   );
+}
+
+/** useWorkspaceReport polls what Berth wrote into workspace id. */
+export function useWorkspaceReport(id: string) {
+  return useQuery({
+    queryKey: keys.workspaceReport(id),
+    queryFn: () =>
+      verb<{ report: WorkspaceReport }>("workspaces.report", { id }).then((r) => r.report),
+    refetchInterval: 5000,
+  });
+}
+
+/** refreshWorkspaceReport reloads a workspace's report now. */
+export function refreshWorkspaceReport(id: string): Promise<void> {
+  return queryClient.invalidateQueries({ queryKey: keys.workspaceReport(id) });
 }

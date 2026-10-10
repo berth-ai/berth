@@ -3,6 +3,7 @@ import type {
   Attachment,
   Found,
   Job,
+  SkillMode,
   NewSourceScan,
   Source,
   SourceDiff,
@@ -137,17 +138,28 @@ const at = (id: string, name: string, v: object | null) => ({
 /** detachPatch removes an attachment. */
 export const detachPatch = (id: string, name: string) => at(id, name, null);
 
-/** attachPatch attaches name to agents, or changes who gets it. No agent
- * and no workspace detaches it. */
+const sameModes = (a: Record<string, SkillMode>, b: Record<string, SkillMode>) =>
+  Object.keys(a).length === Object.keys(b).length &&
+  Object.entries(a).every(([k, v]) => b[k] === v);
+
+/** attachPatch attaches name to agents and workspaces, or changes who
+ * gets it; workspaces default to the current ones. No agent and no
+ * workspace detaches it. */
 export function attachPatch(
   id: string,
   name: string,
   agents: string[] | null,
   current: Attachment | null,
+  workspaces: Record<string, SkillMode> = current?.workspaces ?? {},
 ) {
-  const workspaces = Object.keys(current?.workspaces ?? {}).length;
-  if (agents !== null && agents.length === 0 && workspaces === 0) return detachPatch(id, name);
-  return at(id, name, current ? { agents } : { enabled: true, agents, workspaces: {} });
+  if (agents !== null && agents.length === 0 && Object.keys(workspaces).length === 0)
+    return detachPatch(id, name);
+  if (!current) return at(id, name, { enabled: true, agents, workspaces });
+  const prev = current.workspaces ?? {};
+  if (sameModes(prev, workspaces)) return at(id, name, { agents });
+  const ws: Record<string, SkillMode | null> = { ...workspaces };
+  for (const w of Object.keys(prev)) if (!(w in workspaces)) ws[w] = null;
+  return at(id, name, { agents, workspaces: ws });
 }
 
 /** enabledPatch switches an attachment on or off. */

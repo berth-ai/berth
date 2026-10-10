@@ -105,6 +105,19 @@ describe("sources", () => {
 });
 
 describe("attaching", () => {
+  it("saves workspaces with agents", () => {
+    const at = (v: unknown) => ({ skills: { sources: { x: { attached: { pdf: v } } } } });
+    const cur = { enabled: true, agents: null, workspaces: { api: "link" as const } };
+    expect(attachPatch("x", "pdf", ["a"], cur)).toEqual(at({ agents: ["a"] }));
+    expect(attachPatch("x", "pdf", ["a"], cur, { web: "vendor" })).toEqual(
+      at({ agents: ["a"], workspaces: { web: "vendor", api: null } }),
+    );
+    expect(attachPatch("x", "pdf", [], cur, {})).toEqual(at(null));
+    expect(attachPatch("x", "pdf", [], null, { api: "vendor" })).toEqual(
+      at({ enabled: true, agents: [], workspaces: { api: "vendor" } }),
+    );
+  });
+
   it("reads a missing agents key as every agent", () => {
     expect(agentsOf({ enabled: true })).toBeNull();
     expect(agentsOf({ enabled: true, agents: [] })).toEqual([]);

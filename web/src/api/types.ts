@@ -63,6 +63,9 @@ export interface AgentPackage {
   mcp_id?: string;
   skills_dir?: string;
   skills_via?: string[];
+  skills_project?: string;
+  mcp_project?: string;
+  mcp_trust?: boolean;
   icon?: string;
   // An older broker omits these.
   origin?: "locked" | "added";
@@ -85,13 +88,16 @@ export interface Found {
   error?: string;
 }
 
+/** SkillMode is how a workspace gets a skill: linked and hidden from git, or copied in. */
+export type SkillMode = "link" | "vendor";
+
 /** Attachment gives a found skill to agents: null (or, from the devserver,
- * absent) is every agent including ones added later, [] is none. Workspace
- * attachments arrive in a later phase. */
+ * absent) is every agent including ones added later, [] is none; workspaces
+ * get it linked or vendored. */
 export interface Attachment {
   enabled: boolean;
   agents?: string[] | null;
-  workspaces?: Record<string, "link" | "vendor"> | null;
+  workspaces?: Record<string, SkillMode> | null;
 }
 
 /** Source is a repository folder at a ref, pinned to a commit. */
@@ -144,6 +150,42 @@ export interface SourceResult {
   attached?: string[];
   skipped?: string[];
   missing?: string[];
+}
+
+/** WorkspaceSkill is one skill Berth placed in a workspace (wsstate.Skill). */
+export interface WorkspaceSkill {
+  name: string;
+  mode: SkillMode;
+  links?: string[] | null;
+  dir?: string;
+  edited?: boolean;
+}
+
+/** WorkspaceMcpFile is Berth's part of one project MCP file. */
+export interface WorkspaceMcpFile {
+  style: string;
+  key?: string;
+  ids: string[] | null;
+  created?: boolean;
+  tracked?: boolean;
+}
+
+/** WorkspaceReport is what Berth recorded writing into a workspace
+ * (workspaces.report): entries keyed "<source>/<name>", files by path. */
+export interface WorkspaceReport {
+  skills: {
+    path?: string;
+    entries?: Record<string, WorkspaceSkill> | null;
+    skipped?: Record<string, string> | null;
+    error?: string;
+  };
+  mcp: {
+    path?: string;
+    files?: Record<string, WorkspaceMcpFile> | null;
+    trust?: boolean;
+    skipped?: Record<string, string> | null;
+    error?: string;
+  };
 }
 
 export interface WorkspaceEnvVar {
