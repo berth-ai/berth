@@ -32,16 +32,19 @@ type Syncer struct {
 	ConfigHome string       // $XDG_CONFIG_HOME; empty means Home/.config
 	DataHome   string       // $XDG_DATA_HOME; empty means Home/.local/share
 	Settings   string       // skills.json; empty means no sources
+	Workspaces string       // workspaces.json; empty means no workspaces
 	Git        Git
 	Log        io.Writer
 }
 
 // target is one enabled agent that can receive skills.
 type target struct {
-	dep, name string
-	desc      string   // the descriptor's dir, as also lists it
-	dir       string   // desc resolved
-	also      []string // descriptor paths
+	dep, name   string
+	desc        string   // the descriptor's dir, as also lists it
+	dir         string   // desc resolved
+	also        []string // descriptor paths
+	project     string   // its skills folder in a workspace; empty means none
+	projectAlso []string // other agents' project folders it reads too
 }
 
 // attachment is one attached skill of one source.
@@ -91,21 +94,29 @@ func (s Syncer) Run(ctx context.Context) error {
 	// A C2 copy named like a source sits where that source's folder goes.
 	s.clearLegacy(&st, func(id string) bool { _, ok := sources[id]; return ok })
 	keep, used := map[string]bool{}, map[string]bool{}
+	wants := map[string][]wsWant{}
 	var failed []string
 	for _, a := range attachments(sources) {
 		used[a.key()] = true
 		if !a.att.Enabled {
 			continue
 		}
+		// hold: keep what agents and workspaces have, change nothing.
+		hold := false
 		if f, ok := a.src.Found[a.name]; !ok || !f.Valid() {
 			s.logf("%s is not in %s at %s; keeping its links", a.name, a.source, short(a.src.Commit))
 			s.keepLinks(st, a.key(), keep)
-			continue
-		}
-		if err := s.ensureExport(ctx, a, &st); err != nil {
+			hold = true
+		} else if err := s.ensureExport(ctx, a, &st); err != nil {
 			s.logf("%s: %v; leaving it as it was", a.label(), err)
 			failed = append(failed, a.label())
 			s.keepLinks(st, a.key(), keep)
+			hold = true
+		}
+		for _, ws := range slices.Sorted(maps.Keys(a.att.Workspaces)) {
+			wants[ws] = append(wants[ws], s.wsWant(a, ws, hold))
+		}
+		if hold {
 			continue
 		}
 		for _, t := range reach(targets, a.att.Agents) {
@@ -121,6 +132,7 @@ func (s Syncer) Run(ctx context.Context) error {
 			}
 		}
 	}
+	failed = append(failed, s.syncWorkspaces(targets, wants)...)
 	for _, l := range st.Links {
 		if !keep[l] && s.owned(l) {
 			if err := os.Remove(l); err != nil && !errors.Is(err, fs.ErrNotExist) {
@@ -161,7 +173,8 @@ func (s Syncer) targets() ([]target, error) {
 		if t == nil || !s.Set.Enabled(s.Layer, dep) {
 			continue
 		}
-		out = append(out, target{dep: dep, name: s.Set.Packages[dep].Meta.Name, desc: t.Dir, dir: s.resolve(t.Dir), also: t.Also})
+		out = append(out, target{dep: dep, name: s.Set.Packages[dep].Meta.Name, desc: t.Dir, dir: s.resolve(t.Dir), also: t.Also,
+			project: t.Project, projectAlso: t.ProjectAlso})
 	}
 	return out, nil
 }

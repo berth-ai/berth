@@ -18,6 +18,7 @@ import (
 type world struct {
 	t                         *testing.T
 	current, layer, home, set string
+	wsFile                    string
 	repo                      *fixture
 	commit                    string
 	addedRoot                 string
@@ -28,6 +29,7 @@ func newWorld(t *testing.T) *world {
 	t.Helper()
 	w := &world{t: t, current: t.TempDir(), layer: t.TempDir(), home: t.TempDir()}
 	w.set = filepath.Join(t.TempDir(), "skills.json")
+	w.wsFile = filepath.Join(t.TempDir(), "workspaces.json")
 	pkg := map[string]any{
 		"dependencies": map[string]string{"c": "1", "o": "1", "x": "1"},
 		"berth": map[string]any{
@@ -36,8 +38,9 @@ func newWorld(t *testing.T) *world {
 			"x": map[string]any{"kind": "agent", "name": "X", "keys": []string{}},
 		},
 		"berthAgents": map[string]any{"schema": 1, "agents": map[string]any{
-			"c": map[string]any{"skills": map[string]any{"dir": "~/.c/skills"}},
-			"o": map[string]any{"skills": map[string]any{"dir": "$XDG_CONFIG_HOME/o/skills", "also": []string{"~/.c/skills"}}},
+			"c": map[string]any{"skills": map[string]any{"dir": "~/.c/skills", "project": ".c/skills"}},
+			"o": map[string]any{"skills": map[string]any{"dir": "$XDG_CONFIG_HOME/o/skills", "also": []string{"~/.c/skills"},
+				"project": ".o/skills", "project_also": []string{".c/skills"}}},
 		}},
 	}
 	raw, _ := json.Marshal(pkg)
@@ -92,7 +95,7 @@ func (w *world) run() (string, error) {
 		return "", err
 	}
 	s := Syncer{Set: set, Layer: w.layer, Home: w.home, ConfigHome: filepath.Join(w.home, ".config"),
-		Settings: w.set, Git: testGit(), Log: &log}
+		Settings: w.set, Workspaces: w.wsFile, Git: testGit(), Log: &log}
 	err = s.Run(context.Background())
 	return log.String(), err
 }
