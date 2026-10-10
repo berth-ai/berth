@@ -8,20 +8,25 @@ import (
 	"net/http"
 	"net/http/httputil"
 	"net/url"
+	"regexp"
 	"strings"
 )
 
 // newProxy forwards to target, HTTP and WebSocket alike. strip removes a
-// path prefix the upstream does not expect. Upstreams never see the panel's
-// session cookie. Their pages may be framed by the panel and by nothing else.
-// down answers when the upstream is not reachable.
-func newProxy(name string, target *url.URL, strip string, down func(http.ResponseWriter, string)) http.Handler {
+// path prefix the upstream does not expect; query, when set, rewrites the
+// query string. Upstreams never see the panel's session cookie. Their
+// pages may be framed by the panel and by nothing else. down answers when
+// the upstream is not reachable.
+func newProxy(name string, target *url.URL, strip string, query func(url.Values) url.Values, down func(http.ResponseWriter, string)) http.Handler {
 	return &httputil.ReverseProxy{
 		Rewrite: func(pr *httputil.ProxyRequest) {
 			pr.SetURL(target)
 			if strip != "" {
 				pr.Out.URL.Path = "/" + strings.TrimPrefix(strings.TrimPrefix(pr.In.URL.Path, strip), "/")
 				pr.Out.URL.RawPath = ""
+			}
+			if query != nil {
+				pr.Out.URL.RawQuery = query(pr.In.URL.Query()).Encode()
 			}
 			dropCookie(pr.Out.Header, cookieName)
 			pr.SetXForwarded()
@@ -34,6 +39,18 @@ func newProxy(name string, target *url.URL, strip string, down func(http.Respons
 			down(w, name)
 		},
 	}
+}
+
+// terminalArg is the only query ttyd gets: ttyd -a passes arg to
+// berth-term, which accepts a workspace session and nothing else.
+var terminalArg = regexp.MustCompile(`^ws-[a-z0-9][a-z0-9-]{0,63}$`)
+
+// terminalQuery keeps a single valid arg and drops everything else.
+func terminalQuery(q url.Values) url.Values {
+	if a := q["arg"]; len(a) == 1 && terminalArg.MatchString(a[0]) {
+		return url.Values{"arg": a}
+	}
+	return url.Values{}
 }
 
 func setProxiedHeaders(h http.Header) {

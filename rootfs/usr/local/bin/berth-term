@@ -1,0 +1,27 @@
+#!/usr/bin/env bash
+# berth-term [ws-ID]: what the browser terminal runs. ttyd -a passes the
+# URL's ?arg=, which the panel proxy forwards only when it names a
+# workspace session; this checks again. No argument attaches the main
+# session.
+set -euo pipefail
+
+file=${BERTH_WORKSPACES_FILE:-/var/lib/berth/workspaces.json}
+
+if (($# == 0)); then
+  exec tmux new -A -s main
+fi
+if (($# != 1)) || [[ ! $1 =~ ^ws-[a-z0-9][a-z0-9-]{0,63}$ ]]; then
+  echo "berth-term: usage: berth-term [ws-ID]" >&2
+  exit 1
+fi
+id=${1#ws-}
+dir=$(jq -r --arg id "$id" '.workspaces[$id].path // empty' "$file" 2>/dev/null) || dir=
+if [[ -z $dir ]]; then
+  echo "berth-term: there is no workspace named $id; open one from the panel's Workspaces page." >&2
+  exit 1
+fi
+if [[ ! -d $dir ]]; then
+  echo "berth-term: the folder of workspace $id, $dir, is missing." >&2
+  exit 1
+fi
+exec tmux new -A -s "$1" -c "$dir"

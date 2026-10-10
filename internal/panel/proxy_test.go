@@ -14,15 +14,16 @@ import (
 // upstream records requests and speaks a toy WebSocket: after a 101 it
 // echoes bytes back.
 type upstream struct {
-	srv  *httptest.Server
-	path string
-	hdr  http.Header
+	srv   *httptest.Server
+	path  string
+	query string
+	hdr   http.Header
 }
 
 func newUpstream(t *testing.T) *upstream {
 	u := &upstream{}
 	u.srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		u.path, u.hdr = r.URL.Path, r.Header.Clone()
+		u.path, u.query, u.hdr = r.URL.Path, r.URL.RawQuery, r.Header.Clone()
 		if r.Header.Get("Upgrade") == "websocket" {
 			conn, rw, _ := w.(http.Hijacker).Hijack()
 			defer conn.Close()
@@ -160,5 +161,35 @@ func TestWebSocketCrossOriginRejected(t *testing.T) {
 	conn.Close()
 	if !strings.Contains(status, "403") || term.path != "" {
 		t.Errorf("status = %q, upstream saw %q", status, term.path)
+	}
+}
+
+func TestTerminalForwardsOnlyAWorkspaceArg(t *testing.T) {
+	e, term, ide := proxyEnv(t)
+	c := e.client()
+	e.login(c)
+	for query, want := range map[string]string{
+		"?arg=ws-acme-api":     "arg=ws-acme-api",
+		"?arg=ws-acme-api&x=1": "arg=ws-acme-api",
+		"?x=1&arg=ws-a":        "arg=ws-a",
+		"?arg=main":            "",
+		"?arg=ws-Bad":          "",
+		"?arg=ws-a&arg=ws-b":   "",
+		"?arg=ws-a%3Bid":       "",
+		"?arg=-c&arg=ws-a":     "",
+		"?foo=bar":             "",
+		"":                     "",
+	} {
+		for _, p := range []string{"/terminal/", "/terminal/ws"} {
+			term.query = "unset"
+			e.do(c, "GET", p+query, "", nil)
+			if term.query != want {
+				t.Errorf("%s%s reached ttyd with %q, want %q", p, query, term.query, want)
+			}
+		}
+	}
+	e.do(c, "GET", "/ide/?folder=/workspaces/acme", "", nil)
+	if ide.query != "folder=/workspaces/acme" {
+		t.Errorf("the IDE's query changed: %q", ide.query)
 	}
 }

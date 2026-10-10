@@ -98,10 +98,10 @@ func New(client *http.Client, brokerURL string, up Upstreams) *Server {
 	s.mux.HandleFunc("GET /api/jobs/{id}", s.handleJob)
 	s.mux.HandleFunc("POST /api/verbs/{verb}", s.handleVerb)
 	if up.Terminal != nil {
-		s.mux.Handle("/terminal/", newProxy("terminal", up.Terminal, "", s.unavailable))
+		s.mux.Handle("/terminal/", newProxy("terminal", up.Terminal, "", terminalQuery, s.unavailable))
 	}
 	if up.IDE != nil {
-		s.mux.Handle("/ide/", newProxy("IDE", up.IDE, "/ide", s.unavailable))
+		s.mux.Handle("/ide/", newProxy("IDE", up.IDE, "/ide", nil, s.unavailable))
 	}
 	return s
 }

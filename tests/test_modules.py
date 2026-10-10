@@ -21,8 +21,8 @@ class ModuleRunTest(unittest.TestCase):
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertEqual(self.h.read_log("gosu").split()[0:2], ["agent", str(MODULE_RUN)])
         self.assertEqual(self.h.read_log("ttyd.argv").splitlines(),
-                         ["-W", "-i", "lo", "-p", "7681", "-b", "/terminal", "-w", "/workspaces",
-                          "tmux", "new", "-A", "-s", "main"])
+                         ["-W", "-a", "-i", "lo", "-p", "7681", "-b", "/terminal", "-w", "/workspaces",
+                          "berth-term"])
         self.assertIn("TZ=Europe/Rome", self.h.read_log("ttyd.env").splitlines())
 
     def test_code_server_runs_as_agent_without_auth(self):
