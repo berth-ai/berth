@@ -165,8 +165,10 @@ const skillCommit2 = "89abcdef0123456789abcdef0123456789abcdef"
 // fakeScan makes Home.Berth answer `skills scan`, logging its arguments to
 // scan.log. Ref nope is not found; ref v2 is a new commit of pdf and docx;
 // at ref renamed skills/pdf holds skill other; at ref moved only docx is
-// left; ref slow is v2 after half a second. Any other ref is skillCommit
-// with root (path ""), a broken skill, docx and pdf.
+// left; ref slow is v2 after half a second; ref v3 (or commit skillCommit3)
+// rewords pdf, moves docx to skills/word and adds xlsx; commit skillCommit2
+// is v2. Any other ref is skillCommit with root (path ""), a broken skill,
+// docx and pdf.
 func fakeScan(t *testing.T, tb *testBroker) {
 	t.Helper()
 	row := func(path, name, desc string) string {
@@ -176,6 +178,7 @@ func fakeScan(t *testing.T, tb *testBroker) {
 		return `echo '{"schema":1,"commit":"` + commit + `","skills":[` + strings.Join(rows, ",") + `]}'`
 	}
 	v2 := at(skillCommit2, row("skills/docx", "docx", "Word v2"), row("skills/pdf", "pdf", "PDF tools v2"))
+	v3 := at(skillCommit3, row("skills/pdf", "pdf", "PDF tools v3"), row("skills/word", "docx", "Word"), row("skills/xlsx", "xlsx", "Sheets"))
 	script := `#!/bin/sh
 echo "$*" >> "` + tb.dir + `/scan.log"
 case "$*" in
@@ -184,6 +187,8 @@ case "$*" in
   *"--ref slow"*) sleep 0.5; ` + v2 + ` ;;
   *"--ref renamed"*) ` + at(skillCommit, row("skills/docx", "docx", "Word"), row("skills/pdf", "other", "Other")) + ` ;;
   *"--ref moved"*) ` + at(skillCommit, row("skills/docx", "docx", "Word")) + ` ;;
+  *"--ref v3"*|*"--ref ` + skillCommit3 + `"*) ` + v3 + ` ;;
+  *"--ref ` + skillCommit2 + `"*) ` + v2 + ` ;;
   *) ` + at(skillCommit, row("", "root", "Root"), `{"path":"skills/bad","error":"SKILL.md has no description"}`,
 		row("skills/docx", "docx", "Word"), row("skills/pdf", "pdf", "PDF tools")) + ` ;;
 esac
