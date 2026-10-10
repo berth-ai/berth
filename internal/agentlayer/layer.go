@@ -244,7 +244,7 @@ func (b Builder) Build(disabled, added []string) ([]Package, error) {
 		// Bin names were validated: by WriteWrappers for the locked set,
 		// and by agentset.Load for the added agents agent reported.
 		for _, bin := range p.Bins {
-			script := wrapperScript(filepath.Join(sp.Link, "bin", bin), b.KeysPath, keys)
+			script := wrapperScript(filepath.Join(sp.Link, "bin", bin), b.KeysPath, keys, p.Kind == locksource.KindAgent)
 			if err := os.WriteFile(filepath.Join(dir, bin), []byte(script), 0o755); err != nil {
 				return nil, err
 			}

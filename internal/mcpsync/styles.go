@@ -9,11 +9,12 @@ import (
 // server is one enabled MCP server as agents reach it: a local command, or
 // a remote URL when URL is set.
 type server struct {
-	ID      string
-	Command string
-	Args    []string
-	URL     string
-	Headers map[string]string // sent with every request to URL
+	ID       string
+	Command  string
+	Args     []string
+	URL      string
+	Headers  map[string]string // sent with every request to URL
+	TokenVar string            // a bearer token's agents.env variable, referenced instead of sent (workspace files)
 }
 
 // jsonEntries renders servers in a JSON style.
@@ -41,6 +42,13 @@ func jsonEntry(style string, s server) any {
 	args := s.Args
 	if args == nil {
 		args = []string{}
+	}
+	if s.TokenVar != "" {
+		ref := "${" + s.TokenVar + "}"
+		if style == locksource.StyleOpenCode {
+			ref = "{env:" + s.TokenVar + "}"
+		}
+		s.Headers = map[string]string{"Authorization": "Bearer " + ref}
 	}
 	switch {
 	case s.URL != "" && style == locksource.StyleClaude:

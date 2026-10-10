@@ -59,7 +59,7 @@ func (s Syncer) Run() error {
 			return err
 		}
 	}
-	servers := s.desired(desc, settings, keys)
+	servers := s.desired(desc, settings, keys, false)
 
 	statePath := StatePath(s.Home)
 	st, err := loadState(statePath)
@@ -129,8 +129,9 @@ func (s Syncer) enabledServers(d locksource.Descriptors) []server {
 
 // desired lists every enabled server, local ones from the lock and remote
 // ones from settings, by id. A remote server whose id a lock server uses is
-// left out.
-func (s Syncer) desired(d locksource.Descriptors, m config.MCP, keys map[string]string) []server {
+// left out. With ref, bearer servers reference their token's variable
+// (workspace files); otherwise they carry its value (the agents' own files).
+func (s Syncer) desired(d locksource.Descriptors, m config.MCP, keys map[string]string, ref bool) []server {
 	out := s.enabledServers(d)
 	lock := map[string]bool{}
 	for _, sd := range d.Servers {
@@ -144,7 +145,10 @@ func (s Syncer) desired(d locksource.Descriptors, m config.MCP, keys map[string]
 			s.logf("MCP server %s clashes with a built-in server; skipping it", id)
 		default:
 			sv := server{ID: id, URL: rs.URL}
-			if tok := keys[config.MCPTokenName(id)]; rs.Auth == config.AuthBearer && tok != "" {
+			switch tok := keys[config.MCPTokenName(id)]; {
+			case rs.Auth == config.AuthBearer && ref:
+				sv.TokenVar = config.MCPTokenName(id)
+			case rs.Auth == config.AuthBearer && tok != "":
 				sv.Headers = map[string]string{"Authorization": "Bearer " + tok}
 			}
 			out = append(out, sv)

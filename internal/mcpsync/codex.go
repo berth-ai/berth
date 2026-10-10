@@ -148,6 +148,9 @@ func codexTable(s server) []string {
 		return append(lines, "command = "+tomlString(s.Command), "args = "+tomlArray(s.Args))
 	}
 	lines = append(lines, "url = "+tomlString(s.URL))
+	if s.TokenVar != "" {
+		return append(lines, "bearer_token_env_var = "+tomlString(s.TokenVar))
+	}
 	if len(s.Headers) > 0 {
 		var kv []string
 		for _, k := range slices.Sorted(maps.Keys(s.Headers)) {
