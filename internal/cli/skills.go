@@ -9,12 +9,15 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/berth-ai/berth/internal/config"
 	"github.com/berth-ai/berth/internal/output"
 	"github.com/berth-ai/berth/internal/runner"
 	"github.com/berth-ai/berth/internal/skills"
+	"github.com/berth-ai/berth/internal/wsstate"
 )
 
-const skillsUsage = "usage: berth skills scan --repo URL --ref REF [--path P]... [--json] | berth skills sync"
+const skillsUsage = "usage: berth skills scan --repo URL --ref REF [--path P]... [--json] | berth skills sync | " +
+	"berth skills vendor --workspace ID --key SOURCE/NAME --action overwrite|release [--json]"
 
 // runSkills is the hidden `berth skills scan|sync`, run as agent: the
 // broker scans a repository before adding or updating skills, and syncs
@@ -32,8 +35,44 @@ func runSkills(ctx context.Context, a *app, args []string) error {
 			return usageErr(errors.New(skillsUsage))
 		}
 		return a.skillsSync(ctx, g)
+	case "vendor":
+		return a.skillsVendor(args[1:])
 	}
 	return usageErr(errors.New(skillsUsage))
+}
+
+// skillsVendor settles a vendored skill that local edits stopped:
+// overwrite lets the next sync replace it, release makes Berth forget it.
+func (a *app) skillsVendor(args []string) error {
+	fs := newFlagSet("skills vendor")
+	ws := fs.String("workspace", "", "workspace id")
+	key := fs.String("key", "", "SOURCE/NAME of the skill")
+	action := fs.String("action", "", "overwrite or release")
+	jsonOut := fs.Bool("json", false, "print JSON")
+	pos, err := parseArgs(fs, args)
+	src, name, _ := strings.Cut(*key, "/")
+	if err != nil || len(pos) > 0 || !config.WorkspaceIDPattern.MatchString(*ws) ||
+		!config.WorkspaceIDPattern.MatchString(src) || !config.SkillIDPattern.MatchString(name) {
+		return usageErr(errors.New(skillsUsage))
+	}
+	a.p.JSON = *jsonOut
+	home, err := a.skillsHome()
+	if err != nil {
+		return err
+	}
+	store := wsstate.Store{Home: home, Published: filepath.Join(a.cfg.ConfigDir, "workspaces.json")}
+	err = skills.Resolve(store, *ws, *key, *action)
+	var se *skills.Error
+	switch {
+	case errors.As(err, &se):
+		return output.Errorf(output.ExitFailure, se.Code, se.Field, "%s", se.Message)
+	case errors.Is(err, wsstate.ErrGone):
+		return output.Errorf(output.ExitFailure, "unknown_workspace", "workspace", "There is no workspace %s", *ws)
+	case err != nil:
+		return output.Errorf(output.ExitFailure, "resolve_failed", "", "%v", err)
+	}
+	res := map[string]string{"workspace": *ws, "key": *key, "action": *action}
+	return a.p.Result(res, func(w io.Writer) { fmt.Fprintf(w, "%s %s in %s\n", *action, *key, *ws) })
 }
 
 func (a *app) skillsHome() (string, error) {
@@ -106,6 +145,7 @@ func (a *app) skillsSync(ctx context.Context, g skills.Git) error {
 		ConfigHome: a.cfg.Getenv("XDG_CONFIG_HOME"),
 		DataHome:   a.cfg.Getenv("XDG_DATA_HOME"),
 		Settings:   filepath.Join(a.cfg.ConfigDir, "skills.json"),
+		Workspaces: filepath.Join(a.cfg.ConfigDir, "workspaces.json"),
 		Git:        g,
 		Log:        a.p.Stderr,
 	}

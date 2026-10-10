@@ -13,13 +13,16 @@ import (
 	"strings"
 
 	"github.com/berth-ai/berth/internal/config"
+	"github.com/berth-ai/berth/internal/mcpsync"
 	"github.com/berth-ai/berth/internal/output"
+	"github.com/berth-ai/berth/internal/skills"
 	"github.com/berth-ai/berth/internal/workspace"
+	"github.com/berth-ai/berth/internal/wsstate"
 )
 
 const workspacesUsage = "usage: berth workspaces clone --repo URL [--ref REF] --path P | probe --path P | " +
 	"status [--ws ID=PATH]... | candidates [--exclude PATH]... | remove --path P | " +
-	"launch --id ID --path P [--window NAME] [--run PROGRAM] | kill --id ID, each with --json"
+	"launch --id ID --path P [--window NAME] [--run PROGRAM] | kill --id ID | release --id ID | report --id ID, each with --json"
 
 var windowName = regexp.MustCompile(`^([A-Za-z0-9][A-Za-z0-9._-]{0,63})?$`)
 
@@ -91,6 +94,24 @@ func runWorkspaces(ctx context.Context, a *app, args []string) error {
 		}
 		killed, err := t.Kill(ctx, *id)
 		return a.workspaceResult(map[string]any{"killed": killed}, err)
+	case "release", "report":
+		if !config.WorkspaceIDPattern.MatchString(*id) {
+			return usageErr(errors.New(workspacesUsage))
+		}
+		home := a.cfg.Getenv("HOME")
+		if home == "" {
+			return output.Errorf(output.ExitFailure, "no_home", "workspaces", "HOME is not set")
+		}
+		store := wsstate.Store{Home: home, Published: filepath.Join(a.cfg.ConfigDir, "workspaces.json")}
+		if args[0] == "report" {
+			return a.workspaceResult(workspaceReport(store, *id))
+		}
+		kept := []string{}
+		err := store.Release(*id, func(st *wsstate.State) {
+			kept = append(kept, skills.Syncer{Home: home, Log: a.p.Stderr}.Release(*id, &st.Skills)...)
+			kept = append(kept, mcpsync.Syncer{Home: home, Log: a.p.Stderr}.Release(&st.MCP)...)
+		})
+		return a.workspaceResult(map[string]any{"kept": kept}, err)
 	}
 	return usageErr(errors.New(workspacesUsage))
 }
@@ -109,4 +130,22 @@ func (a *app) workspaceResult(res any, err error) error {
 		enc.SetIndent("", "  ")
 		_ = enc.Encode(res)
 	})
+}
+
+// workspaceReport is what the panel shows of a workspace's state: no file
+// hashes and no copies of the user's files.
+func workspaceReport(store wsstate.Store, id string) (any, error) {
+	st, err := store.Load(id)
+	if err != nil {
+		return nil, err
+	}
+	for k, e := range st.Skills.Entries {
+		e.Files = nil
+		st.Skills.Entries[k] = e
+	}
+	for k, f := range st.MCP.Files {
+		f.Original = ""
+		st.MCP.Files[k] = f
+	}
+	return map[string]any{"skills": st.Skills, "mcp": st.MCP}, nil
 }

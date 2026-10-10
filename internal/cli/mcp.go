@@ -34,6 +34,7 @@ func runMCP(_ context.Context, a *app, args []string) error {
 		ConfigHome: a.cfg.Getenv("XDG_CONFIG_HOME"),
 		DataHome:   a.cfg.Getenv("XDG_DATA_HOME"),
 		Settings:   filepath.Join(a.cfg.ConfigDir, "mcp.json"),
+		Workspaces: filepath.Join(a.cfg.ConfigDir, "workspaces.json"),
 		Keys:       a.cfg.KeysPath,
 		Log:        a.p.Stderr,
 	}
