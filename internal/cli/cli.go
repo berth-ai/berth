@@ -51,6 +51,7 @@ type Config struct {
 	ModuleRun     string
 	ConfigDir     string
 	WorkspacesDir string // the projects' bind mount, /workspaces
+	Tmux          string // the tmux binary; empty means tmux on PATH
 	KeysPath      string // agents.env, the API keys the wrappers load
 	MCPTimeout    time.Duration
 	Panel         *runner.Identity // the berth-panel user; set when running as root
@@ -100,6 +101,7 @@ func defaultConfig(getenv func(string) string, b Build, isRoot bool, lookup func
 		ModuleRun:     "/usr/local/bin/berth-module-run",
 		ConfigDir:     "/var/lib/berth",
 		WorkspacesDir: "/workspaces",
+		Tmux:          "tmux",
 		KeysPath:      "/var/lib/berth/secrets/agents.env",
 		PanelListen:   "0.0.0.0:7690",
 		LoginPath:     "/var/lib/berth/secrets/panel.json",
@@ -147,20 +149,21 @@ type command struct {
 }
 
 var commands = map[string]command{
-	"status":    {"status [--check] [--json]            show installed agent sets", runStatus},
-	"update":    {"update [--ref R | --image | --lock-dir D] [--json]  install and activate an agent set", runUpdate},
-	"rollback":  {"rollback [HASH] [--json]             return to the previous (or named) agent set", runRollback},
-	"ensure":    {"ensure [--json]                      boot-time install of the image seed", runEnsure},
-	"gc":        {"gc [--json]                          remove unused agent sets", runGC},
-	"config":    {"config get|set K=V...|revert|reset|export|import FILE|reset-login [--json]  read or change settings", runConfig},
-	"login":     {"login status|logout AGENT METHOD [--json]  the agents' own sign-ins", runLogin},
-	"health":    {"health [--json]                      report whether every enabled service runs", runHealth},
-	"version":   {"version                              print the berth version", runVersion},
-	"supervise": {"supervise                            run the container's services (the entrypoint starts it)", runSupervise},
-	"mcp":       {"mcp sync                             register MCP servers with the agents (internal)", runMCP},
-	"skills":    {"skills scan|sync                     list skills in a repository and link them for the agents (internal)", runSkills},
-	"agents":    {"agents status|sync|install|rollback   install the agents added from the registry (internal)", runAgents},
-	"panel":     {"panel                                serve the web panel (the panel module starts it)", runPanel},
+	"status":     {"status [--check] [--json]            show installed agent sets", runStatus},
+	"update":     {"update [--ref R | --image | --lock-dir D] [--json]  install and activate an agent set", runUpdate},
+	"rollback":   {"rollback [HASH] [--json]             return to the previous (or named) agent set", runRollback},
+	"ensure":     {"ensure [--json]                      boot-time install of the image seed", runEnsure},
+	"gc":         {"gc [--json]                          remove unused agent sets", runGC},
+	"config":     {"config get|set K=V...|revert|reset|export|import FILE|reset-login [--json]  read or change settings", runConfig},
+	"login":      {"login status|logout AGENT METHOD [--json]  the agents' own sign-ins", runLogin},
+	"health":     {"health [--json]                      report whether every enabled service runs", runHealth},
+	"version":    {"version                              print the berth version", runVersion},
+	"supervise":  {"supervise                            run the container's services (the entrypoint starts it)", runSupervise},
+	"mcp":        {"mcp sync                             register MCP servers with the agents (internal)", runMCP},
+	"skills":     {"skills scan|sync                     list skills in a repository and link them for the agents (internal)", runSkills},
+	"workspaces": {"workspaces clone|probe|status|candidates|remove|launch|kill  the panel's workspaces (internal)", runWorkspaces},
+	"agents":     {"agents status|sync|install|rollback   install the agents added from the registry (internal)", runAgents},
+	"panel":      {"panel                                serve the web panel (the panel module starts it)", runPanel},
 }
 
 var order = []string{"status", "update", "rollback", "ensure", "gc", "config", "login", "health", "version", "supervise", "panel"}
