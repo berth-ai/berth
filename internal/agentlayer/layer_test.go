@@ -32,7 +32,11 @@ func fakeSet(t *testing.T) (Builder, string) {
 		"berthAgents": map[string]any{
 			"schema":  1,
 			"servers": map[string]any{"mcp-b": map[string]any{"id": "bee", "bin": "b-mcp", "icon": "upstash"}},
-			"agents":  map[string]any{"agent-a": map[string]any{"skills": map[string]any{"dir": "~/.x/skills"}, "icon": "claude"}},
+			"agents": map[string]any{"agent-a": map[string]any{
+				"skills": map[string]any{"dir": "~/.x/skills", "project": ".x/skills"},
+				"mcp": map[string]any{"file": "~/.x/config.toml", "style": "codex-toml",
+					"project": map[string]any{"file": ".x/config.toml", "trust": true}},
+				"icon": "claude"}},
 		},
 	}
 	raw, _ := json.Marshal(pkg)
@@ -76,8 +80,9 @@ func TestPackages(t *testing.T) {
 	if pkgs[1].MCPID != "bee" || pkgs[0].MCPID != "" {
 		t.Errorf("mcp ids = %q, %q", pkgs[0].MCPID, pkgs[1].MCPID)
 	}
-	if p := pkgs[0]; p.SkillsDir != "~/.x/skills" || p.SkillsVia != nil {
-		t.Errorf("skills fields = %q %v", p.SkillsDir, p.SkillsVia)
+	if p := pkgs[0]; p.SkillsDir != "~/.x/skills" || p.SkillsVia != nil || p.SkillsProject != ".x/skills" ||
+		p.MCPProject != ".x/config.toml" || !p.MCPTrust {
+		t.Errorf("skills and mcp fields = %+v", p)
 	}
 	if keys, _ := b.KeyNames(nil); !slices.Equal(keys, []string{"A_KEY"}) {
 		t.Errorf("keys = %v", keys)

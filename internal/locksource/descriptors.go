@@ -101,17 +101,30 @@ type LoginLogout struct {
 	Remove []string `json:"remove"`
 }
 
-// SkillsTarget is the directory an agent loads user skills from.
+// SkillsTarget is where an agent loads skills from: its home directory and,
+// in a workspace, its project folder.
 type SkillsTarget struct {
-	Dir  string   `json:"dir"`  // below ~/ or $XDG_CONFIG_HOME/
-	Also []string `json:"also"` // other agents' skills directories it reads too
+	Dir         string   `json:"dir"`          // below ~/ or $XDG_CONFIG_HOME/
+	Also        []string `json:"also"`         // other agents' skills directories it reads too
+	Project     string   `json:"project"`      // relative to a workspace; empty means none
+	ProjectAlso []string `json:"project_also"` // other agents' project folders it reads too
 }
 
-// MCPTarget is the file an agent reads its MCP servers from.
+// MCPTarget is the file an agent reads its MCP servers from, and the file
+// in a workspace it reads project servers from.
 type MCPTarget struct {
-	File  string `json:"file"`  // below ~/ or $XDG_CONFIG_HOME/
-	Style string `json:"style"` // a Style constant
+	File    string      `json:"file"`    // below ~/ or $XDG_CONFIG_HOME/
+	Style   string      `json:"style"`   // a Style constant
+	Key     string      `json:"key"`     // top-level JSON key; empty for codex-toml
+	Project *ProjectMCP `json:"project"` // nil means the agent reads no project file
+}
+
+// ProjectMCP is an agent's MCP file in a workspace, in its MCPTarget's
+// style.
+type ProjectMCP struct {
+	File  string `json:"file"`  // relative to the workspace
 	Key   string `json:"key"`   // top-level JSON key; empty for codex-toml
+	Trust bool   `json:"trust"` // the agent reads it only in folders its user config trusts (codex-toml)
 }
 
 // ServerDescriptor describes one MCP server package.
@@ -183,6 +196,9 @@ func ParseDescriptors(pkg []byte, meta map[string]Meta) (Descriptors, error) {
 			if a.Skills.Also == nil {
 				a.Skills.Also = []string{}
 			}
+			if a.Skills.ProjectAlso == nil {
+				a.Skills.ProjectAlso = []string{}
+			}
 		}
 		if a.Login != nil {
 			if err := validLogin(name, a.Login); err != nil {
@@ -249,6 +265,19 @@ func validTarget(name string, t MCPTarget) error {
 	if !homePath(t.File) {
 		return invalid("package.json berthAgents block: %s mcp.file %q must be a path below ~/, $XDG_CONFIG_HOME/ or $XDG_DATA_HOME/", name, t.File)
 	}
+	if p := t.Project; p != nil {
+		if !projectPath(p.File) {
+			return invalid("package.json berthAgents block: %s mcp.project.file %q must be a plain path inside a workspace", name, p.File)
+		}
+		switch {
+		case t.Style == StyleCodexTOML && p.Key != "":
+			return invalid("package.json berthAgents block: %s mcp.project.key must be empty for style %s", name, t.Style)
+		case t.Style != StyleCodexTOML && !jsonKeyPattern.MatchString(p.Key):
+			return invalid("package.json berthAgents block: %s mcp.project.key %q is not a JSON key", name, p.Key)
+		case p.Trust && t.Style != StyleCodexTOML:
+			return invalid("package.json berthAgents block: %s mcp.project.trust needs style %s", name, StyleCodexTOML)
+		}
+	}
 	return nil
 }
 
@@ -266,6 +295,14 @@ func homePath(p string) bool {
 		path.Clean(rest) == rest && !strings.HasPrefix(rest, "../")
 }
 
+// projectPath reports whether p is a plain path inside a workspace: relative,
+// clean, not escaping, never in .git and never through ~ or a variable.
+func projectPath(p string) bool {
+	return p != "" && p != "." && p != ".." && !path.IsAbs(p) && path.Clean(p) == p &&
+		!strings.HasPrefix(p, "../") && !strings.HasPrefix(p, "~") && !strings.HasPrefix(p, "$") &&
+		!strings.Contains(p, `\`) && !slices.Contains(strings.Split(p, "/"), ".git")
+}
+
 func validSkills(name string, t SkillsTarget) error {
 	if !homePath(t.Dir) {
 		return invalid("package.json berthAgents block: %s skills.dir %q must be a path below ~/, $XDG_CONFIG_HOME/ or $XDG_DATA_HOME/", name, t.Dir)
@@ -273,6 +310,17 @@ func validSkills(name string, t SkillsTarget) error {
 	for _, d := range t.Also {
 		if !homePath(d) || d == t.Dir {
 			return invalid("package.json berthAgents block: %s skills.also %q must be another agent's path below ~/, $XDG_CONFIG_HOME/ or $XDG_DATA_HOME/", name, d)
+		}
+	}
+	if t.Project != "" && !projectPath(t.Project) {
+		return invalid("package.json berthAgents block: %s skills.project %q must be a plain path inside a workspace", name, t.Project)
+	}
+	if len(t.ProjectAlso) > 0 && t.Project == "" {
+		return invalid("package.json berthAgents block: %s skills.project_also needs skills.project", name)
+	}
+	for _, d := range t.ProjectAlso {
+		if !projectPath(d) || d == t.Project {
+			return invalid("package.json berthAgents block: %s skills.project_also %q must be another agent's project folder", name, d)
 		}
 	}
 	return nil

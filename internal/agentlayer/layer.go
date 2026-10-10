@@ -48,20 +48,23 @@ type Builder struct {
 
 // Package is one package of the merged set as the panel shows it.
 type Package struct {
-	Package   string   `json:"package"`
-	Name      string   `json:"name"`
-	Kind      string   `json:"kind"`
-	Version   string   `json:"version"`
-	Origin    string   `json:"origin"` // locked or added
-	Enabled   bool     `json:"enabled"`
-	Bins      []string `json:"bins"`
-	Keys      []Key    `json:"keys"`
-	MCPID     string   `json:"mcp_id,omitempty"`     // an MCP server's id in agent configs
-	SkillsDir string   `json:"skills_dir,omitempty"` // an agent's skills directory
-	SkillsVia []string `json:"skills_via,omitempty"` // agents whose skills directory it also reads
-	Icon      string   `json:"icon,omitempty"`       // a panel icon slug from the lock
-	Previous  string   `json:"previous,omitempty"`   // an added agent's rollback version
-	Error     string   `json:"error,omitempty"`      // why an added agent is missing or out of date
+	Package       string   `json:"package"`
+	Name          string   `json:"name"`
+	Kind          string   `json:"kind"`
+	Version       string   `json:"version"`
+	Origin        string   `json:"origin"` // locked or added
+	Enabled       bool     `json:"enabled"`
+	Bins          []string `json:"bins"`
+	Keys          []Key    `json:"keys"`
+	MCPID         string   `json:"mcp_id,omitempty"`         // an MCP server's id in agent configs
+	SkillsDir     string   `json:"skills_dir,omitempty"`     // an agent's skills directory
+	SkillsVia     []string `json:"skills_via,omitempty"`     // agents whose skills directory it also reads
+	SkillsProject string   `json:"skills_project,omitempty"` // an agent's skills folder in a workspace
+	MCPProject    string   `json:"mcp_project,omitempty"`    // an agent's MCP file in a workspace
+	MCPTrust      bool     `json:"mcp_trust,omitempty"`      // the agent reads MCPProject only in folders it trusts
+	Icon          string   `json:"icon,omitempty"`           // a panel icon slug from the lock
+	Previous      string   `json:"previous,omitempty"`       // an added agent's rollback version
+	Error         string   `json:"error,omitempty"`          // why an added agent is missing or out of date
 }
 
 // systemDirs are the image's PATH after the layer (Dockerfile ENV PATH).
@@ -119,7 +122,10 @@ func (b Builder) rows(disabled, added []string) ([]Package, agentset.Set, error)
 			Previous: p.PreviousVersion, Error: rep.Errors[name],
 		}
 		if t := set.Descriptors.Agents[name].Skills; t != nil {
-			pkg.SkillsDir, pkg.SkillsVia = t.Dir, set.Descriptors.SkillsVia(name)
+			pkg.SkillsDir, pkg.SkillsVia, pkg.SkillsProject = t.Dir, set.Descriptors.SkillsVia(name), t.Project
+		}
+		if t := set.Descriptors.Agents[name].MCP; t != nil && t.Project != nil {
+			pkg.MCPProject, pkg.MCPTrust = t.Project.File, t.Project.Trust
 		}
 		for _, k := range p.Meta.Keys {
 			pkg.Keys = append(pkg.Keys, Key{Name: k, Set: keys[k] != ""})

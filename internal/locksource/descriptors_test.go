@@ -148,6 +148,24 @@ func TestRepositoryLockDescriptors(t *testing.T) {
 			t.Errorf("%s icon = %q, want %q", dep, got, icon)
 		}
 	}
+	for dep, want := range map[string]struct {
+		project, mcp, key string
+		also              []string
+		trust             bool
+	}{
+		"@anthropic-ai/claude-code": {".claude/skills", ".mcp.json", "mcpServers", []string{}, false},
+		"@openai/codex":             {".agents/skills", ".codex/config.toml", "", []string{}, true},
+		"opencode-ai":               {".opencode/skills", "opencode.json", "mcp", []string{".claude/skills", ".agents/skills"}, false},
+		"@google/gemini-cli":        {".gemini/skills", ".gemini/settings.json", "mcpServers", []string{".agents/skills"}, false},
+	} {
+		a := lock.Descriptors.Agents[dep]
+		if a.Skills.Project != want.project || !slices.Equal(a.Skills.ProjectAlso, want.also) {
+			t.Errorf("%s skills = %+v", dep, a.Skills)
+		}
+		if p := a.MCP.Project; p == nil || p.File != want.mcp || p.Key != want.key || p.Trust != want.trust {
+			t.Errorf("%s mcp project = %+v", dep, p)
+		}
+	}
 	if got := lock.Descriptors.Servers["@upstash/context7-mcp"].Icon; got != "upstash" {
 		t.Errorf("context7 icon = %q", got)
 	}
@@ -317,5 +335,62 @@ func TestDataHomePaths(t *testing.T) {
 	meta, _ := ParseMeta(pkg, map[string]string{"a": "1.0.0"})
 	if _, err := ParseDescriptors(pkg, meta); err != nil {
 		t.Errorf("$XDG_DATA_HOME/ rejected: %v", err)
+	}
+}
+
+func TestProjectDescriptors(t *testing.T) {
+	pkg := []byte(`{"berthAgents":{"schema":1,"agents":{"@a/agent":{
+		"skills":{"dir":"~/.a/skills","project":".a/skills","project_also":[".agents/skills"]},
+		"mcp":{"file":"~/.a/config.toml","style":"codex-toml","project":{"file":".a/config.toml","trust":true}}}}}}`)
+	d, err := ParseDescriptors(pkg, descMeta)
+	if err != nil {
+		t.Fatal(err)
+	}
+	a := d.Agents["@a/agent"]
+	if a.Skills.Project != ".a/skills" || !slices.Equal(a.Skills.ProjectAlso, []string{".agents/skills"}) {
+		t.Errorf("skills = %+v", a.Skills)
+	}
+	if p := a.MCP.Project; p == nil || p.File != ".a/config.toml" || p.Key != "" || !p.Trust {
+		t.Errorf("mcp project = %+v", p)
+	}
+	plain := []byte(`{"berthAgents":{"schema":1,"agents":{"@a/agent":{"skills":{"dir":"~/.a/skills"},
+		"mcp":{"file":"~/.a.json","style":"claude","key":"mcpServers"}}}}}`)
+	if d, err = ParseDescriptors(plain, descMeta); err != nil {
+		t.Fatal(err)
+	}
+	if a := d.Agents["@a/agent"]; a.Skills.Project != "" || a.Skills.ProjectAlso == nil || a.MCP.Project != nil {
+		t.Errorf("without project fields = %+v %+v", a.Skills, a.MCP)
+	}
+}
+
+func TestParseRejectsBadProjectDescriptors(t *testing.T) {
+	skills := func(s string) string { return `{"schema":1,"agents":{"@a/agent":{"skills":` + s + `}}}` }
+	mcp := func(style, key, project string) string {
+		return `{"schema":1,"agents":{"@a/agent":{"mcp":{"file":"~/.a","style":"` + style + `","key":"` + key + `","project":` + project + `}}}}`
+	}
+	for name, block := range map[string]string{
+		"absolute project":  skills(`{"dir":"~/.a/skills","project":"/a/skills"}`),
+		"home project":      skills(`{"dir":"~/.a/skills","project":"~/.a/skills"}`),
+		"variable project":  skills(`{"dir":"~/.a/skills","project":"$HOME/a"}`),
+		"escaping project":  skills(`{"dir":"~/.a/skills","project":"../a/skills"}`),
+		"dotdot inside":     skills(`{"dir":"~/.a/skills","project":"a/../../b"}`),
+		"dot project":       skills(`{"dir":"~/.a/skills","project":"."}`),
+		"git project":       skills(`{"dir":"~/.a/skills","project":".git/skills"}`),
+		"backslash project": skills(`{"dir":"~/.a/skills","project":".a\\skills"}`),
+		"unclean project":   skills(`{"dir":"~/.a/skills","project":".a//skills"}`),
+		"also own project":  skills(`{"dir":"~/.a/skills","project":".a/skills","project_also":[".a/skills"]}`),
+		"also bad":          skills(`{"dir":"~/.a/skills","project":".a/skills","project_also":["/b"]}`),
+		"also, no project":  skills(`{"dir":"~/.a/skills","project_also":[".b/skills"]}`),
+		"json project key":  mcp("claude", "mcpServers", `{"file":".a.json","key":"a.b"}`),
+		"json no key":       mcp("claude", "mcpServers", `{"file":".a.json"}`),
+		"toml project key":  mcp("codex-toml", "", `{"file":".a.toml","key":"k"}`),
+		"trust on json":     mcp("claude", "mcpServers", `{"file":".a.json","key":"mcpServers","trust":true}`),
+		"absolute mcp file": mcp("claude", "mcpServers", `{"file":"/etc/a.json","key":"mcpServers"}`),
+		"git mcp file":      mcp("claude", "mcpServers", `{"file":".git/config","key":"mcpServers"}`),
+	} {
+		_, err := ParseDescriptors([]byte(`{"berthAgents":`+block+`}`), descMeta)
+		if !errors.Is(err, ErrInvalid) {
+			t.Errorf("%s: err = %v", name, err)
+		}
 	}
 }
