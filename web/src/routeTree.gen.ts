@@ -21,6 +21,7 @@ import { Route as ToolsRouteImport } from './routes/tools'
 import { Route as ActivityIndexRouteImport } from './routes/activity.index'
 import { Route as ActivityIdRouteImport } from './routes/activity.$id'
 import { Route as WorkspacesIndexRouteImport } from './routes/workspaces.index'
+import { Route as WorkspacesIdRouteImport } from './routes/workspaces.$id'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -82,6 +83,11 @@ const WorkspacesIndexRoute = WorkspacesIndexRouteImport.update({
   path: '/workspaces/',
   getParentRoute: () => rootRouteImport,
 } as any)
+const WorkspacesIdRoute = WorkspacesIdRouteImport.update({
+  id: '/workspaces/$id',
+  path: '/workspaces/$id',
+  getParentRoute: () => rootRouteImport,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -94,6 +100,7 @@ export interface FileRoutesByFullPath {
   '/terminal': typeof TerminalRoute
   '/tools': typeof ToolsRoute
   '/activity/$id': typeof ActivityIdRoute
+  '/workspaces/$id': typeof WorkspacesIdRoute
   '/activity/': typeof ActivityIndexRoute
   '/workspaces/': typeof WorkspacesIndexRoute
 }
@@ -108,6 +115,7 @@ export interface FileRoutesByTo {
   '/terminal': typeof TerminalRoute
   '/tools': typeof ToolsRoute
   '/activity/$id': typeof ActivityIdRoute
+  '/workspaces/$id': typeof WorkspacesIdRoute
   '/activity': typeof ActivityIndexRoute
   '/workspaces': typeof WorkspacesIndexRoute
 }
@@ -123,6 +131,7 @@ export interface FileRoutesById {
   '/terminal': typeof TerminalRoute
   '/tools': typeof ToolsRoute
   '/activity/$id': typeof ActivityIdRoute
+  '/workspaces/$id': typeof WorkspacesIdRoute
   '/activity/': typeof ActivityIndexRoute
   '/workspaces/': typeof WorkspacesIndexRoute
 }
@@ -139,6 +148,7 @@ export interface FileRouteTypes {
     | '/terminal'
     | '/tools'
     | '/activity/$id'
+    | '/workspaces/$id'
     | '/activity/'
     | '/workspaces/'
   fileRoutesByTo: FileRoutesByTo
@@ -153,6 +163,7 @@ export interface FileRouteTypes {
     | '/terminal'
     | '/tools'
     | '/activity/$id'
+    | '/workspaces/$id'
     | '/activity'
     | '/workspaces'
   id:
@@ -167,6 +178,7 @@ export interface FileRouteTypes {
     | '/terminal'
     | '/tools'
     | '/activity/$id'
+    | '/workspaces/$id'
     | '/activity/'
     | '/workspaces/'
   fileRoutesById: FileRoutesById
@@ -182,6 +194,7 @@ export interface RootRouteChildren {
   TerminalRoute: typeof TerminalRoute
   ToolsRoute: typeof ToolsRoute
   ActivityIdRoute: typeof ActivityIdRoute
+  WorkspacesIdRoute: typeof WorkspacesIdRoute
   ActivityIndexRoute: typeof ActivityIndexRoute
   WorkspacesIndexRoute: typeof WorkspacesIndexRoute
 }
@@ -272,6 +285,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof WorkspacesIndexRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/workspaces/$id': {
+      id: '/workspaces/$id'
+      path: '/workspaces/$id'
+      fullPath: '/workspaces/$id'
+      preLoaderRoute: typeof WorkspacesIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
@@ -286,6 +306,7 @@ const rootRouteChildren: RootRouteChildren = {
   TerminalRoute: TerminalRoute,
   ToolsRoute: ToolsRoute,
   ActivityIdRoute: ActivityIdRoute,
+  WorkspacesIdRoute: WorkspacesIdRoute,
   ActivityIndexRoute: ActivityIndexRoute,
   WorkspacesIndexRoute: WorkspacesIndexRoute,
 }
