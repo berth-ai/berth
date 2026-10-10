@@ -51,6 +51,7 @@ test("every page renders inside the CSP", async ({ page }) => {
   await signIn(page);
   for (const [hash, heading] of [
     ["#/", "Overview"],
+    ["#/workspaces", "Workspaces"],
     ["#/agents", "Agents"],
     ["#/mcp", "MCP servers"],
     ["#/skills", "Skills"],
@@ -175,6 +176,7 @@ test("nothing scrolls sideways at 400 px", async ({ page }) => {
   await signIn(page);
   for (const [hash, text] of [
     ["#/", "Overview"],
+    ["#/workspaces", "Workspaces"],
     ["#/agents", "Agents"],
     ["#/mcp", "MCP servers"],
     ["#/skills", "Skills"],
@@ -460,5 +462,52 @@ test("a registry agent is added, gets a Sign-in column and is removed", async ({
   await confirm.getByRole("button", { name: "Remove" }).click();
   await expect(row).toBeHidden();
   await expect(page.getByRole("button", { name: "Add agent" })).toBeVisible();
+  expect(problems).toEqual([]);
+});
+
+test("a workspace is cloned, launched and forgotten", async ({ page }) => {
+  const problems = await watch(page);
+  await signIn(page);
+  await page.goto(`${NORMAL}/#/workspaces`);
+  await expect(page.getByText(/No workspaces yet\./)).toBeVisible();
+
+  // Toasts are role=dialog too, so dialogs are found by name.
+  const add = page.getByRole("dialog", { name: "Add a workspace" });
+  await page.getByRole("button", { name: "Add workspace" }).first().click();
+  await add.getByLabel("Repository").fill("acme/private");
+  await add.getByRole("button", { name: "Clone", exact: true }).click();
+  await expect(add.getByText(/Repository not found, or it is private\./)).toBeVisible();
+  await add.getByLabel("Repository").fill("acme/api");
+  await expect(add.getByLabel("Folder")).toHaveValue("acme/api");
+  await expect(add.getByLabel("Id")).toHaveValue("acme-api");
+  await add.getByRole("button", { name: "Clone", exact: true }).click();
+
+  // The new workspace's page opens on its Overview.
+  await expect(h1(page, "acme-api")).toBeVisible();
+  await expect(page.getByText("main · 2 changes")).toBeVisible();
+  await expect(page.getByText("ws-acme-api")).toBeVisible();
+
+  // Launching an agent opens the Terminal tab on the workspace's session.
+  await page.getByRole("button", { name: "Launch in acme-api" }).click();
+  await page.getByRole("menuitem", { name: "Example Agent" }).click();
+  await expect(page).toHaveURL(/tab=terminal/);
+  await expect(page.getByRole("list", { name: "Windows" }).getByText("example")).toBeVisible();
+  await expect(
+    page
+      .frameLocator('iframe[title="Terminal for acme-api"]')
+      .getByText("The terminal is not running"),
+  ).toBeVisible();
+
+  // The list shows the session; Forget keeps the folder and empties the list.
+  await page.getByRole("link", { name: "Workspaces", exact: true }).click();
+  const row = page.getByRole("row").filter({ hasText: "acme-api" });
+  await expect(row.getByText("main · 2 changes")).toBeVisible();
+  await expect(row.getByText("Running")).toBeVisible();
+  await row.getByRole("button", { name: "Manage" }).click();
+  await page.getByRole("button", { name: "Forget", exact: true }).click();
+  await page.getByRole("alertdialog").getByRole("button", { name: "Forget" }).click();
+  await expect(page.getByText(/acme-api forgotten; its folder stays\./)).toBeVisible();
+  await expect(h1(page, "Workspaces")).toBeVisible();
+  await expect(page.getByText(/No workspaces yet\./)).toBeVisible();
   expect(problems).toEqual([]);
 });
