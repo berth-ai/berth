@@ -244,3 +244,28 @@ export function trustNote(agents: AgentPackage[]): string {
   const names = agents.filter((a) => a.enabled && a.mcp_trust).map((a) => a.name);
   return names.length ? `${names.join(" and ")} will trust each workspace you tick.` : "";
 }
+
+// What an agent does with its project MCP file on its own, by file.
+const ASKS: Record<string, (file: string) => string> = {
+  ".mcp.json": (file) => `asks before it starts servers from ${file}.`,
+  ".gemini/settings.json": (file) => `reads ${file} once you trust the folder when it asks.`,
+};
+
+/** mcpNotes explains, per enabled agent with a project file, what it does
+ * with the servers Berth writes there; trusted says Berth marked the folder
+ * trusted for the agents that need it. */
+export function mcpNotes(packages: AgentPackage[], trusted: boolean): string[] {
+  const out: string[] = [];
+  for (const a of packages) {
+    if (!a.enabled || !a.mcp_project) continue;
+    const ask = ASKS[a.mcp_project];
+    if (ask) out.push(`${a.name} ${ask(a.mcp_project)}`);
+    if (a.mcp_trust)
+      out.push(
+        trusted
+          ? `${a.name} trusts this folder while a server is attached here.`
+          : `${a.name} will trust this folder once a server is attached here.`,
+      );
+  }
+  return out;
+}

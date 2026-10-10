@@ -31,6 +31,7 @@ import { useTitle } from "@/lib/use-title";
 import { FrontendOff, keepRightClick } from "./frontend";
 import { repoLabel } from "./skills-logic";
 import { SessionBadge } from "./workspaces";
+import { WorkspaceMcp } from "./workspace-mcp";
 import { WorkspaceSkills } from "./workspace-skills";
 import {
   gitSummary,
@@ -123,17 +124,20 @@ export function WorkspacePage({
         label="Workspace view"
         value={tab}
         onChange={onTab}
-        className="w-full max-w-[26rem]"
+        className="w-full max-w-[32rem]"
         options={[
           { value: "overview", label: "Overview" },
           { value: "terminal", label: "Terminal" },
           { value: "skills", label: "Skills" },
+          { value: "mcp", label: "MCP" },
         ]}
       />
       {tab === "terminal" ? (
         <WorkspaceTerminal id={id} st={st} />
       ) : tab === "skills" ? (
         <WorkspaceSkills id={id} />
+      ) : tab === "mcp" ? (
+        <WorkspaceMcp id={id} />
       ) : (
         <Overview
           id={id}

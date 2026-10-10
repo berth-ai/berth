@@ -3,6 +3,7 @@ import type { AgentPackage, Attachment, Source, WorkspaceReport } from "@/api/ty
 import {
   findable,
   mcpFileNote,
+  mcpNotes,
   mcpTargetsText,
   mcpWorkspacesPatch,
   skillState,
@@ -164,5 +165,20 @@ describe("workspace attachments", () => {
     const codex = { ...agent("c", "Codex"), mcp_trust: true };
     expect(trustNote([...AGENTS, codex])).toBe("Codex will trust each workspace you tick.");
     expect(trustNote([...AGENTS, { ...codex, enabled: false }])).toBe("");
+  });
+
+  it("explains how each agent treats workspace servers", () => {
+    const claude = { ...agent("cc", "Claude Code"), mcp_project: ".mcp.json" };
+    const gemini = { ...agent("g", "Gemini CLI"), mcp_project: ".gemini/settings.json" };
+    const codex = { ...agent("c", "Codex"), mcp_project: ".codex/config.toml", mcp_trust: true };
+    expect(mcpNotes([claude, gemini, codex], true)).toEqual([
+      "Claude Code asks before it starts servers from .mcp.json.",
+      "Gemini CLI reads .gemini/settings.json once you trust the folder when it asks.",
+      "Codex trusts this folder while a server is attached here.",
+    ]);
+    expect(mcpNotes([codex], false)).toEqual([
+      "Codex will trust this folder once a server is attached here.",
+    ]);
+    expect(mcpNotes([{ ...claude, enabled: false }], false)).toEqual([]);
   });
 });
