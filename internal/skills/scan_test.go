@@ -150,11 +150,11 @@ func TestFetchErrorClassification(t *testing.T) {
 
 func TestClassifyFetch(t *testing.T) {
 	for said, code := range map[string]string{
-		"fatal: couldn't find remote ref nope":                       "ref_not_found",
+		"fatal: couldn't find remote ref nope": "ref_not_found",
 		"warning: Could not find remote branch nope to clone.\nfatal: Remote branch nope not found in upstream origin": "ref_not_found",
-		"remote: Repository not found.\nfatal: repository 'https://github.com/a/b/' not found": "auth_required",
-		"fatal: could not read Username for 'https://github.com': terminal prompts disabled":   "auth_required",
-		"fatal: unable to access 'https://example.com/': Could not resolve host: example.com":  "fetch_failed",
+		"remote: Repository not found.\nfatal: repository 'https://github.com/a/b/' not found":                         "auth_required",
+		"fatal: could not read Username for 'https://github.com': terminal prompts disabled":                           "auth_required",
+		"fatal: unable to access 'https://example.com/': Could not resolve host: example.com":                          "fetch_failed",
 	} {
 		e := ClassifyFetch("https://github.com/a/b", "nope", said)
 		if e.Code != code {

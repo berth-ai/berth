@@ -39,6 +39,7 @@ func (b *Broker) verbs() map[string]verbFunc {
 		"agents.remove":   b.agentsRemove,
 		"agents.rollback": b.agentsRollback,
 		"skills.scan":     b.skillsScan,
+		"workspaces.add":  b.workspacesAdd,
 		"skills.update":   b.skillsUpdate,
 		"config.revert":   b.configRevert,
 		"config.reset":    b.configReset,
