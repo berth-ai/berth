@@ -124,7 +124,7 @@ anything.
 | Toggle                | For on/off settings that apply on save. Label on the left, state readable without colour                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
 | Status badge          | Icon + word: Running, Starting, Restarting, Failed, Stopped, Disabled. Optional detail ("3 restarts") in muted text                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
 | Card                  | Service cards and page sections share one shell: title row (name, badge, actions), body, optional footer                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
-| Table                 | Base tools, user tools, presets, version history, agents, MCP servers, skills, jobs. Sticky header, row hover, numeric columns right-aligned, wraps into stacked rows below 600 px. Package, history and skill rows expand in place (a full-width row below) to manage keys, show versions or manage a skill                                                                                                                                                                                                                                                          |
+| Table                 | Base tools, user tools, presets, version history, agents, MCP servers, skills, jobs. Sticky header, row hover, numeric columns right-aligned, wraps into stacked rows below 600 px. Package and history rows expand in place (a full-width row below) to manage keys or show versions; a skill source opens its own page                                                                                                                                                                                                                                              |
 | Form field            | Label above, hint below, error below the hint with `aria-describedby`; errors name the fix, not just the fault                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
 | Secret field          | Write-only. Unset: password input + Save. Set: "Set ✓" with Replace and Remove; the value is never shown again                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
 | Dialog                | In-page modal with focus trap, Escape to close, explicit verb on the confirm button ("Roll back", not "OK"). Never browser `confirm()`                                                                                                                                                                                                                                                                                                                                                                                                                                |
@@ -192,24 +192,17 @@ inherit`, weight 500. Compact controls inside cards and table rows are
   `--line` bottom. Body rows: same padding, 1 px `--line` rules, hover
   `--surface-sunken`. The primary cell is a quiet link (`--accent-text` 600)
   with mono detail below in `--fg-muted`.
-  The Skills table has two views, by source (the default) and all skills
-  by name (`?view=flat`). By source, skills sharing a repository and ref
-  sit under a header row on `--surface-sunken`: a collapse chevron, the
-  repository in mono 600 over the count, the ref and short commit (or a
-  `--warn` "On n commits" with Realign when they differ), who uses them
-  ("Varies by skill" when they differ), one switch for the group ("n of m"
-  when mixed) and Manage. Its rows indent 40 px and show only their commit.
-  A single skill, and every skill in the flat view, has no header row and
-  shows its repository and ref. "Available to" is a plain list of names,
-  `--warn` when no agent gets the skill; a switched-off skill's name is at
-  70 % opacity. Manage expands a full-width row: for a skill, its location
-  (`~/.local/share/berth/skills/<id>`), the Available to checklist, then
-  Update, Change ref and Remove skill; for a group, Available to for all
-  of them with "n of m" on partial agents, then Update all (Realign),
-  Change ref, Add more from this source and Remove all. Change ref is a
-  small dialog; from a grouped skill it offers "Apply to all n skills",
-  ticked in the flat view. In the flat view, Update on a grouped skill asks
-  whether to update its whole group.
+  The Skills page lists sources by id (the default) or every attached
+  skill by name (`?view=flat`). A source row shows the repository in mono
+  600 over its id and folder, the ref and short commit, and "N skills · M
+  attached" (with a `--warn` "· n missing"). Until a source tracks
+  `anthropics/skills`, a Suggested row on `--surface-sunken` offers it;
+  its Add opens the Add source dialog prefilled and already finding. The
+  dialog asks for repository, ref and path, then lists what Find found
+  (error rows in `--warn`), the id and "Attach all to all agents". In the
+  flat view each row shows its source and who gets it, with its switch;
+  a switched-off skill's name is at 70 % opacity, a missing one says "No
+  longer in its source" in `--warn`.
 - **Agent icons.** Before the name in the Agents table only, centred on the
   name and package lines: a 28 px frame (`--surface`, 1 px `--line`,
   `--radius-m`) holding a 20 px mark. A lock

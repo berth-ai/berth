@@ -78,30 +78,6 @@ export interface McpServer {
   enabled: boolean;
 }
 
-export interface Skill {
-  repo: string;
-  path: string;
-  ref: string;
-  commit: string;
-  description: string;
-  agents: string[] | null;
-  enabled: boolean;
-}
-
-/** ScanRow is one SKILL.md a skills.scan job found; an error row has no name. */
-export interface ScanRow {
-  path: string;
-  name?: string;
-  description?: string;
-  error?: string;
-  installed?: boolean;
-}
-
-export interface ScanResult {
-  commit: string;
-  skills: ScanRow[];
-}
-
 /** Found is one SKILL.md of a source's last scan; an error row cannot be attached. */
 export interface Found {
   path: string;
@@ -244,7 +220,7 @@ export interface Config {
     workspaces?: Record<string, string[]> | null;
   };
   // An older broker omits it.
-  skills?: Record<string, Skill> | null;
+  skills?: { sources?: Record<string, Source> | null } | null;
   // An older broker omits it.
   workspaces?: Record<string, Workspace> | null;
 }
@@ -291,7 +267,6 @@ export interface Job {
     error?: JobError & { field?: string };
     changed?: boolean;
     commit?: string;
-    skills?: string[] | ScanRow[];
     id?: string;
     path?: string;
     writable?: boolean;

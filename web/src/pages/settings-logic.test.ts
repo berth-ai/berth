@@ -101,7 +101,7 @@ describe("readImport", () => {
     const base6: Config = {
       ...base,
       schema: 6,
-      skills: { sources: {} } as unknown as Config["skills"],
+      skills: { sources: {} },
     };
     const parsed = readImport(JSON.stringify({ ...base6, skills: { sources: { x } } }), base6);
     expect(parsed).toMatchObject({ ok: true, rows: [{ path: "skills.sources" }] });
