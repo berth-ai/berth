@@ -15,7 +15,7 @@ import {
 import { errorText } from "@/lib/errors";
 import { describeChanges } from "@/lib/format";
 import { notify } from "@/lib/notify";
-import { readImport, type ImportRow } from "./settings-logic";
+import { exportedConfig, readImport, type ImportRow } from "./settings-logic";
 
 function download(name: string, text: string) {
   const url = URL.createObjectURL(new Blob([text], { type: "application/json" }));
@@ -52,7 +52,20 @@ export function BackupCard({ base, onReload }: { base: Config; onReload: () => v
     const f = e.target.files?.[0];
     e.target.value = "";
     if (!f) return;
-    const parsed = readImport(await f.text(), base);
+    const found = exportedConfig(await f.text());
+    if (!found.ok) {
+      notify(found.error, "bad");
+      return;
+    }
+    let upgraded: Config;
+    try {
+      // The broker turns older exports into the current shape (C2's skills into sources).
+      upgraded = (await verb<{ config: Config }>("config.upgrade", { config: found.cfg })).config;
+    } catch (err) {
+      notify(errorText(err), "bad");
+      return;
+    }
+    const parsed = readImport(JSON.stringify(upgraded), base);
     if (!parsed.ok) {
       notify(parsed.error, "bad");
       return;

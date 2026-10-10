@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Config } from "@/api/types";
-import { predict, readImport } from "./settings-logic";
+import { exportedConfig, predict, readImport } from "./settings-logic";
 
 const base: Config = {
   schema: 1,
@@ -60,7 +60,7 @@ describe("predict", () => {
 describe("readImport", () => {
   it("rejects files that are not exports", () => {
     expect(readImport("not json", base)).toEqual({ ok: false, error: "That file is not JSON." });
-    expect(readImport('{"schema":6}', base)).toEqual({
+    expect(readImport('{"schema":7}', base)).toEqual({
       ok: false,
       error: "That file is not a Berth config export.",
     });
@@ -89,19 +89,27 @@ describe("readImport", () => {
     expect(parsed).toMatchObject({ ok: true, rows: [{ path: "mcp.servers" }] });
   });
 
-  it("accepts schema 3 exports and lists skill changes", () => {
-    const pdf = {
+  it("lists skill source changes", () => {
+    const x = {
       repo: "https://github.com/anthropics/skills",
-      path: "skills/pdf",
       ref: "main",
+      path: "skills",
       commit: "0123456789abcdef0123456789abcdef01234567",
-      description: "PDF tools",
-      agents: null,
-      enabled: true,
+      found: { pdf: { path: "skills/pdf", description: "PDF tools" } },
+      attached: { pdf: { enabled: true, agents: null, workspaces: {} } },
     };
-    const base3: Config = { ...base, schema: 3, mcp: { servers: {}, available: {} }, skills: {} };
-    const parsed = readImport(JSON.stringify({ ...base3, skills: { pdf } }), base3);
-    expect(parsed).toMatchObject({ ok: true, rows: [{ path: "skills" }] });
+    const base6: Config = {
+      ...base,
+      schema: 6,
+      skills: { sources: {} } as unknown as Config["skills"],
+    };
+    const parsed = readImport(JSON.stringify({ ...base6, skills: { sources: { x } } }), base6);
+    expect(parsed).toMatchObject({ ok: true, rows: [{ path: "skills.sources" }] });
+  });
+
+  it("finds the config in an export", () => {
+    expect(exportedConfig('{"config":{"schema":3}}')).toEqual({ ok: true, cfg: { schema: 3 } });
+    expect(exportedConfig('{"schema":0}')).toMatchObject({ ok: false });
   });
 
   it("accepts schema 4 exports and lists added agents", () => {
@@ -130,6 +138,6 @@ describe("readImport", () => {
     };
     const file = JSON.stringify({ ...base5, workspaces: { api: { path: "acme/api", repo: "" } } });
     expect(readImport(file, base5)).toMatchObject({ ok: true, rows: [{ path: "workspaces" }] });
-    expect(readImport(JSON.stringify({ ...base5, schema: 6 }), base5)).toMatchObject({ ok: false });
+    expect(readImport(JSON.stringify({ ...base5, schema: 7 }), base5)).toMatchObject({ ok: false });
   });
 });

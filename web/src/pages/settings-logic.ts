@@ -41,8 +41,11 @@ export type ParsedImport =
 const isObject = (v: unknown): v is Record<string, unknown> =>
   typeof v === "object" && v !== null && !Array.isArray(v);
 
-/** readImport checks an exported config file against the current config. */
-export function readImport(text: string, base: Config): ParsedImport {
+export type Exported = { ok: true; cfg: Record<string, unknown> } | { ok: false; error: string };
+
+/** exportedConfig finds the config in an exported file: the file itself,
+ * or its config key. */
+export function exportedConfig(text: string): Exported {
   let doc: unknown;
   try {
     doc = JSON.parse(text);
@@ -50,8 +53,16 @@ export function readImport(text: string, base: Config): ParsedImport {
     return { ok: false, error: "That file is not JSON." };
   }
   const cfg = isObject(doc) && isObject(doc.config) ? doc.config : doc;
-  if (!isObject(cfg) || ![1, 2, 3, 4, 5].includes(cfg.schema as number))
+  if (!isObject(cfg) || ![1, 2, 3, 4, 5, 6].includes(cfg.schema as number))
     return { ok: false, error: "That file is not a Berth config export." };
+  return { ok: true, cfg };
+}
+
+/** readImport checks an exported config, already upgraded by config.upgrade, against the current config. */
+export function readImport(text: string, base: Config): ParsedImport {
+  const found = exportedConfig(text);
+  if (!found.ok) return found;
+  const cfg = found.cfg;
   const patch = { ...cfg };
   delete patch.schema;
   delete patch.revision;
@@ -62,7 +73,8 @@ export function readImport(text: string, base: Config): ParsedImport {
     "agents.added",
     "mcp.servers",
     "mcp.available",
-    "skills",
+    "mcp.workspaces",
+    "skills.sources",
     "workspaces",
   ]
     .filter(

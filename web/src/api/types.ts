@@ -102,6 +102,74 @@ export interface ScanResult {
   skills: ScanRow[];
 }
 
+/** Found is one SKILL.md of a source's last scan; an error row cannot be attached. */
+export interface Found {
+  path: string;
+  description?: string;
+  error?: string;
+}
+
+/** Attachment gives a found skill to agents: null (or, from the devserver,
+ * absent) is every agent including ones added later, [] is none. Workspace
+ * attachments arrive in a later phase. */
+export interface Attachment {
+  enabled: boolean;
+  agents?: string[] | null;
+  workspaces?: Record<string, "link" | "vendor"> | null;
+}
+
+/** Source is a repository folder at a ref, pinned to a commit. */
+export interface Source {
+  repo: string;
+  ref: string;
+  path: string;
+  commit: string;
+  found: Record<string, Found> | null;
+  attached: Record<string, Attachment> | null;
+}
+
+/** DiffRow is one skill a preview reports; a moved row's from is its old path. */
+export interface DiffRow {
+  name: string;
+  path: string;
+  from?: string;
+  description?: string;
+  error?: string;
+  attached: boolean;
+}
+
+/** SourceDiff is skills.sources.preview's answer for an existing source. */
+export interface SourceDiff {
+  id: string;
+  ref: string;
+  from: string;
+  commit: string;
+  changed: boolean;
+  added: DiffRow[];
+  removed: DiffRow[];
+  moved: DiffRow[];
+  described: DiffRow[];
+}
+
+/** NewSourceScan is skills.sources.preview's answer for a repository not added yet. */
+export interface NewSourceScan {
+  commit: string;
+  found: Record<string, Found>;
+  id: string;
+  exists: string;
+}
+
+/** SourceResult is what skills.sources.add and skills.sources.update answer. */
+export interface SourceResult {
+  id?: string;
+  commit?: string;
+  changed?: boolean;
+  revision?: number;
+  attached?: string[];
+  skipped?: string[];
+  missing?: string[];
+}
+
 export interface WorkspaceEnvVar {
   value: string;
   secret: boolean;
@@ -173,6 +241,7 @@ export interface Config {
   mcp?: {
     servers: Record<string, McpServer> | null;
     available: Record<string, string[]> | null;
+    workspaces?: Record<string, string[]> | null;
   };
   // An older broker omits it.
   skills?: Record<string, Skill> | null;
