@@ -7,6 +7,7 @@ import (
 	"maps"
 	"reflect"
 	"slices"
+	"strings"
 )
 
 // Patch applies a JSON merge patch (RFC 7396) to c. Every key must name an
@@ -55,12 +56,49 @@ func toMap(c Config) map[string]any {
 }
 
 // userMaps are settings whose keys the user chooses. A patch may add keys
-// there and null removes one. A new entry starts from the template; nil
-// means entries are plain values (lists), replaced whole.
+// there and null removes one. A new entry starts from a copy of the
+// template; nil means entries are plain values (lists), replaced whole.
+// "workspaces.*.env" applies to the env of every workspace.
 var userMaps = map[string]map[string]any{
-	"mcp.servers":   {"url": "", "auth": AuthNone, "enabled": true},
-	"mcp.available": nil,
-	"skills":        {"repo": "", "path": "", "ref": "", "commit": "", "description": "", "agents": nil, "enabled": true},
+	"mcp.servers":      {"url": "", "auth": AuthNone, "enabled": true},
+	"mcp.available":    nil,
+	"skills":           {"repo": "", "path": "", "ref": "", "commit": "", "description": "", "agents": nil, "enabled": true},
+	"workspaces":       {"path": "", "repo": "", "env": map[string]any{}, "instructions": map[string]any{"shared": false}},
+	"workspaces.*.env": {"value": "", "secret": false},
+}
+
+// userMapAt returns the user map template at field.
+func userMapAt(field string) (map[string]any, bool) {
+	if t, ok := userMaps[field]; ok {
+		return t, true
+	}
+	if rest, ok := strings.CutPrefix(field, "workspaces."); ok {
+		if _, sub, ok := strings.Cut(rest, "."); ok {
+			t, ok := userMaps["workspaces.*."+sub]
+			return t, ok
+		}
+	}
+	return nil, false
+}
+
+// deepCopy copies JSON objects and lists, so a config never shares them
+// with a template or the defaults.
+func deepCopy(v any) any {
+	switch t := v.(type) {
+	case map[string]any:
+		out := make(map[string]any, len(t))
+		for k, x := range t {
+			out[k] = deepCopy(x)
+		}
+		return out
+	case []any:
+		out := make([]any, len(t))
+		for i, x := range t {
+			out[i] = deepCopy(x)
+		}
+		return out
+	}
+	return v
 }
 
 func merge(dst, def, patch map[string]any, prefix string, v *validator) {
@@ -79,9 +117,9 @@ func merge(dst, def, patch map[string]any, prefix string, v *validator) {
 		valObj, valIsObj := val.(map[string]any)
 		switch {
 		case val == nil:
-			dst[key] = def[key]
+			dst[key] = deepCopy(def[key])
 		case curIsObj && valIsObj:
-			if tmpl, ok := userMaps[field]; ok {
+			if tmpl, ok := userMapAt(field); ok {
 				mergeUserMap(curObj, tmpl, valObj, field, v)
 			} else {
 				merge(curObj, def[key].(map[string]any), valObj, field, v)
@@ -107,7 +145,7 @@ func mergeUserMap(dst, tmpl, patch map[string]any, prefix string, v *validator) 
 		default:
 			cur, ok := dst[key].(map[string]any)
 			if !ok {
-				cur = maps.Clone(tmpl)
+				cur = deepCopy(tmpl).(map[string]any)
 				dst[key] = cur
 			}
 			merge(cur, tmpl, obj, field, v)

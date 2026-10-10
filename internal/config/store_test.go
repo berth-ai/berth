@@ -91,7 +91,7 @@ func TestApplyInvalidWritesNothing(t *testing.T) {
 func TestLoadCorrupt(t *testing.T) {
 	for name, content := range map[string]string{
 		"not json":     `{"schema":`,
-		"newer schema": `{"schema":5}`,
+		"newer schema": `{"schema":6}`,
 		"unknown key":  `{"schema":1,"revision":1,"surprise":true}`,
 	} {
 		t.Run(name, func(t *testing.T) {
@@ -239,5 +239,17 @@ func TestApplySortsAdded(t *testing.T) {
 	_, next, err := s.Apply(json.RawMessage(`{"agents":{"added":["zz-agent","@acme/agent"]}}`), 0)
 	if err != nil || !slices.Equal(next.Agents.Added, []string{"@acme/agent", "zz-agent"}) {
 		t.Fatalf("next = %+v, %v", next.Agents, err)
+	}
+}
+
+func TestReadUpgradesSchema4(t *testing.T) {
+	s := &Store{Dir: t.TempDir()}
+	writeFile(t, s, "config.json", `{"schema":4,"revision":2,"agents":{"added":[]}}`)
+	c, err := s.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.Schema != Schema || c.Revision != 2 || c.Workspaces == nil {
+		t.Errorf("loaded %+v", c)
 	}
 }

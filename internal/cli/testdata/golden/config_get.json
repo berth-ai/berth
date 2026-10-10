@@ -1,6 +1,6 @@
 {
   "config": {
-    "schema": 4,
+    "schema": 5,
     "revision": 0,
     "frontends": {
       "terminal": {
@@ -25,7 +25,8 @@
       "servers": {},
       "available": {}
     },
-    "skills": {}
+    "skills": {},
+    "workspaces": {}
   },
   "mode": "normal",
   "schema": 1,

@@ -7,7 +7,7 @@
     "stopped": []
   },
   "config": {
-    "schema": 4,
+    "schema": 5,
     "revision": 1,
     "frontends": {
       "terminal": {
@@ -34,7 +34,8 @@
       "servers": {},
       "available": {}
     },
-    "skills": {}
+    "skills": {},
+    "workspaces": {}
   },
   "schema": 1
 }
