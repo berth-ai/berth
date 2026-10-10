@@ -123,6 +123,8 @@ describe("terminal", () => {
   it("names the session and the tab", () => {
     expect(terminalPath("api")).toBe("/terminal/?arg=ws-api");
     expect(parseWorkspaceTab("terminal")).toBe("terminal");
+    expect(parseWorkspaceTab("skills")).toBe("skills");
+    expect(parseWorkspaceTab("mcp")).toBe("mcp");
     expect(parseWorkspaceTab("bogus")).toBe("overview");
     expect(parseWorkspaceTab(undefined)).toBe("overview");
   });

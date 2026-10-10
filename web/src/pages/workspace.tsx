@@ -31,6 +31,7 @@ import { useTitle } from "@/lib/use-title";
 import { FrontendOff, keepRightClick } from "./frontend";
 import { repoLabel } from "./skills-logic";
 import { SessionBadge } from "./workspaces";
+import { WorkspaceSkills } from "./workspace-skills";
 import {
   gitSummary,
   launchAgents,
@@ -85,7 +86,7 @@ export function WorkspacePage({
   const forget = () =>
     ask({
       title: `Forget ${id}?`,
-      body: `Berth stops its terminal session and forgets the workspace. The folder /workspaces/${ws.path} and its files stay; you can adopt it again.`,
+      body: `Berth stops its terminal session and forgets the workspace. The folder /workspaces/${ws.path} and its files stay; you can adopt it again. Berth also removes the skills, links and MCP entries it placed there; a vendored skill you edited stays.`,
       confirm: "Forget",
       danger: true,
       action: async () => {
@@ -122,13 +123,18 @@ export function WorkspacePage({
         label="Workspace view"
         value={tab}
         onChange={onTab}
-        className="w-full max-w-80"
+        className="w-full max-w-[26rem]"
         options={[
           { value: "overview", label: "Overview" },
           { value: "terminal", label: "Terminal" },
+          { value: "skills", label: "Skills" },
         ]}
       />
-      {tab === "overview" ? (
+      {tab === "terminal" ? (
+        <WorkspaceTerminal id={id} st={st} />
+      ) : tab === "skills" ? (
+        <WorkspaceSkills id={id} />
+      ) : (
         <Overview
           id={id}
           ws={ws}
@@ -137,8 +143,6 @@ export function WorkspacePage({
           onForget={forget}
           onDelete={() => setDeleting(true)}
         />
-      ) : (
-        <WorkspaceTerminal id={id} st={st} />
       )}
       {confirm}
       {deleting ? (

@@ -3,8 +3,10 @@ import { WorkspacePage } from "@/pages/workspace";
 import { parseWorkspaceTab, type WorkspaceTab } from "@/pages/workspaces-logic";
 
 export const Route = createFileRoute("/workspaces/$id")({
-  validateSearch: (search: Record<string, unknown>): { tab?: WorkspaceTab } =>
-    parseWorkspaceTab(search.tab) === "terminal" ? { tab: "terminal" } : {},
+  validateSearch: (search: Record<string, unknown>): { tab?: WorkspaceTab } => {
+    const tab = parseWorkspaceTab(search.tab);
+    return tab === "overview" ? {} : { tab };
+  },
   component: WorkspaceRoute,
 });
 
@@ -19,7 +21,7 @@ function WorkspaceRoute() {
       key={id}
       id={id}
       tab={tab}
-      onTab={(t) => void navigate({ search: t === "terminal" ? { tab: t } : {}, replace: true })}
+      onTab={(t) => void navigate({ search: t === "overview" ? {} : { tab: t }, replace: true })}
     />
   );
 }
