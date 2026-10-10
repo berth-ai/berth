@@ -89,6 +89,13 @@ type Broker struct {
 	// AgentsCmd is the argv prefix of berth agents, run as agent; empty
 	// means this broker manages no added agents.
 	AgentsCmd []string
+	// WorkspacesRoot is the folder workspace paths are relative to,
+	// /workspaces; empty means that.
+	WorkspacesRoot string
+	// WorkspacesSettings is where the workspace folders are published for
+	// berth-term and the agent side, /var/lib/berth/workspaces.json; empty
+	// skips it.
+	WorkspacesSettings string
 	// Fetch reads the agent lock on a ref for update.check.
 	Fetch func(ctx context.Context, ref string) (*locksource.Lock, error)
 	// Home holds the programs home-side verbs run as agent.
@@ -175,6 +182,9 @@ func (b *Broker) Load() config.Config {
 		}
 		if werr := b.writeAgentsSettings(cfg.Agents.Added); werr != nil {
 			b.logf("WARNING: agent settings: %v", werr)
+		}
+		if werr := b.writeWorkspacesSettings(cfg.Workspaces); werr != nil {
+			b.logf("WARNING: workspace settings: %v", werr)
 		}
 	}
 	return b.cfg

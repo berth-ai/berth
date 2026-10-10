@@ -172,6 +172,11 @@ func (b *Broker) writeSecrets(secrets map[string]*string) error {
 // when the set, the MCP settings or an MCP token changed, and re-links
 // skills when the set or the skills changed.
 func (b *Broker) refreshAgents(old, next config.Config, tokens bool) {
+	if b.workspacesStale(next.Workspaces) {
+		if err := b.writeWorkspacesSettings(next.Workspaces); err != nil {
+			b.logf("WARNING: workspace settings: %v", err)
+		}
+	}
 	added := !slices.Equal(old.Agents.Added, next.Agents.Added) || b.agentsStale(next.Agents.Added)
 	if added {
 		if err := b.writeAgentsSettings(next.Agents.Added); err != nil {

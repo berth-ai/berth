@@ -94,6 +94,8 @@ func runSupervise(ctx context.Context, a *app, args []string) error {
 	b.Registry = a.cfg.RegistryDir
 	b.AgentsSettings = filepath.Join(a.cfg.ConfigDir, "agents.json")
 	b.AgentsCmd = a.cfg.AgentsCmd
+	b.WorkspacesRoot = a.cfg.WorkspacesDir
+	b.WorkspacesSettings = filepath.Join(a.cfg.ConfigDir, "workspaces.json")
 	b.Home = broker.DefaultHome(a.cfg.BerthPath)
 	b.BaseTools = "/usr/share/berth/mise.toml"
 	b.PresetsDir = "/usr/share/berth/presets"
