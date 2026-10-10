@@ -136,7 +136,8 @@ anything.
 | Empty state           | One sentence and one action ("No tools added yet · Add tool")                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
 | Running-job indicator | Visible from every page while a job runs; links to its log                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
 | Agent picker          | Who gets an MCP server or skill: a compact secondary button labelled with the agents ("All agents", names, or "No installed agent") opens a popover of checkboxes, "All agents" first; ticking every agent means all agents, and the last ticked agent cannot be unticked. An agent reached anyway (a skill through another agent's directory) shows ticked and locked with a muted note; agents that cannot take the item show unticked and locked with a reason. Saves on each change. The add/edit dialog embeds the same checklist |
-| Segmented control     | Theme picker (Light, Dark, System) and tabs inside a page (Tools: Built-in, Your tools, Presets, each with a count; Skills: By source, All skills): equal-width options on a `--surface-sunken` track; the selected tab lives in the URL                                                                                                                                                                                                                                                                                               |
+| Launch menu           | Starts an agent or a shell in a workspace's tmux session: a compact secondary button "Launch" with a play icon and a chevron opens a menu of the enabled agents by name, a separator, then Shell. Picking one opens the workspace's Terminal tab. Disabled while the workspace's folder is missing                                                                                                                                                                                                                                     |
+| Segmented control     | Theme picker (Light, Dark, System) and tabs inside a page (Tools: Built-in, Your tools, Presets, each with a count; Skills: By source, All skills; Workspace: Overview, Terminal): equal-width options on a `--surface-sunken` track; the selected tab lives in the URL                                                                                                                                                                                                                                                                |
 
 Harbor styling, per component:
 
@@ -295,9 +296,13 @@ inherit`, weight 500. Compact controls inside cards and table rows are
 
 ## 5. Layout
 
-- Left navigation (Overview, Terminal, IDE, Agents, Tools, Accounts, Settings,
-  Activity), collapsing into a menu button below 900 px.
+- Left navigation (Overview, Workspaces, Terminal, IDE, Agents, MCP servers,
+  Skills, Tools, Accounts, Settings, Activity), collapsing into a menu button
+  below 900 px.
 - Terminal and IDE pages are full-height embeds under a slim top bar.
+- A workspace's Terminal tab embeds the same terminal on the workspace's
+  session, in a `--log-bg` frame 70 % of the viewport tall (at least 320 px),
+  with the session's windows above it.
 - Content column max width for settings-style pages; overview and tables may
   use the full width.
 - Tokens:

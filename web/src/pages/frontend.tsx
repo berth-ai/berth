@@ -8,7 +8,7 @@ import { useTitle } from "@/lib/use-title";
 
 /** keepRightClick stops the browser menu over a same-origin frame, so a
  * right click reaches tmux; Shift+right click still opens the browser menu. */
-function keepRightClick(frame: HTMLIFrameElement) {
+export function keepRightClick(frame: HTMLIFrameElement) {
   frame.contentDocument?.addEventListener("contextmenu", (e) => {
     if (!e.shiftKey) e.preventDefault();
   });
@@ -58,22 +58,27 @@ export function FrontendPage({
             onLoad={rightClick ? (e) => keepRightClick(e.currentTarget) : undefined}
           />
         ) : null}
-        {status.data && !svc ? (
-          <div className="flex flex-1 items-center justify-center p-4">
-            <PanelCard className="max-w-105">
-              <h2>The {label} is off</h2>
-              <p className="text-fg-muted">
-                Turn it on in Settings. Only the {label} starts; nothing else restarts.
-              </p>
-              <div>
-                <Link to="/settings" className={buttonVariants()}>
-                  Open Settings
-                </Link>
-              </div>
-            </PanelCard>
-          </div>
-        ) : null}
+        {status.data && !svc ? <FrontendOff label={label} /> : null}
       </div>
+    </div>
+  );
+}
+
+/** FrontendOff says a frontend is switched off and where to turn it on. */
+export function FrontendOff({ label }: { label: string }) {
+  return (
+    <div className="flex flex-1 items-center justify-center p-4">
+      <PanelCard className="max-w-105">
+        <h2>The {label} is off</h2>
+        <p className="text-fg-muted">
+          Turn it on in Settings. Only the {label} starts; nothing else restarts.
+        </p>
+        <div>
+          <Link to="/settings" className={buttonVariants()}>
+            Open Settings
+          </Link>
+        </div>
+      </PanelCard>
     </div>
   );
 }
