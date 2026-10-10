@@ -1,4 +1,4 @@
-import { Link } from "@tanstack/react-router";
+import { Link, useNavigate } from "@tanstack/react-router";
 import { Plus } from "lucide-react";
 import { useState } from "react";
 import { useConfig, useJobs, useStatus } from "@/api/queries";
@@ -9,7 +9,7 @@ import { LoadingRows } from "@/components/loading";
 import { Page, PageHeader } from "@/components/page";
 import { PanelCard } from "@/components/panel-card";
 import { Segmented } from "@/components/segmented";
-import { Button } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
 import {
   Table,
   TableBody,
@@ -23,6 +23,7 @@ import { useTitle } from "@/lib/use-title";
 import { cn } from "@/lib/utils";
 import { applyAndNotify } from "./apply-notify";
 import { AttachedSwitch } from "./attached-switch";
+import { UpdateDialog } from "./source";
 import { SourceDialog, type SourceStart } from "./source-dialog";
 import { repoLabel, shortCommit, skillAgents, type SkillView } from "./skills-logic";
 import {
@@ -50,6 +51,7 @@ export function SkillsPage({ view, onView }: { view: SkillView; onView: (v: Skil
   const config = useConfig();
   const jobs = useJobs();
   const [adding, setAdding] = useState<SourceStart | true | null>(null);
+  const navigate = useNavigate();
   const agents = skillAgents(status.data?.packages ?? []);
   const sources = config.data?.config.skills?.sources;
   const list = config.data ? sourceList(sources) : undefined;
@@ -132,7 +134,10 @@ export function SkillsPage({ view, onView }: { view: SkillView; onView: (v: Skil
         <SourceDialog
           start={adding === true ? undefined : adding}
           onClose={() => setAdding(null)}
-          onAdded={() => setAdding(null)}
+          onAdded={(id) => {
+            setAdding(null);
+            void navigate({ to: "/skills/$id", params: { id } });
+          }}
         />
       ) : null}
     </Page>
@@ -199,6 +204,7 @@ function SourceTable({
 /** SourceRow is one source: repository and folder, ref and commit, counts. */
 function SourceRow({ id, source }: { id: string; source: Source }) {
   const missing = missingNames(source).length;
+  const [updating, setUpdating] = useState(false);
   return (
     <TableRow>
       <TableCell data-label="">
@@ -221,7 +227,34 @@ function SourceRow({ id, source }: { id: string; source: Source }) {
         {sourceSummary(source)}
         {missing ? <span className="text-warn"> · {missing} missing</span> : null}
       </TableCell>
-      <TableCell className="text-right" />
+      <TableCell className="text-right">
+        <div className="inline-flex gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            aria-label={`Update ${id}`}
+            onClick={() => setUpdating(true)}
+          >
+            Update
+          </Button>
+          <Link
+            to="/skills/$id"
+            params={{ id }}
+            aria-label={`Manage ${id}`}
+            className={buttonVariants({ variant: "outline", size: "sm" })}
+          >
+            Manage
+          </Link>
+        </div>
+        {updating ? (
+          <UpdateDialog
+            id={id}
+            source={source}
+            changeRef={false}
+            onClose={() => setUpdating(false)}
+          />
+        ) : null}
+      </TableCell>
     </TableRow>
   );
 }
@@ -255,7 +288,13 @@ function AttachedTable({ rows, agents }: { rows: AttachedRow[]; agents: AgentPac
               </div>
             </TableCell>
             <TableCell data-label="Source">
-              <span className={cn(mono, "text-fg-secondary")}>{r.id}</span>
+              <Link
+                to="/skills/$id"
+                params={{ id: r.id }}
+                className={cn(mono, "font-medium text-accent-text")}
+              >
+                {r.id}
+              </Link>
             </TableCell>
             <TableCell data-label="Attached to" className="text-xs text-fg-secondary">
               {whoText(r.attachment, agents)}

@@ -2,7 +2,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { SkillsPage } from "@/pages/skills";
 import { parseSkillView, type SkillView } from "@/pages/skills-logic";
 
-export const Route = createFileRoute("/skills")({
+export const Route = createFileRoute("/skills/")({
   validateSearch: (search: Record<string, unknown>): { view?: SkillView } =>
     parseSkillView(search.view) === "flat" ? { view: "flat" } : {},
   component: SkillsRoute,

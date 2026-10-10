@@ -15,11 +15,12 @@ import { Route as AgentsRouteImport } from './routes/agents'
 import { Route as IdeRouteImport } from './routes/ide'
 import { Route as McpRouteImport } from './routes/mcp'
 import { Route as SettingsRouteImport } from './routes/settings'
-import { Route as SkillsRouteImport } from './routes/skills'
 import { Route as TerminalRouteImport } from './routes/terminal'
 import { Route as ToolsRouteImport } from './routes/tools'
 import { Route as ActivityIndexRouteImport } from './routes/activity.index'
 import { Route as ActivityIdRouteImport } from './routes/activity.$id'
+import { Route as SkillsIndexRouteImport } from './routes/skills.index'
+import { Route as SkillsIdRouteImport } from './routes/skills.$id'
 import { Route as WorkspacesIndexRouteImport } from './routes/workspaces.index'
 import { Route as WorkspacesIdRouteImport } from './routes/workspaces.$id'
 
@@ -53,11 +54,6 @@ const SettingsRoute = SettingsRouteImport.update({
   path: '/settings',
   getParentRoute: () => rootRouteImport,
 } as any)
-const SkillsRoute = SkillsRouteImport.update({
-  id: '/skills',
-  path: '/skills',
-  getParentRoute: () => rootRouteImport,
-} as any)
 const TerminalRoute = TerminalRouteImport.update({
   id: '/terminal',
   path: '/terminal',
@@ -78,6 +74,16 @@ const ActivityIdRoute = ActivityIdRouteImport.update({
   path: '/activity/$id',
   getParentRoute: () => rootRouteImport,
 } as any)
+const SkillsIndexRoute = SkillsIndexRouteImport.update({
+  id: '/skills/',
+  path: '/skills/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const SkillsIdRoute = SkillsIdRouteImport.update({
+  id: '/skills/$id',
+  path: '/skills/$id',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const WorkspacesIndexRoute = WorkspacesIndexRouteImport.update({
   id: '/workspaces/',
   path: '/workspaces/',
@@ -96,12 +102,13 @@ export interface FileRoutesByFullPath {
   '/ide': typeof IdeRoute
   '/mcp': typeof McpRoute
   '/settings': typeof SettingsRoute
-  '/skills': typeof SkillsRoute
   '/terminal': typeof TerminalRoute
   '/tools': typeof ToolsRoute
   '/activity/$id': typeof ActivityIdRoute
+  '/skills/$id': typeof SkillsIdRoute
   '/workspaces/$id': typeof WorkspacesIdRoute
   '/activity/': typeof ActivityIndexRoute
+  '/skills/': typeof SkillsIndexRoute
   '/workspaces/': typeof WorkspacesIndexRoute
 }
 export interface FileRoutesByTo {
@@ -111,12 +118,13 @@ export interface FileRoutesByTo {
   '/ide': typeof IdeRoute
   '/mcp': typeof McpRoute
   '/settings': typeof SettingsRoute
-  '/skills': typeof SkillsRoute
   '/terminal': typeof TerminalRoute
   '/tools': typeof ToolsRoute
   '/activity/$id': typeof ActivityIdRoute
+  '/skills/$id': typeof SkillsIdRoute
   '/workspaces/$id': typeof WorkspacesIdRoute
   '/activity': typeof ActivityIndexRoute
+  '/skills': typeof SkillsIndexRoute
   '/workspaces': typeof WorkspacesIndexRoute
 }
 export interface FileRoutesById {
@@ -127,12 +135,13 @@ export interface FileRoutesById {
   '/ide': typeof IdeRoute
   '/mcp': typeof McpRoute
   '/settings': typeof SettingsRoute
-  '/skills': typeof SkillsRoute
   '/terminal': typeof TerminalRoute
   '/tools': typeof ToolsRoute
   '/activity/$id': typeof ActivityIdRoute
+  '/skills/$id': typeof SkillsIdRoute
   '/workspaces/$id': typeof WorkspacesIdRoute
   '/activity/': typeof ActivityIndexRoute
+  '/skills/': typeof SkillsIndexRoute
   '/workspaces/': typeof WorkspacesIndexRoute
 }
 export interface FileRouteTypes {
@@ -144,12 +153,13 @@ export interface FileRouteTypes {
     | '/ide'
     | '/mcp'
     | '/settings'
-    | '/skills'
     | '/terminal'
     | '/tools'
     | '/activity/$id'
+    | '/skills/$id'
     | '/workspaces/$id'
     | '/activity/'
+    | '/skills/'
     | '/workspaces/'
   fileRoutesByTo: FileRoutesByTo
   to:
@@ -159,12 +169,13 @@ export interface FileRouteTypes {
     | '/ide'
     | '/mcp'
     | '/settings'
-    | '/skills'
     | '/terminal'
     | '/tools'
     | '/activity/$id'
+    | '/skills/$id'
     | '/workspaces/$id'
     | '/activity'
+    | '/skills'
     | '/workspaces'
   id:
     | '__root__'
@@ -174,12 +185,13 @@ export interface FileRouteTypes {
     | '/ide'
     | '/mcp'
     | '/settings'
-    | '/skills'
     | '/terminal'
     | '/tools'
     | '/activity/$id'
+    | '/skills/$id'
     | '/workspaces/$id'
     | '/activity/'
+    | '/skills/'
     | '/workspaces/'
   fileRoutesById: FileRoutesById
 }
@@ -190,12 +202,13 @@ export interface RootRouteChildren {
   IdeRoute: typeof IdeRoute
   McpRoute: typeof McpRoute
   SettingsRoute: typeof SettingsRoute
-  SkillsRoute: typeof SkillsRoute
   TerminalRoute: typeof TerminalRoute
   ToolsRoute: typeof ToolsRoute
   ActivityIdRoute: typeof ActivityIdRoute
+  SkillsIdRoute: typeof SkillsIdRoute
   WorkspacesIdRoute: typeof WorkspacesIdRoute
   ActivityIndexRoute: typeof ActivityIndexRoute
+  SkillsIndexRoute: typeof SkillsIndexRoute
   WorkspacesIndexRoute: typeof WorkspacesIndexRoute
 }
 
@@ -243,13 +256,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof SettingsRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/skills': {
-      id: '/skills'
-      path: '/skills'
-      fullPath: '/skills'
-      preLoaderRoute: typeof SkillsRouteImport
-      parentRoute: typeof rootRouteImport
-    }
     '/terminal': {
       id: '/terminal'
       path: '/terminal'
@@ -278,6 +284,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ActivityIdRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/skills/': {
+      id: '/skills/'
+      path: '/skills'
+      fullPath: '/skills/'
+      preLoaderRoute: typeof SkillsIndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/skills/$id': {
+      id: '/skills/$id'
+      path: '/skills/$id'
+      fullPath: '/skills/$id'
+      preLoaderRoute: typeof SkillsIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/workspaces/': {
       id: '/workspaces/'
       path: '/workspaces'
@@ -302,12 +322,13 @@ const rootRouteChildren: RootRouteChildren = {
   IdeRoute: IdeRoute,
   McpRoute: McpRoute,
   SettingsRoute: SettingsRoute,
-  SkillsRoute: SkillsRoute,
   TerminalRoute: TerminalRoute,
   ToolsRoute: ToolsRoute,
   ActivityIdRoute: ActivityIdRoute,
+  SkillsIdRoute: SkillsIdRoute,
   WorkspacesIdRoute: WorkspacesIdRoute,
   ActivityIndexRoute: ActivityIndexRoute,
+  SkillsIndexRoute: SkillsIndexRoute,
   WorkspacesIndexRoute: WorkspacesIndexRoute,
 }
 export const routeTree = rootRouteImport

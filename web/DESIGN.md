@@ -203,6 +203,18 @@ inherit`, weight 500. Compact controls inside cards and table rows are
   flat view each row shows its source and who gets it, with its switch;
   a switched-off skill's name is at 70 % opacity, a missing one says "No
   longer in its source" in `--warn`.
+  Update and Manage end each source row. Manage opens the source's page
+  (`/skills/<id>`): facts (repository, ref, commit, folder, store), then a
+  table of its last scan: skill and description (an error row in
+  `--warn`, "Can't be attached"), Attached to ("All agents", names, or
+  "Not attached"), the switch, and Attach… or Edit…, which open the
+  Attach picker. Attached skills an update dropped come first, marked
+  "Missing from <commit>" in `--warn`, with Detach. Update previews at
+  once; Change ref asks for the ref first. Both then show the commit range
+  and the Added, Removed, Moved and Description changed lists with an
+  "attached" mark, warn which attached skills will go missing, and offer
+  "Update to <commit>", or say "Already up to date". Remove asks to type
+  the id when anything is attached.
 - **Agent icons.** Before the name in the Agents table only, centred on the
   name and package lines: a 28 px frame (`--surface`, 1 px `--line`,
   `--radius-m`) holding a 20 px mark. A lock
