@@ -78,6 +78,14 @@ launch)
     exit 1
   fi
   printf '{"session":"ws-api","schema":1}' ;;
+release)
+  if [ -n "$FAKE_WS_KEPT" ]; then
+    printf '{"kept":["docx in api has local edits"],"schema":1}'
+  else
+    printf '{"kept":[],"schema":1}'
+  fi ;;
+report) printf '{"skills":{"path":"/ws/acme/api","entries":{"fx/pdf":{"name":"pdf","mode":"link","commit":"","from":"skills/pdf","links":[".claude/skills/pdf"]}},"dirs":[]},"mcp":{"path":"","files":{},"dirs":[]},"schema":1}' ;;
+vendor) printf '{"workspace":"api","key":"fx/pdf","action":"overwrite","schema":1}' ;;
 esac
 `
 	p := filepath.Join(tb.dir, "berth-fake")
@@ -243,7 +251,7 @@ func TestWorkspaceForget(t *testing.T) {
 	if res := resultOf(t, j); j.State != StateSucceeded || res["deleted"] != false || res["path"] != "acme/api" {
 		t.Fatalf("job = %+v %s", j, j.Result)
 	}
-	if !slices.Equal(calls(log), []string{"workspaces kill --json --id api"}) {
+	if !slices.Equal(calls(log), []string{"workspaces kill --json --id api", "workspaces release --json --id api"}) {
 		t.Errorf("calls = %v", calls(log))
 	}
 	if cfg, _, _ := tb.b.snapshot(); len(cfg.Workspaces) != 0 {
@@ -275,7 +283,7 @@ func TestWorkspaceForgetAndDelete(t *testing.T) {
 	if res := resultOf(t, j); j.State != StateSucceeded || res["deleted"] != true {
 		t.Fatalf("job = %+v %s", j, j.Result)
 	}
-	if want := []string{"workspaces kill --json --id api", "workspaces remove --json --path acme/api"}; !slices.Equal(calls(log), want) {
+	if want := []string{"workspaces kill --json --id api", "workspaces release --json --id api", "workspaces remove --json --path acme/api"}; !slices.Equal(calls(log), want) {
 		t.Errorf("calls = %v", calls(log))
 	}
 }
@@ -396,5 +404,35 @@ func TestForgetPatch(t *testing.T) {
 	}
 	if p := forgetPatch(cur, "zz"); len(p) != 1 {
 		t.Errorf("an unreferenced workspace touches only workspaces: %v", p)
+	}
+}
+
+func TestWorkspaceForgetReleases(t *testing.T) {
+	tb := newTestBroker(t)
+	withWorkspaces(t, tb)
+	addWorkspace(t, tb, "api", "acme/api")
+	t.Setenv("FAKE_WS_KEPT", "1")
+	_, out := tb.verb(t, "workspaces.forget", `{"id":"api","delete":true,"confirm":"acme/api"}`)
+	j := finishJob(t, tb, out)
+	res := resultOf(t, j)
+	if j.State != StateSucceeded || res["deleted"] != true || fmt.Sprint(res["kept"]) != "[docx in api has local edits]" {
+		t.Errorf("job = %+v %s", j, j.Result)
+	}
+}
+
+func TestWorkspaceReport(t *testing.T) {
+	tb := newTestBroker(t)
+	log := withWorkspaces(t, tb)
+	addWorkspace(t, tb, "api", "acme/api")
+	code, out := tb.verb(t, "workspaces.report", `{"id":"api"}`)
+	rep, _ := out["report"].(map[string]any)
+	if code != 200 || rep["skills"] == nil || rep["mcp"] == nil || rep["schema"] != nil {
+		t.Fatalf("report = %d %v", code, out)
+	}
+	if c := calls(log); c[len(c)-1] != "workspaces report --json --id api" {
+		t.Errorf("calls = %v", c)
+	}
+	if code, out := tb.verb(t, "workspaces.report", `{"id":"nope"}`); code != 404 || errCode(out) != "unknown_workspace" {
+		t.Errorf("unknown = %d %v", code, out)
 	}
 }

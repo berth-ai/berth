@@ -202,3 +202,56 @@ func fieldFailure(err error) json.RawMessage {
 	raw, _ := json.Marshal(map[string]any{"error": se})
 	return raw
 }
+
+// skillsVendorResolve settles a vendored skill that local edits stopped,
+// through berth skills vendor as agent. Overwrite then syncs, which
+// replaces or removes the copy; release then drops the workspace from the
+// attachment, leaving the files as the user's.
+func (b *Broker) skillsVendorResolve(_ context.Context, body []byte) (int, any) {
+	var in struct {
+		Source    string `json:"source"`
+		Name      string `json:"name"`
+		Workspace string `json:"workspace"`
+		Action    string `json:"action"`
+	}
+	if err := decode(body, &in); err != nil {
+		return badRequest(err)
+	}
+	if code, v, ok := b.normalMode(); !ok {
+		return code, v
+	}
+	switch {
+	case in.Action != "overwrite" && in.Action != "release":
+		return rejectJob(&fieldError{Code: "invalid_request", Field: "action", Message: "The action must be overwrite or release"})
+	case !config.WorkspaceIDPattern.MatchString(in.Source) || !config.SkillIDPattern.MatchString(in.Name):
+		return rejectJob(&fieldError{Code: "invalid_request", Field: "name", Message: "Name a source and one of its skills"})
+	}
+	if cur, _, _ := b.snapshot(); cur.Workspaces[in.Workspace].Path == "" {
+		return fail(http.StatusNotFound, "unknown_workspace", "No workspace named %s", in.Workspace)
+	}
+	args := []string{"skills", "vendor", "--json", "--workspace", in.Workspace, "--key", in.Source + "/" + in.Name, "--action", in.Action}
+	return b.cliJob("skills.vendor.resolve", skillsGroup, args, b.syncTimeout(), func(context.Context, io.Writer, []byte) (json.RawMessage, error) {
+		res := map[string]any{"action": in.Action, "workspace": in.Workspace, "name": in.Name, "changed": false}
+		if in.Action == "overwrite" {
+			b.startSkillsSync()
+			return json.Marshal(res)
+		}
+		next, changed, err := b.applyPatch(func(cur config.Config) (map[string]any, error) {
+			a, ok := cur.Skills.Sources[in.Source].Attached[in.Name]
+			if _, on := a.Workspaces[in.Workspace]; !ok || !on {
+				return nil, nil
+			}
+			var entry any = map[string]any{"workspaces": map[string]any{in.Workspace: nil}}
+			if a.Agents != nil && len(a.Agents) == 0 && len(a.Workspaces) == 1 {
+				entry = nil // it reached nothing else
+			}
+			return map[string]any{"skills": map[string]any{"sources": map[string]any{
+				in.Source: map[string]any{"attached": map[string]any{in.Name: entry}}}}}, nil
+		})
+		if err != nil {
+			return nil, err
+		}
+		res["changed"], res["revision"] = changed, next.Revision
+		return json.Marshal(res)
+	})
+}

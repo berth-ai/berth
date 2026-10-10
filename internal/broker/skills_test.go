@@ -1,8 +1,10 @@
 package broker
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -203,4 +205,72 @@ func lastScan(t *testing.T, tb *testBroker) string {
 	raw, _ := os.ReadFile(filepath.Join(tb.dir, "scan.log"))
 	lines := strings.Split(strings.TrimSpace(string(raw)), "\n")
 	return lines[len(lines)-1]
+}
+
+// vendorPDF attaches source fx's pdf to workspace api only, vendored.
+const vendorPDF = `"skills":{"sources":{"fx":{"repo":"https://github.com/acme/skills","ref":"main","path":"skills","commit":"` + skillCommit +
+	`","found":{"pdf":{"path":"skills/pdf","description":"PDF tools"}},"attached":{"pdf":{"enabled":true,"agents":[],"workspaces":{"api":"vendor"}}}}}}`
+
+func apply(t *testing.T, tb *testBroker, patch string) {
+	t.Helper()
+	cur, _, _ := tb.b.snapshot()
+	if code, out := tb.verb(t, "config.apply", fmt.Sprintf(`{"base_revision":%d,"patch":{%s}}`, cur.Revision, patch)); code != 200 {
+		t.Fatalf("apply %s = %d %v", patch, code, out)
+	}
+}
+
+func TestWorkspaceChangesStartConvergers(t *testing.T) {
+	tb := newTestBroker(t)
+	withSkills(t, tb)
+	withWorkspaces(t, tb)
+	addWorkspace(t, tb, "api", "acme/api")
+	waitSkillRuns(t, tb, 1)
+	waitMCPRuns(t, tb, 1)
+	apply(t, tb, `"mcp":{"workspaces":{"context7":["api"]}}`)
+	waitMCPRuns(t, tb, 2)
+	if n := skillRuns(tb); n != 1 {
+		t.Errorf("an MCP change ran skills sync: %d", n)
+	}
+	if m, _ := config.ReadMCPFile(tb.b.MCPSettings); !slices.Equal(m.Workspaces["context7"], []string{"api"}) {
+		t.Errorf("mcp.json workspaces = %v", m.Workspaces)
+	}
+}
+
+func TestVendorResolve(t *testing.T) {
+	tb := newTestBroker(t)
+	withSkills(t, tb)
+	log := withWorkspaces(t, tb)
+	addWorkspace(t, tb, "api", "acme/api")
+	apply(t, tb, vendorPDF)
+	waitSkillRuns(t, tb, 2)
+
+	_, out := tb.verb(t, "skills.vendor.resolve", `{"source":"fx","name":"pdf","workspace":"api","action":"overwrite"}`)
+	if j := finishJob(t, tb, out); j.State != StateSucceeded {
+		t.Fatalf("overwrite = %+v %s", j, j.Result)
+	}
+	if !slices.Contains(calls(log), "skills vendor --json --workspace api --key fx/pdf --action overwrite") {
+		t.Errorf("calls = %v", calls(log))
+	}
+	waitSkillRuns(t, tb, 3)
+
+	_, out = tb.verb(t, "skills.vendor.resolve", `{"source":"fx","name":"pdf","workspace":"api","action":"release"}`)
+	j := finishJob(t, tb, out)
+	if res := resultOf(t, j); j.State != StateSucceeded || res["changed"] != true {
+		t.Fatalf("release = %+v %s", j, j.Result)
+	}
+	if cfg, _, _ := tb.b.snapshot(); len(cfg.Skills.Sources["fx"].Attached) != 0 {
+		t.Errorf("attachment kept: %+v", cfg.Skills.Sources["fx"].Attached)
+	}
+
+	for body, want := range map[string]string{
+		`{"source":"fx","name":"pdf","workspace":"api","action":"bogus"}`:   "invalid_request",
+		`{"source":"fx","name":"PDF","workspace":"api","action":"release"}`: "invalid_request",
+	} {
+		if code, out := tb.verb(t, "skills.vendor.resolve", body); code != 400 || errCode(out) != want {
+			t.Errorf("%s = %d %v", body, code, out)
+		}
+	}
+	if code, out := tb.verb(t, "skills.vendor.resolve", `{"source":"fx","name":"pdf","workspace":"web","action":"release"}`); code != 404 {
+		t.Errorf("unknown workspace = %d %v", code, out)
+	}
 }

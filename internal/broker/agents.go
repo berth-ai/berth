@@ -111,7 +111,8 @@ func touchesTokens(secrets map[string]*string, old, next config.MCP) bool {
 }
 
 func sameMCP(a, b config.MCP) bool {
-	return maps.Equal(a.Servers, b.Servers) && maps.EqualFunc(a.Available, b.Available, slices.Equal[[]string])
+	return maps.Equal(a.Servers, b.Servers) && maps.EqualFunc(a.Available, b.Available, slices.Equal[[]string]) &&
+		maps.EqualFunc(a.Workspaces, b.Workspaces, slices.Equal[[]string])
 }
 
 // writeMCPSettings publishes m to MCPSettings, readable by the agent group.
@@ -170,7 +171,8 @@ func (b *Broker) writeSecrets(secrets map[string]*string) error {
 // the layer and re-runs MCP and skills sync for the new set. Otherwise it
 // rebuilds the layer when the enabled set changed, re-registers MCP servers
 // when the set, the MCP settings or an MCP token changed, and re-links
-// skills when the set or the skills changed.
+// skills when the set or the skills changed. A workspace added, forgotten
+// or moved runs both.
 func (b *Broker) refreshAgents(old, next config.Config, tokens bool) {
 	if b.workspacesStale(next.Workspaces) {
 		if err := b.writeWorkspacesSettings(next.Workspaces); err != nil {
@@ -184,8 +186,11 @@ func (b *Broker) refreshAgents(old, next config.Config, tokens bool) {
 		}
 	}
 	disabled := b.Layer != nil && !slices.Equal(old.Agents.Disabled, next.Agents.Disabled)
+	// A workspace added, forgotten or moved: both convergers place or
+	// release what Berth writes there.
+	moved := !maps.EqualFunc(old.Workspaces, next.Workspaces, func(a, b config.Workspace) bool { return a.Path == b.Path })
 	settings := !sameMCP(old.MCP, next.MCP) || b.publishedStale(next.MCP)
-	syncSkills := disabled
+	syncSkills := disabled || moved
 	if !sameSkills(old.Skills, next.Skills) || b.skillsStale(next.Skills) {
 		if err := b.writeSkillsSettings(next.Skills); err != nil {
 			b.logf("WARNING: skills settings: %v", err)
@@ -212,7 +217,7 @@ func (b *Broker) refreshAgents(old, next config.Config, tokens bool) {
 	if syncSkills {
 		b.startSkillsSync()
 	}
-	if b.Layer == nil || len(b.MCPSetup) == 0 || !disabled && !settings && !tokens {
+	if b.Layer == nil || len(b.MCPSetup) == 0 || !disabled && !settings && !tokens && !moved {
 		return
 	}
 	b.startMCPSetup(time.Duration(next.Agents.MCPTimeout) * time.Second)

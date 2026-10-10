@@ -213,7 +213,9 @@ func (b *Broker) workspacesForget(_ context.Context, body []byte) (int, any) {
 		if err != nil {
 			return nil, err
 		}
-		res := map[string]any{"id": in.ID, "path": w.Path, "deleted": false, "left": []string{}, "revision": next.Revision}
+		kept := b.releaseWorkspace(ctx, log, in.ID)
+		res := map[string]any{"id": in.ID, "path": w.Path, "deleted": false, "left": []string{}, "kept": kept,
+			"revision": next.Revision}
 		if !in.Delete {
 			return json.Marshal(res)
 		}
@@ -361,4 +363,45 @@ func (b *Broker) launchBin(cur config.Config, pkg string) (string, int, any) {
 		return pkgs[i].Bins[0], 0, nil
 	}
 	return "", code, v
+}
+
+// releaseWorkspace removes what Berth wrote into a forgotten workspace,
+// before any folder delete, and returns what it had to leave in place. A
+// failure is logged, never fatal: the convergers release forgotten
+// workspaces too.
+func (b *Broker) releaseWorkspace(ctx context.Context, log io.Writer, id string) []string {
+	args := []string{"workspaces", "release", "--json", "--id", id}
+	stdout, code, err := b.runCLI(ctx, log, args, b.syncTimeout())
+	var res struct {
+		Kept []string `json:"kept"`
+	}
+	if err != nil || code != 0 || json.Unmarshal(stdout, &res) != nil {
+		fmt.Fprintf(log, "warning: berth workspaces release failed; the next sync releases %s\n", id)
+		return []string{}
+	}
+	if res.Kept == nil {
+		return []string{}
+	}
+	return res.Kept
+}
+
+// workspacesReport answers what Berth wrote into a workspace, from its
+// state file, read as agent.
+func (b *Broker) workspacesReport(ctx context.Context, body []byte) (int, any) {
+	var in struct {
+		ID string `json:"id"`
+	}
+	if err := decode(body, &in); err != nil {
+		return badRequest(err)
+	}
+	if cur, _, _ := b.snapshot(); cur.Workspaces[in.ID].Path == "" {
+		return fail(http.StatusNotFound, "unknown_workspace", "No workspace named %s", in.ID)
+	}
+	stdout, stderr, code, err := b.agentRun(ctx, b.syncTimeout(), b.Home.Berth, "workspaces", "report", "--json", "--id", in.ID)
+	var rep map[string]any
+	if err != nil || code != 0 || json.Unmarshal([]byte(stdout), &rep) != nil {
+		return fail(http.StatusInternalServerError, "report_failed", "berth workspaces report failed: %v %s", err, strings.TrimSpace(stderr))
+	}
+	delete(rep, "schema")
+	return http.StatusOK, map[string]any{"report": rep}
 }
