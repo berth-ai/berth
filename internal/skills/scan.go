@@ -155,10 +155,16 @@ func fetchError(repo, ref string, err error) *Error {
 	if errors.As(err, &ge) && ge.stderr != "" {
 		said = ge.stderr
 	}
+	return ClassifyFetch(repo, ref, said)
+}
+
+// ClassifyFetch turns what git said when fetching or cloning ref from repo
+// failed into an *Error: ref_not_found, auth_required or fetch_failed.
+func ClassifyFetch(repo, ref, said string) *Error {
 	low := strings.ToLower(said)
 	switch {
 	case strings.Contains(low, "couldn't find remote ref") || strings.Contains(low, "not our ref") ||
-		strings.Contains(low, "unadvertised object"):
+		strings.Contains(low, "unadvertised object") || strings.Contains(low, "not found in upstream"):
 		return &Error{Code: "ref_not_found", Field: "ref", Message: fmt.Sprintf("Ref %s not found in that repository", ref)}
 	case strings.Contains(low, "authentication failed") || strings.Contains(low, "could not read username") ||
 		strings.Contains(low, "terminal prompts disabled") || strings.Contains(low, "repository not found"):
@@ -168,5 +174,7 @@ func fetchError(repo, ref string, err error) *Error {
 		}
 		return &Error{Code: "auth_required", Field: "repo", Message: msg}
 	}
-	return &Error{Code: "fetch_failed", Field: "repo", Message: "Could not fetch the repository: " + err.Error()}
+	last := strings.TrimSpace(said)
+	last = last[strings.LastIndex(last, "\n")+1:]
+	return &Error{Code: "fetch_failed", Field: "repo", Message: "Could not fetch the repository: " + last}
 }
