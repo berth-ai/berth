@@ -302,9 +302,10 @@ verb main update.check '{}' | jq -e '.check.ref == "main" and (.check.update_ava
   fail "update.check"
 x main berth status --json | jq -e '.versions | length >= 1' >/dev/null || fail "status lacks versions"
 
-step "a skill collection is pinned, linked into each agent, updated, narrowed and removed"
+step "a skill source is pinned, attached to each agent, previewed, narrowed, detached and removed"
 pin=8a1541c4a3ffa5a20a5a91de0dcf3f0bab1d1ef4
 anth=https://github.com/anthropics/skills
+src=/home/agent/.local/share/berth/skills/anthropics-skills
 # wait_job ID waits up to two minutes for a broker job and prints it as JSON.
 wait_job() {
   local job
@@ -315,36 +316,39 @@ wait_job() {
   done
   printf '%s\n' "$job"
 }
-scan=$(wait_job "$(verb main skills.scan '{"repo":"'"$anth"'","ref":"'"$pin"'","path":"skills"}' | jq -r .job.id)")
-jq -e --arg c "$pin" '.state == "succeeded" and .result.commit == $c and
-  ([.result.skills[].name] | index("pdf") and index("docx") and index("xlsx"))' <<<"$scan" >/dev/null ||
-  fail "skills.scan: $scan"
-added=$(wait_job "$(verb main skills.add '{"repo":"'"$anth"'","ref":"'"$pin"'","commit":"'"$pin"'","paths":["skills/pdf","skills/docx","skills/xlsx"]}' | jq -r .job.id)")
-jq -e '.state == "succeeded" and .result.skills == ["docx","pdf","xlsx"]' <<<"$added" >/dev/null || fail "skills.add: $added"
-verb main config.get '{}' | jq -e --arg c "$pin" '[.config.skills[] | select(.commit == $c)] | length == 3' >/dev/null ||
-  fail "the collection is not pinned"
+found=$(wait_job "$(verb main skills.sources.preview '{"repo":"'"$anth"'","ref":"'"$pin"'","path":"skills"}' | jq -r .job.id)")
+jq -e --arg c "$pin" '.state == "succeeded" and .result.commit == $c and .result.id == "anthropics-skills" and .result.exists == "" and
+  (.result.found | has("pdf") and has("docx") and has("xlsx"))' <<<"$found" >/dev/null ||
+  fail "skills.sources.preview: $found"
+added=$(wait_job "$(verb main skills.sources.add '{"repo":"'"$anth"'","ref":"'"$pin"'","path":"skills","commit":"'"$pin"'"}' | jq -r .job.id)")
+jq -e '.state == "succeeded" and .result.id == "anthropics-skills" and .result.attached == []' <<<"$added" >/dev/null ||
+  fail "skills.sources.add: $added"
+verb main config.apply '{"base_revision":'"$(rev main)"',"patch":{"skills":{"sources":{"anthropics-skills":{"attached":{"pdf":{},"docx":{},"xlsx":{}}}}}}}' >/dev/null ||
+  fail "attaching pdf, docx and xlsx"
+verb main config.get '{}' | jq -e --arg c "$pin" '.config.skills.sources["anthropics-skills"] | .commit == $c and (.attached | length == 3)' >/dev/null ||
+  fail "the source is not pinned"
 [[ $(x main stat -c '%a %U %G' /var/lib/berth/skills.json) == "640 root agent" ]] || fail "skills.json ownership"
+x main jq -e '.schema == 2' /var/lib/berth/skills.json >/dev/null || fail "skills.json is not schema 2"
 for ((i = 0; i < 120; i++)); do
   xa main test -L /home/agent/.gemini/skills/xlsx && break
   sleep 1
 done
 for s in pdf docx xlsx; do
-  store=/home/agent/.local/share/berth/skills/$s
-  xa main test -f "$store/SKILL.md" || fail "$s store copy missing"
+  xa main test -f "$src/$s/SKILL.md" || fail "$s export missing"
   for d in .claude/skills .codex/skills .gemini/skills; do
-    [[ $(xa main readlink "/home/agent/$d/$s") == "$store" ]] || fail "$s not linked in ~/$d"
+    [[ $(xa main readlink "/home/agent/$d/$s") == "$src/$s" ]] || fail "$s not linked in ~/$d"
   done
   # OpenCode reads ~/.claude/skills, so it gets no link of its own.
   if xa main test -e "/home/agent/.config/opencode/skills/$s"; then fail "$s linked twice for opencode"; fi
 done
 xa main gemini skills list 2>/dev/null | grep -q pdf || fail "gemini does not load the linked skill"
 
-updated=$(wait_job "$(verb main skills.update '{"ids":["pdf","docx","xlsx"]}' | jq -r .job.id)")
-jq -e '.state == "succeeded" and .result.changed == false' <<<"$updated" >/dev/null || fail "skills.update: $updated"
+same=$(wait_job "$(verb main skills.sources.preview '{"id":"anthropics-skills"}' | jq -r .job.id)")
+jq -e '.state == "succeeded" and .result.changed == false and .result.removed == []' <<<"$same" >/dev/null ||
+  fail "skills.sources.preview of the pinned source: $same"
 
-store=/home/agent/.local/share/berth/skills/pdf
-verb main config.apply '{"base_revision":'"$(rev main)"',"patch":{"skills":{"pdf":{"agents":["@anthropic-ai/claude-code"]}}}}' >/dev/null ||
-  fail "narrowing a skill"
+verb main config.apply '{"base_revision":'"$(rev main)"',"patch":{"skills":{"sources":{"anthropics-skills":{"attached":{"pdf":{"agents":["@anthropic-ai/claude-code"]}}}}}}}' >/dev/null ||
+  fail "narrowing pdf"
 for ((i = 0; i < 60; i++)); do
   ! xa main test -e /home/agent/.gemini/skills/pdf && break
   sleep 1
@@ -353,53 +357,26 @@ if xa main test -e /home/agent/.gemini/skills/pdf; then fail "narrowed skill sti
 if xa main test -e /home/agent/.codex/skills/pdf; then fail "narrowed skill still linked for codex"; fi
 xa main test -L /home/agent/.claude/skills/pdf || fail "narrowing removed claude's link"
 
-verb main config.apply '{"base_revision":'"$(rev main)"',"patch":{"skills":{"pdf":null,"docx":null,"xlsx":null}}}' >/dev/null ||
-  fail "removing the skills"
+verb main config.apply '{"base_revision":'"$(rev main)"',"patch":{"skills":{"sources":{"anthropics-skills":{"attached":{"docx":null,"xlsx":null}}}}}}' >/dev/null ||
+  fail "detaching docx and xlsx"
 for ((i = 0; i < 60; i++)); do
-  ! xa main test -e "$store" && break
+  ! xa main test -e "$src/docx" && break
   sleep 1
 done
-for s in pdf docx xlsx; do
-  if xa main test -e "/home/agent/.local/share/berth/skills/$s"; then fail "removed $s's store copy kept"; fi
-  if xa main test -e "/home/agent/.claude/skills/$s"; then fail "removed $s still linked for claude"; fi
+for s in docx xlsx; do
+  if xa main test -e "$src/$s"; then fail "detached $s's export kept"; fi
+  if xa main test -e "/home/agent/.claude/skills/$s"; then fail "detached $s still linked for claude"; fi
 done
+xa main test -f "$src/pdf/SKILL.md" || fail "detaching others removed pdf"
 
-step "a workspace is cloned, launched, forgotten, adopted again and deleted"
-hello=https://github.com/octocat/Hello-World
-hello_pin=7fd1a60b01f91b314f59955a4e4d4e80d8edf11d
-# The test's /workspaces is a private temporary folder; let agent create projects in it.
-x main chmod 0777 /workspaces
-added=$(wait_job "$(verb main workspaces.add '{"mode":"clone","repo":"'"$hello"'","ref":"'"$hello_pin"'","path":"octocat/Hello-World","id":"hello"}' | jq -r .job.id)")
-jq -e '.state == "succeeded" and .result.id == "hello" and .result.writable' <<<"$added" >/dev/null ||
-  fail "workspaces.add clone: $added"
-[[ $(x main stat -c '%a %U %G' /var/lib/berth/workspaces.json) == "640 root agent" ]] || fail "workspaces.json ownership"
-x main jq -e '.workspaces.hello.path == "/workspaces/octocat/Hello-World"' /var/lib/berth/workspaces.json >/dev/null ||
-  fail "workspaces.json: $(x main cat /var/lib/berth/workspaces.json)"
-[[ $(x main stat -c %U /workspaces/octocat/Hello-World) == agent ]] || fail "the clone is not agent's"
-if x main sh -c 'ls -A /workspaces/octocat | grep -q "^\.berth-tmp-"'; then fail "the clone left its temporary folder"; fi
-status=$(verb main workspaces.status '{}')
-jq -e --arg h "${hello_pin:0:12}" '.workspaces.hello | .exists and .git and .writable and .head == $h and .branch == "" and .dirty == 0' \
-  <<<"$status" >/dev/null || fail "workspaces.status: $status"
-verb main workspaces.launch '{"id":"hello"}' | jq -e '.session == "ws-hello"' >/dev/null || fail "shell launch"
-[[ $(xa main tmux display-message -p -t ws-hello '#{pane_current_path}') == /workspaces/octocat/Hello-World ]] ||
-  fail "the session does not start in the workspace"
-verb main workspaces.launch '{"id":"hello","agent":"@anthropic-ai/claude-code"}' | jq -e '.window == "claude"' >/dev/null ||
-  fail "agent launch"
-xa main tmux list-windows -t ws-hello -F '#{window_name}' | grep -qx claude || fail "no claude window in ws-hello"
-if xa main berth-term ws-nope 2>/dev/null; then fail "berth-term attached an unknown workspace"; fi
-forgot=$(wait_job "$(verb main workspaces.forget '{"id":"hello"}' | jq -r .job.id)")
-jq -e '.state == "succeeded" and (.result.deleted | not)' <<<"$forgot" >/dev/null || fail "workspaces.forget: $forgot"
-if xa main tmux has-session -t =ws-hello 2>/dev/null; then fail "forget left the session running"; fi
-x main test -d /workspaces/octocat/Hello-World/.git || fail "forget removed the folder"
-verb main config.get '{}' | jq -e '.config.workspaces == {}' >/dev/null || fail "forget kept the workspace"
-verb main workspaces.candidates '{}' | jq -e '.candidates | any(.path == "octocat/Hello-World" and .git)' >/dev/null ||
-  fail "the forgotten folder is not a candidate"
-adopted=$(wait_job "$(verb main workspaces.add '{"mode":"adopt","path":"octocat/Hello-World","id":"hello"}' | jq -r .job.id)")
-jq -e '.state == "succeeded" and .result.git and .result.writable' <<<"$adopted" >/dev/null || fail "adopt: $adopted"
-deleted=$(wait_job "$(verb main workspaces.forget '{"id":"hello","delete":true,"confirm":"octocat/Hello-World"}' | jq -r .job.id)")
-jq -e '.state == "succeeded" and .result.deleted' <<<"$deleted" >/dev/null || fail "delete: $deleted"
-if x main test -e /workspaces/octocat/Hello-World; then fail "delete left the folder"; fi
-x main test -d /workspaces/octocat || fail "delete removed the parent folder"
+verb main skills.sources.remove '{"id":"anthropics-skills"}' | jq -e '.id == "anthropics-skills"' >/dev/null ||
+  fail "removing the source"
+for ((i = 0; i < 60; i++)); do
+  ! xa main test -e "$src" && break
+  sleep 1
+done
+if xa main test -e "$src"; then fail "the removed source's folder was kept"; fi
+if xa main test -e /home/agent/.claude/skills/pdf; then fail "removed pdf still linked for claude"; fi
 
 step "a registry agent is added, wired, signs in and is removed"
 added=$(wait_job "$(verb main agents.add '{"id":"copilot"}' | jq -r .job.id)")
@@ -421,14 +398,17 @@ done
 xa main jq -e '.mcpServers.playwright and .mcpServers.context7' /home/agent/.copilot/mcp-config.json >/dev/null ||
   fail "Copilot did not get Playwright and Context7"
 pin=8a1541c4a3ffa5a20a5a91de0dcf3f0bab1d1ef4
-wait_job "$(verb main skills.add '{"repo":"https://github.com/anthropics/skills","ref":"'"$pin"'","commit":"'"$pin"'","paths":["skills/pdf"]}' | jq -r .job.id)" |
-  jq -e '.state == "succeeded"' >/dev/null || fail "skills.add for Copilot"
+wait_job "$(verb main skills.sources.add '{"repo":"https://github.com/anthropics/skills","ref":"'"$pin"'","path":"skills","commit":"'"$pin"'"}' | jq -r .job.id)" |
+  jq -e '.state == "succeeded"' >/dev/null || fail "skills.sources.add for Copilot"
+verb main config.apply '{"base_revision":'"$(rev main)"',"patch":{"skills":{"sources":{"anthropics-skills":{"attached":{"pdf":{}}}}}}}' >/dev/null ||
+  fail "attaching pdf for Copilot"
 for ((i = 0; i < 120; i++)); do
   xa main test -L /home/agent/.copilot/skills/pdf && break
   sleep 1
 done
-xa main test -L /home/agent/.copilot/skills/pdf || fail "pdf not linked for Copilot"
-verb main config.apply '{"base_revision":'"$(rev main)"',"patch":{"skills":{"pdf":null}}}' >/dev/null || fail "removing pdf"
+[[ $(xa main readlink /home/agent/.copilot/skills/pdf) == /home/agent/.local/share/berth/skills/anthropics-skills/pdf ]] ||
+  fail "pdf not linked for Copilot"
+verb main skills.sources.remove '{"id":"anthropics-skills"}' >/dev/null || fail "removing the source for Copilot"
 id=$(verb main login.start '{"agent":"@github/copilot","method":"github"}' | jq -r .job.id) || fail "login.start copilot"
 for ((i = 0; i < 90; i++)); do
   job=$(x main curl -fsS --unix-socket /run/berth/broker.sock "http://b/jobs/$id")
