@@ -80,7 +80,7 @@ func (s Syncer) syncWorkspaces(targets []target, wants map[string][]wsWant) []st
 		})
 		if err != nil && !errors.Is(err, wsstate.ErrGone) {
 			s.logf("workspace %s: %v", id, err)
-			failed = append(failed, "workspace "+id)
+			failed = append(failed, fmt.Sprintf("workspace %s (%v)", id, err))
 		}
 	}
 	ids, err := store.IDs()
@@ -134,11 +134,13 @@ func (s Syncer) convergeWorkspace(id, ws string, sec *wsstate.Skills, wants []ws
 		if w.hold || had && e.Mode != w.mode {
 			continue // held, or a mode switch stopped by local edits
 		}
-		if w.mode != config.ModeLink {
-			continue // vendored skills: Task 4
+		var err error
+		if w.mode == config.ModeVendor {
+			err = s.vendorEntry(ws, w, dirs, &e, sec)
+		} else {
+			err = s.linkEntry(ws, w, dirs, &e, sec)
 		}
-		err := s.linkEntry(ws, w, dirs, &e, sec)
-		if len(e.Links) > 0 {
+		if e.Mode == config.ModeVendor && e.Dir != "" || len(e.Links) > 0 {
 			sec.Entries[w.key] = e
 		} else {
 			delete(sec.Entries, w.key)
@@ -261,12 +263,32 @@ func (s Syncer) linkTarget(key string, e wsstate.Skill, rel string) string {
 	return s.exportDir(key)
 }
 
-// removeEntry removes everything e placed in ws.
+// removeEntry removes everything e placed in ws. A vendored copy with
+// local edits stops it (errLocalEdits, e.Edited set) unless e.Force; its
+// links stay then too.
 func (s Syncer) removeEntry(ws, key string, e *wsstate.Skill) error {
+	var full string
+	if e.Mode == config.ModeVendor && e.Dir != "" {
+		full = filepath.Join(ws, filepath.FromSlash(e.Dir))
+		clean, err := unedited(full, e.Files)
+		if err != nil {
+			return err
+		}
+		if !clean && !e.Force {
+			e.Edited = true
+			return errLocalEdits
+		}
+	}
 	for _, l := range e.Links {
 		s.unlinkOwned(ws, l, s.linkTarget(key, *e, l))
 	}
 	e.Links = nil
+	if full != "" {
+		if err := os.RemoveAll(full); err != nil {
+			return err
+		}
+		s.logf("removed the vendored copy of %s from %s", e.Name, ws)
+	}
 	return nil
 }
 
