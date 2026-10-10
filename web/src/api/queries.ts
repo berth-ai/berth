@@ -2,6 +2,7 @@ import { QueryClient, useQuery } from "@tanstack/react-query";
 import { jobsInterval } from "./jobs";
 import { get, shouldRetry, verb } from "./request";
 import type {
+  Candidate,
   ConfigView,
   ForgeStatus,
   Job,
@@ -10,6 +11,7 @@ import type {
   Session,
   Status,
   ToolsList,
+  WorkspaceState,
 } from "./types";
 
 export const queryClient = new QueryClient({ defaultOptions: { queries: { retry: shouldRetry } } });
@@ -26,6 +28,8 @@ export const keys = {
   registry: ["registry"],
   agentRegistry: ["agent-registry"],
   versions: (tool: string) => ["versions", tool],
+  workspaceStatus: ["workspace-status"],
+  candidates: ["workspace-candidates"],
 } as const;
 
 export function useSession() {
@@ -120,4 +124,30 @@ export function useAgentRegistry() {
 
 export function refreshAgentRegistry() {
   return queryClient.invalidateQueries({ queryKey: keys.agentRegistry });
+}
+
+/** useWorkspaceStatus polls every workspace's folder and session. */
+export function useWorkspaceStatus() {
+  return useQuery({
+    queryKey: keys.workspaceStatus,
+    queryFn: () => verb<{ workspaces: Record<string, WorkspaceState> }>("workspaces.status"),
+    refetchInterval: 5000,
+  });
+}
+
+export function useCandidates(enabled: boolean) {
+  return useQuery({
+    queryKey: keys.candidates,
+    queryFn: () => verb<{ candidates: Candidate[] }>("workspaces.candidates"),
+    enabled,
+  });
+}
+
+/** refreshWorkspaces reloads what a workspace change touches. */
+export function refreshWorkspaces(): Promise<unknown> {
+  return Promise.all(
+    [keys.config, keys.workspaceStatus, keys.candidates].map((queryKey) =>
+      queryClient.invalidateQueries({ queryKey }),
+    ),
+  );
 }

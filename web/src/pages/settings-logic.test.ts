@@ -60,7 +60,7 @@ describe("predict", () => {
 describe("readImport", () => {
   it("rejects files that are not exports", () => {
     expect(readImport("not json", base)).toEqual({ ok: false, error: "That file is not JSON." });
-    expect(readImport('{"schema":5}', base)).toEqual({
+    expect(readImport('{"schema":6}', base)).toEqual({
       ok: false,
       error: "That file is not a Berth config export.",
     });
@@ -117,5 +117,19 @@ describe("readImport", () => {
       agents: { ...base4.agents, added: ["@github/copilot"] },
     });
     expect(readImport(file, base4)).toMatchObject({ ok: true, rows: [{ path: "agents.added" }] });
+  });
+
+  it("accepts schema 5 exports and lists workspaces", () => {
+    const base5: Config = {
+      ...base,
+      schema: 5,
+      agents: { ...base.agents, added: [] },
+      mcp: { servers: {}, available: {} },
+      skills: {},
+      workspaces: {},
+    };
+    const file = JSON.stringify({ ...base5, workspaces: { api: { path: "acme/api", repo: "" } } });
+    expect(readImport(file, base5)).toMatchObject({ ok: true, rows: [{ path: "workspaces" }] });
+    expect(readImport(JSON.stringify({ ...base5, schema: 6 }), base5)).toMatchObject({ ok: false });
   });
 });

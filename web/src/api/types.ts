@@ -102,6 +102,39 @@ export interface ScanResult {
   skills: ScanRow[];
 }
 
+export interface WorkspaceEnvVar {
+  value: string;
+  secret: boolean;
+}
+
+export interface Workspace {
+  path: string;
+  repo: string;
+  env?: Record<string, WorkspaceEnvVar> | null;
+  instructions?: { shared: boolean };
+}
+
+/** WorkspaceState is one workspace as workspaces.status reports it. */
+export interface WorkspaceState {
+  exists: boolean;
+  writable: boolean;
+  git: boolean;
+  /** branch is empty on a detached HEAD. */
+  branch: string;
+  head: string;
+  /** dirty counts changed paths; -1 means not known. */
+  dirty: number;
+  session: boolean;
+  windows: string[] | null;
+  unknown: boolean;
+}
+
+/** Candidate is a folder in /workspaces that can be adopted. */
+export interface Candidate {
+  path: string;
+  git: boolean;
+}
+
 export interface HostInfo {
   bind_address: string;
   panel_port: string;
@@ -143,6 +176,8 @@ export interface Config {
   };
   // An older broker omits it.
   skills?: Record<string, Skill> | null;
+  // An older broker omits it.
+  workspaces?: Record<string, Workspace> | null;
 }
 
 export interface ConfigView {
@@ -166,6 +201,7 @@ export interface JobError {
   code: string;
   message?: string;
   step?: string;
+  left?: string[];
 }
 
 export interface Device {
@@ -187,6 +223,11 @@ export interface Job {
     changed?: boolean;
     commit?: string;
     skills?: string[] | ScanRow[];
+    id?: string;
+    path?: string;
+    writable?: boolean;
+    git?: boolean;
+    deleted?: boolean;
   } | null;
   log?: string;
   log_truncated: boolean;
