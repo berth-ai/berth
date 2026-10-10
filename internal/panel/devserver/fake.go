@@ -55,12 +55,14 @@ type fake struct {
 	jobs     []*job
 	started  time.Time
 	step     time.Duration
-	signedIn map[string]bool // pkg + " " + method
+	signedIn map[string]bool     // pkg + " " + method
+	sessions map[string][]string // workspace id → window names
 }
 
 func newFake(mode string) *fake {
 	return &fake{
 		signedIn: map[string]bool{},
+		sessions: map[string][]string{},
 		mode:     mode, user: devUser, started: time.Now().UTC(), step: 400 * time.Millisecond,
 		cfg:    defaultConfig(1),
 		keys:   map[string]bool{"EXAMPLE_API_KEY": false, "COPILOT_GITHUB_TOKEN": false},
@@ -72,12 +74,13 @@ func newFake(mode string) *fake {
 
 func defaultConfig(rev int) map[string]any {
 	return map[string]any{
-		"schema": 4, "revision": rev,
-		"frontends": map[string]any{"terminal": map[string]any{"enabled": true}, "ide": map[string]any{"enabled": false}},
-		"agents":    map[string]any{"ref": "main", "disabled": []any{}, "added": []any{}, "keep": 2, "boot_timeout": 600, "mcp_timeout": 300},
-		"runtime":   map[string]any{"tz": "Etc/UTC"},
-		"mcp":       map[string]any{"servers": map[string]any{}, "available": map[string]any{}},
-		"skills":    map[string]any{},
+		"schema": 5, "revision": rev,
+		"frontends":  map[string]any{"terminal": map[string]any{"enabled": true}, "ide": map[string]any{"enabled": false}},
+		"agents":     map[string]any{"ref": "main", "disabled": []any{}, "added": []any{}, "keep": 2, "boot_timeout": 600, "mcp_timeout": 300},
+		"runtime":    map[string]any{"tz": "Etc/UTC"},
+		"mcp":        map[string]any{"servers": map[string]any{}, "available": map[string]any{}},
+		"skills":     map[string]any{},
+		"workspaces": map[string]any{},
 	}
 }
 
@@ -252,6 +255,23 @@ func (f *fake) verb(name string, in map[string]any) (int, any) {
 		}
 		f.setAdded(str(in["package"]), false)
 		return http.StatusOK, map[string]any{"config": f.cfg}
+	case "workspaces.status":
+		return http.StatusOK, f.workspaceStatus()
+	case "workspaces.candidates":
+		return http.StatusOK, map[string]any{"candidates": f.candidates()}
+	case "workspaces.launch":
+		return f.launch(in)
+	case "workspaces.forget":
+		w, ok := f.cfg["workspaces"].(map[string]any)[str(in["id"])].(map[string]any)
+		switch {
+		case !ok:
+			return http.StatusNotFound, apiError("unknown_workspace", "No workspace named "+str(in["id"]))
+		case in["delete"] == true && in["confirm"] != w["path"]:
+			return http.StatusBadRequest, apiError("confirm_mismatch", "Type the folder's path, "+str(w["path"])+", to delete it")
+		}
+		return f.start(name, in)
+	case "workspaces.add":
+		return f.start(name, in)
 	case "update", "rollback", "gc", "tools.add", "tools.remove", "preset.install", "forge.login", "skills.scan", "skills.add":
 		return f.start(name, in)
 	}
@@ -408,7 +428,7 @@ func (f *fake) check() map[string]any {
 var groups = map[string]string{"update": "agents", "rollback": "agents", "gc": "agents",
 	"tools.add": "tools", "tools.remove": "tools", "preset.install": "tools", "forge.login": "forge",
 	"skills.scan": "skills", "skills.add": "skills", "skills.update": "skills", "skills.sync": "skills-sync", "agent.login": "agent-login",
-	"agents.add": "agents", "agents.rollback": "agents"}
+	"agents.add": "agents", "agents.rollback": "agents", "workspaces.add": "workspaces", "workspaces.forget": "workspaces"}
 
 func (f *fake) start(verb string, in map[string]any) (int, any) {
 	group := groups[verb]
@@ -437,6 +457,13 @@ func (f *fake) start(verb string, in map[string]any) (int, any) {
 		args = []string{"/usr/local/bin/berth", "agents", "install", "--json", str(in["id"])}
 	case "agents.rollback":
 		args = []string{"/usr/local/bin/berth", "agents", "rollback", "--json", str(in["package"])}
+	case "workspaces.add":
+		args = []string{"/usr/local/bin/berth", "workspaces", "probe", "--json", "--path", str(in["path"])}
+		if in["mode"] == "clone" {
+			args = []string{"/usr/local/bin/berth", "workspaces", "clone", "--json", "--repo", str(in["repo"]), "--path", str(in["path"])}
+		}
+	case "workspaces.forget":
+		args = []string{"/usr/local/bin/berth", "workspaces", "kill", "--json", "--id", str(in["id"])}
 	case "skills.update":
 		args = append([]string{"/usr/local/bin/berth", "skills", "scan", "--json", "--ref", cmp.Or(str(in["ref"]), "(each skill's ref)")}, strs(in["ids"])...)
 	}
@@ -463,6 +490,17 @@ func (f *fake) run(j *job, in map[string]any) {
 		lines = []string{"starting rollback", "error: no previous version to roll back to"}
 	case "forge.login":
 		lines = []string{"! First copy your one-time code", "waiting for approval", "waiting for approval", "waiting for approval", "approved", "logged in"}
+	case "workspaces.add":
+		lines = []string{"probe     /workspaces/" + str(in["path"])}
+		if in["mode"] == "clone" {
+			lines = []string{"Cloning into '/workspaces/" + str(in["path"]) + "'...", "remote: Enumerating objects: 42, done.",
+				"Receiving objects: 100% (42/42), done.", "Resolving deltas: 100% (7/7), done."}
+		}
+	case "workspaces.forget":
+		lines = []string{"kill      ws-" + str(in["id"])}
+		if in["delete"] == true {
+			lines = append(lines, "remove    the folder of "+str(in["id"])) // run reads f.cfg only under f.mu
+		}
 	case "skills.scan", "skills.add", "skills.update":
 		lines = []string{"fetch     " + str(in["repo"]) + "@" + cmp.Or(str(in["commit"]), str(in["ref"])), "list      SKILL.md files", "read      frontmatter"}
 	}
@@ -494,6 +532,16 @@ func (f *fake) run(j *job, in map[string]any) {
 	case "rollback":
 		code, j.State = 1, "failed"
 		j.Result = json.RawMessage(`{"error":{"code":"rollback_failed","step":"switch","message":"no previous agent set to switch to"}}`)
+	case "workspaces.add":
+		code, j.State, j.Result = f.addWorkspace(in)
+	case "workspaces.forget":
+		id := str(in["id"])
+		path := f.workspacePath(id)
+		next := clone(f.cfg)
+		delete(next["workspaces"].(map[string]any), id)
+		f.replace(next)
+		delete(f.sessions, id)
+		j.Result, _ = json.Marshal(map[string]any{"id": id, "path": path, "deleted": in["delete"] == true, "left": []string{}})
 	case "agents.add":
 		f.setAdded(copilotPkg, true)
 		j.Result = json.RawMessage(`{"id":"copilot","package":"@github/copilot","version":"1.0.91","hash":"0123456789ab"}`)
@@ -863,4 +911,87 @@ func toAny(list []string) []any {
 		out[i] = s
 	}
 	return out
+}
+
+// workspacePath is the folder of workspace id, or "".
+func (f *fake) workspacePath(id string) string {
+	w, _ := f.cfg["workspaces"].(map[string]any)[id].(map[string]any)
+	return str(w["path"])
+}
+
+// candidates are the fake /workspaces folders no workspace uses.
+func (f *fake) candidates() []map[string]any {
+	out := []map[string]any{}
+	for _, c := range []map[string]any{{"path": "scratch", "git": false}, {"path": "vendor/readonly-repo", "git": true}} {
+		taken := false
+		for _, w := range f.cfg["workspaces"].(map[string]any) {
+			taken = taken || w.(map[string]any)["path"] == c["path"]
+		}
+		if !taken {
+			out = append(out, c)
+		}
+	}
+	return out
+}
+
+// addWorkspace finishes a workspaces.add job: its exit code, state and result.
+func (f *fake) addWorkspace(in map[string]any) (int, string, json.RawMessage) {
+	repo, path, id := str(in["repo"]), str(in["path"]), str(in["id"])
+	failed := func(code, field, msg string) (int, string, json.RawMessage) {
+		raw, _ := json.Marshal(map[string]any{"error": map[string]any{"code": code, "field": field, "message": msg}})
+		return 1, "failed", raw
+	}
+	switch {
+	case strings.Contains(repo, "private"):
+		return failed("auth_required", "repo", "Repository not found, or it is private. To use a private repository, sign in to github.com on the Accounts page.")
+	case strings.Contains(repo, "missing"):
+		return failed("ref_not_found", "ref", "Ref "+cmp.Or(str(in["ref"]), "HEAD")+" not found in that repository")
+	case in["mode"] == "clone" && slices.ContainsFunc(f.candidates(), func(c map[string]any) bool { return c["path"] == path }):
+		return failed("path_exists", "path", "That folder exists; adopt it instead")
+	}
+	next := clone(f.cfg)
+	next["workspaces"].(map[string]any)[id] = map[string]any{"path": path, "repo": repo, "env": map[string]any{},
+		"instructions": map[string]any{"shared": false}}
+	f.replace(next)
+	raw, _ := json.Marshal(map[string]any{"id": id, "path": path, "writable": !strings.Contains(path, "readonly"),
+		"git": in["mode"] == "clone" || strings.Contains(path, "repo"), "changed": true})
+	return 0, "succeeded", raw
+}
+
+// workspaceStatus answers workspaces.status.
+func (f *fake) workspaceStatus() map[string]any {
+	out := map[string]any{}
+	for id, w := range f.cfg["workspaces"].(map[string]any) {
+		path := str(w.(map[string]any)["path"])
+		windows := append([]string{}, f.sessions[id]...)
+		out[id] = map[string]any{"exists": true, "writable": !strings.Contains(path, "readonly"),
+			"git": str(w.(map[string]any)["repo"]) != "" || strings.Contains(path, "repo"), "branch": "main",
+			"head": "1a2b3c4d5e6f", "dirty": len(id) % 3, "session": len(windows) > 0, "windows": windows, "unknown": false}
+	}
+	return map[string]any{"workspaces": out}
+}
+
+// launch answers workspaces.launch: it adds a window to the session.
+func (f *fake) launch(in map[string]any) (int, any) {
+	id := str(in["id"])
+	if f.workspacePath(id) == "" {
+		return http.StatusNotFound, apiError("unknown_workspace", "No workspace named "+id)
+	}
+	window := "zsh"
+	if agent := str(in["agent"]); agent != "" {
+		i := slices.IndexFunc(f.packages(), func(p map[string]any) bool { return p["package"] == agent && p["kind"] == "agent" })
+		switch {
+		case i < 0:
+			return http.StatusBadRequest, apiError("unknown_agent", agent+" is not an installed agent")
+		case f.packages()[i]["enabled"] != true:
+			return http.StatusConflict, apiError("agent_disabled", str(f.packages()[i]["name"])+" is switched off; turn it on on the Agents page")
+		}
+		window = f.packages()[i]["bins"].([]string)[0]
+	}
+	f.sessions[id] = append(f.sessions[id], window)
+	reply := map[string]any{"session": "ws-" + id, "window": ""}
+	if str(in["agent"]) != "" {
+		reply["window"] = window
+	}
+	return http.StatusOK, reply
 }

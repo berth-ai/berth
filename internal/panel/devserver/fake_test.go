@@ -365,3 +365,52 @@ func TestFakeAddsAndRemovesCopilot(t *testing.T) {
 		t.Error("Copilot still listed after remove")
 	}
 }
+
+func TestFakeWorkspaces(t *testing.T) {
+	f := newFake("normal")
+	f.step = 0
+	last := func(verb string) *job {
+		waitFakeJobs(t, f)
+		f.mu.Lock()
+		defer f.mu.Unlock()
+		for i := len(f.jobs) - 1; i >= 0; i-- {
+			if f.jobs[i].Verb == verb {
+				return f.jobs[i]
+			}
+		}
+		t.Fatalf("no %s job", verb)
+		return nil
+	}
+	ws := func() map[string]any { return f.cfg["workspaces"].(map[string]any) }
+
+	f.verb("workspaces.add", map[string]any{"mode": "clone", "repo": "https://github.com/acme/private", "path": "acme/private", "id": "private"})
+	if j := last("workspaces.add"); j.State != "failed" || !strings.Contains(string(j.Result), `"code":"auth_required"`) {
+		t.Errorf("private = %s", j.Result)
+	}
+	f.verb("workspaces.add", map[string]any{"mode": "clone", "repo": "https://github.com/acme/api", "path": "acme/api", "id": "acme-api"})
+	if j := last("workspaces.add"); j.State != "succeeded" || ws()["acme-api"].(map[string]any)["path"] != "acme/api" {
+		t.Fatalf("clone = %+v %s", j, j.Result)
+	}
+	f.verb("workspaces.add", map[string]any{"mode": "adopt", "path": "vendor/readonly-repo", "id": "vendor"})
+	if j := last("workspaces.add"); !strings.Contains(string(j.Result), `"writable":false`) {
+		t.Errorf("adopt = %s", j.Result)
+	}
+	if _, out := f.verb("workspaces.candidates", nil); fmt.Sprint(out) != "map[candidates:[map[git:false path:scratch]]]" {
+		t.Errorf("candidates = %v", out)
+	}
+	if code, out := f.verb("workspaces.launch", map[string]any{"id": "acme-api", "agent": "@example/agent-cli"}); code != 200 || out.(map[string]any)["window"] != "example" {
+		t.Errorf("launch = %d %v", code, out)
+	}
+	_, out := f.verb("workspaces.status", nil)
+	st := out.(map[string]any)["workspaces"].(map[string]any)["acme-api"].(map[string]any)
+	if st["session"] != true || fmt.Sprint(st["windows"]) != "[example]" || st["git"] != true {
+		t.Errorf("status = %v", st)
+	}
+	f.verb("workspaces.forget", map[string]any{"id": "acme-api", "delete": true, "confirm": "acme/api"})
+	if j := last("workspaces.forget"); j.State != "succeeded" || !strings.Contains(string(j.Result), `"deleted":true`) || ws()["acme-api"] != nil {
+		t.Errorf("forget = %+v %s", j, j.Result)
+	}
+	if code, _ := f.verb("workspaces.forget", map[string]any{"id": "vendor", "delete": true, "confirm": "wrong"}); code != 400 {
+		t.Errorf("a wrong confirm = %d", code)
+	}
+}
