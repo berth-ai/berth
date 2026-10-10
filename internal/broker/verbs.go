@@ -336,3 +336,31 @@ func (b *Broker) changed(old, next config.Config, err error) (int, any) {
 		next.Revision, ch.Started, ch.Restarted, ch.Stopped)
 	return http.StatusOK, map[string]any{"config": next, "changes": ch}
 }
+
+// applyPatch applies the patch build returns on top of the current
+// revision in one change, under the change lock, and refreshes like
+// config.apply. A nil patch changes nothing. It returns the config after
+// and whether it changed.
+func (b *Broker) applyPatch(build func(cur config.Config) (map[string]any, error)) (config.Config, bool, error) {
+	b.change.Lock()
+	defer b.change.Unlock()
+	if _, _, ok := b.normalMode(); !ok {
+		return config.Config{}, false, &fieldError{Code: "not_ready", Message: "Berth is in setup or recovery mode; finish setup or fix the config first"}
+	}
+	cur, _, _ := b.snapshot()
+	patch, err := build(cur)
+	if err != nil || patch == nil {
+		return cur, false, err
+	}
+	raw, err := json.Marshal(patch)
+	if err != nil {
+		return cur, false, err
+	}
+	old, next, err := b.Store.Apply(raw, cur.Revision)
+	if err != nil {
+		return cur, false, err
+	}
+	b.changed(old, next, nil)
+	b.refreshAgents(old, next, false)
+	return next, true, nil
+}
