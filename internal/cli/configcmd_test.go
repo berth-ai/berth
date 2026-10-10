@@ -166,10 +166,14 @@ func TestImportPatch(t *testing.T) {
 	if err != nil || string(got) != `{"mcp":{"servers":{}}}` {
 		t.Errorf("schema 2 = %s %v", got, err)
 	}
-	if _, err := importPatch(write("e.json", `{"schema":6}`)); err == nil || !strings.Contains(err.Error(), "config schema 6") {
-		t.Errorf("schema 6: %v", err)
+	got, err = importPatch(write("f.json", `{"schema":5,"skills":{"pdf":{"repo":"https://github.com/anthropics/skills","path":"skills/pdf","ref":"main","commit":"0123456789abcdef0123456789abcdef01234567","description":"PDF tools","agents":null,"enabled":true}}}`))
+	if err != nil || !strings.Contains(string(got), `"sources":{"anthropics-skills":{`) || strings.Contains(string(got), `"skills":{"pdf"`) {
+		t.Errorf("schema 5 skills = %s %v", got, err)
 	}
-	for _, body := range []string{`{"schema":6}`, `[]`, `{"agents":{}}`, `nope`} {
+	if _, err := importPatch(write("e.json", `{"schema":7}`)); err == nil || !strings.Contains(err.Error(), "config schema 7") {
+		t.Errorf("schema 7: %v", err)
+	}
+	for _, body := range []string{`{"schema":7}`, `[]`, `{"agents":{}}`, `nope`} {
 		if _, err := importPatch(write("c.json", body)); err == nil {
 			t.Errorf("%s accepted", body)
 		}

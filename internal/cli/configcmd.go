@@ -225,6 +225,20 @@ func importPatch(path string) (json.RawMessage, error) {
 	if err := json.Unmarshal(doc["schema"], &schema); err != nil || schema < 1 || schema > config.Schema {
 		return nil, fmt.Errorf("%s has config schema %s; this Berth reads schema %d", path, doc["schema"], config.Schema)
 	}
+	if _, ok := doc["skills"]; ok && schema < config.Schema {
+		// An older skills section has another shape; Upgrade migrates it.
+		whole, err := json.Marshal(doc)
+		if err != nil {
+			return nil, err
+		}
+		c, err := config.Upgrade(whole)
+		if err != nil {
+			return nil, fmt.Errorf("%s: %w", path, err)
+		}
+		if doc["skills"], err = json.Marshal(c.Skills); err != nil {
+			return nil, err
+		}
+	}
 	delete(doc, "schema")
 	delete(doc, "revision")
 	patch := map[string]json.RawMessage{}

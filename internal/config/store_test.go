@@ -91,7 +91,7 @@ func TestApplyInvalidWritesNothing(t *testing.T) {
 func TestLoadCorrupt(t *testing.T) {
 	for name, content := range map[string]string{
 		"not json":     `{"schema":`,
-		"newer schema": `{"schema":6}`,
+		"newer schema": `{"schema":7}`,
 		"unknown key":  `{"schema":1,"revision":1,"surprise":true}`,
 	} {
 		t.Run(name, func(t *testing.T) {
@@ -213,7 +213,7 @@ func TestReadUpgradesSchema2(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if c.Schema != Schema || c.Revision != 4 || c.Skills == nil {
+	if c.Schema != Schema || c.Revision != 4 || c.Skills.Sources == nil {
 		t.Errorf("loaded = %+v", c)
 	}
 }
@@ -251,5 +251,20 @@ func TestReadUpgradesSchema4(t *testing.T) {
 	}
 	if c.Schema != Schema || c.Revision != 2 || c.Workspaces == nil {
 		t.Errorf("loaded %+v", c)
+	}
+}
+func TestReadMigratesSkills(t *testing.T) {
+	s := &Store{Dir: t.TempDir()}
+	writeFile(t, s, "config.json", `{"schema":5,"revision":2,"skills":{
+		"pdf":{"repo":"https://github.com/anthropics/skills","path":"skills/pdf","ref":"main","commit":"`+goodCommit+`","description":"PDF tools","agents":null,"enabled":true},
+		"docx":{"repo":"https://github.com/anthropics/skills","path":"skills/docx","ref":"main","commit":"89abcdef0123456789abcdef0123456789abcdef","description":"Word","agents":["@openai/codex"],"enabled":false}}}`)
+	c, err := s.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	a, b := c.Skills.Sources["anthropics-skills"], c.Skills.Sources["anthropics-skills-2"]
+	if c.Schema != Schema || a.Commit != goodCommit || b.Found["docx"].Description != "Word" ||
+		a.Attached["pdf"].Agents != nil || b.Attached["docx"].Enabled {
+		t.Errorf("loaded = %+v", c.Skills)
 	}
 }

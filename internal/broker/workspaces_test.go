@@ -363,3 +363,38 @@ func TestWorkspaceLaunch(t *testing.T) {
 		t.Errorf("missing folder = %d %v", code, out)
 	}
 }
+
+func TestForgetPatch(t *testing.T) {
+	cur := config.Defaults()
+	for _, id := range []string{"a", "b"} {
+		cur.Workspaces[id] = config.Workspace{Path: "acme/" + id, Env: map[string]config.WorkspaceEnv{}}
+	}
+	cur.Skills.Sources["x"] = config.Source{Repo: "https://github.com/a/b", Ref: "main", Path: "skills", Commit: skillCommit,
+		Found: map[string]config.Found{"pdf": {Path: "skills/pdf", Description: "d"}, "docx": {Path: "skills/docx", Description: "d"}},
+		Attached: map[string]config.Attachment{
+			"pdf":  {Enabled: true, Agents: []string{}, Workspaces: map[string]string{"a": config.ModeLink, "b": config.ModeVendor}},
+			"docx": {Enabled: true, Agents: []string{}, Workspaces: map[string]string{"a": config.ModeLink}},
+		}}
+	cur.MCP.Workspaces = map[string][]string{"context7": {"a"}, "linear": {"a", "b"}}
+	if err := cur.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	raw, _ := json.Marshal(forgetPatch(cur, "a"))
+	next, err := config.Patch(cur, raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := next.Validate(); err != nil {
+		t.Fatalf("forgetting a leaves references: %v", err)
+	}
+	x := next.Skills.Sources["x"]
+	if _, ok := next.Workspaces["a"]; ok || len(x.Attached["docx"].Workspaces) != 0 || x.Attached["pdf"].Workspaces["b"] != config.ModeVendor {
+		t.Errorf("skills after = %+v", x.Attached)
+	}
+	if _, ok := next.MCP.Workspaces["context7"]; ok || !slices.Equal(next.MCP.Workspaces["linear"], []string{"b"}) {
+		t.Errorf("mcp.workspaces after = %v", next.MCP.Workspaces)
+	}
+	if p := forgetPatch(cur, "zz"); len(p) != 1 {
+		t.Errorf("an unreferenced workspace touches only workspaces: %v", p)
+	}
+}

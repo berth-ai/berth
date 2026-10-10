@@ -1,7 +1,6 @@
 package config
 
 import (
-	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -157,24 +156,9 @@ func read(path string) (Config, error) {
 	if err != nil {
 		return Config{}, &CorruptError{Path: path, Err: err}
 	}
-	var probe struct {
-		Schema int `json:"schema"`
-	}
-	if err := json.Unmarshal(raw, &probe); err != nil {
+	c, err := Upgrade(raw)
+	if err != nil {
 		return Config{}, &CorruptError{Path: path, Err: err}
-	}
-	if probe.Schema > Schema {
-		return Config{}, &CorruptError{Path: path, Err: fmt.Errorf(
-			"schema %d is newer than this version of Berth understands (%d)", probe.Schema, Schema)}
-	}
-	c := Defaults()
-	dec := json.NewDecoder(bytes.NewReader(raw))
-	dec.DisallowUnknownFields()
-	if err := dec.Decode(&c); err != nil {
-		return Config{}, &CorruptError{Path: path, Err: err}
-	}
-	if c.Schema >= 1 && c.Schema < Schema {
-		c.Schema = Schema // older schemas lack only settings whose defaults apply
 	}
 	if err := c.Validate(); err != nil {
 		return Config{}, &CorruptError{Path: path, Err: err}

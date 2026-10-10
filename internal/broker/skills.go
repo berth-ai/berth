@@ -2,13 +2,11 @@ package broker
 
 import (
 	"bytes"
-	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
-	"maps"
 	"net/http"
 	"os/exec"
 	"reflect"
@@ -21,21 +19,15 @@ import (
 	"github.com/berth-ai/berth/internal/skills"
 )
 
-// skillsSyncGroup serializes skills.sync runs; skills.scan, skills.add and
-// skills.update use skillsGroup, so a scan can run during a sync.
+// skillsSyncGroup serializes skills.sync runs; the skills.sources verbs
+// use skillsGroup, so a scan can run during a sync.
 const skillsSyncGroup = "skills-sync"
 
-func sameSkills(a, b map[string]config.Skill) bool {
-	return maps.EqualFunc(a, b, func(x, y config.Skill) bool {
-		return x.Repo == y.Repo && x.Path == y.Path && x.Ref == y.Ref && x.Commit == y.Commit &&
-			x.Description == y.Description && x.Enabled == y.Enabled &&
-			(x.Agents == nil) == (y.Agents == nil) && slices.Equal(x.Agents, y.Agents)
-	})
-}
+func sameSkills(a, b config.Skills) bool { return reflect.DeepEqual(a, b) }
 
-// writeSkillsSettings publishes the skills as sources to SkillsSettings,
-// readable by the agent group.
-func (b *Broker) writeSkillsSettings(s map[string]config.Skill) error {
+// writeSkillsSettings publishes the sources to SkillsSettings, readable by
+// the agent group.
+func (b *Broker) writeSkillsSettings(s config.Skills) error {
 	if b.SkillsSettings == "" {
 		return nil
 	}
@@ -43,16 +35,16 @@ func (b *Broker) writeSkillsSettings(s map[string]config.Skill) error {
 	if b.Agent != nil {
 		uid, gid = 0, int(b.Agent.GID)
 	}
-	return config.WriteSkillsFile(b.SkillsSettings, config.MigrateSkills(s), uid, gid)
+	return config.WriteSkillsFile(b.SkillsSettings, s.Sources, uid, gid)
 }
 
 // skillsStale reports whether SkillsSettings differs from s.
-func (b *Broker) skillsStale(s map[string]config.Skill) bool {
+func (b *Broker) skillsStale(s config.Skills) bool {
 	if b.SkillsSettings == "" {
 		return false
 	}
 	pub, err := config.ReadSkillsFile(b.SkillsSettings)
-	return err != nil || !reflect.DeepEqual(pub, config.MigrateSkills(s))
+	return err != nil || !reflect.DeepEqual(pub, s.Sources)
 }
 
 // startSkillsSync runs the skills converger as a job.
@@ -67,11 +59,9 @@ func (b *Broker) startSkillsSync() {
 }
 
 const (
-	// skillsGroup serializes skills.scan, skills.add and skills.update.
+	// skillsGroup serializes the skills.sources verbs.
 	skillsGroup      = "skills"
 	skillScanTimeout = 5 * time.Minute
-	// maxSkillBatch caps the skills one add or update touches.
-	maxSkillBatch = skills.MaxScan
 )
 
 const skillPathMsg = "The path must be a folder inside the repository, such as skills/pdf"
@@ -114,199 +104,12 @@ func skillSourceError(repo, ref string) (field, msg string) {
 	return "", ""
 }
 
-// pathsError checks skills.add's paths: 1 to maxSkillBatch unique folders.
-func pathsError(paths []string) string {
-	if len(paths) == 0 || len(paths) > maxSkillBatch {
-		return fmt.Sprintf("Choose 1 to %d skills", maxSkillBatch)
-	}
-	seen := map[string]bool{}
-	for _, p := range paths {
-		switch {
-		case !config.ValidSkillPath(p):
-			return skillPathMsg
-		case seen[p]:
-			return "Choose each skill once"
-		}
-		seen[p] = true
-	}
-	return ""
-}
-
-func rowsByPath(rows []scanRow) map[string]scanRow {
-	m := make(map[string]scanRow, len(rows))
-	for _, r := range rows {
-		m[r.Path] = r
-	}
-	return m
-}
-
-func (b *Broker) skillsScan(_ context.Context, body []byte) (int, any) {
-	var in struct {
-		Repo string `json:"repo"`
-		Ref  string `json:"ref"`
-		Path string `json:"path"`
-	}
-	if err := decode(body, &in); err != nil {
-		return badRequest(err)
-	}
-	if field, msg := skillSourceError(in.Repo, in.Ref); field != "" {
-		return fieldInvalid(field, msg)
-	}
-	if !config.ValidSkillPath(in.Path) {
-		return fieldInvalid("path", skillPathMsg)
-	}
-	if code, v, ok := b.normalMode(); !ok {
-		return code, v
-	}
-	return b.scanJob("skills.scan", in.Repo, in.Ref, []string{in.Path}, func(s skillScan) (json.RawMessage, error) {
-		cur, _, _ := b.snapshot()
-		for i, r := range s.Skills {
-			_, ok := cur.Skills[r.Name]
-			s.Skills[i].Installed = ok && r.Name != ""
-		}
-		return json.Marshal(s)
-	})
-}
-
-func (b *Broker) skillsAdd(_ context.Context, body []byte) (int, any) {
-	var in struct {
-		Repo   string   `json:"repo"`
-		Ref    string   `json:"ref"`
-		Commit string   `json:"commit"`
-		Paths  []string `json:"paths"`
-		Agents []string `json:"agents"`
-	}
-	if err := decode(body, &in); err != nil {
-		return badRequest(err)
-	}
-	if field, msg := skillSourceError(in.Repo, in.Ref); field != "" {
-		return fieldInvalid(field, msg)
-	}
-	if !config.ValidCommit(in.Commit) {
-		return fieldInvalid("commit", "Find the skills again; the scanned commit is missing")
-	}
-	if msg := pathsError(in.Paths); msg != "" {
-		return fieldInvalid("paths", msg)
-	}
-	if in.Agents != nil && len(in.Agents) == 0 {
-		return fieldInvalid("agents", "Choose at least one agent")
-	}
-	if code, v, ok := b.normalMode(); !ok {
-		return code, v
-	}
-	return b.scanJob("skills.add", in.Repo, in.Commit, in.Paths, func(s skillScan) (json.RawMessage, error) {
-		byPath := rowsByPath(s.Skills)
-		entries := make(map[string]any, len(in.Paths))
-		for _, p := range in.Paths {
-			row, ok := byPath[p]
-			switch {
-			case !ok:
-				return nil, &fieldError{Code: "no_skill", Field: "path",
-					Message: fmt.Sprintf("No SKILL.md at %s in that commit", cmp.Or(p, "the repository root"))}
-			case row.Error != "":
-				return nil, &fieldError{Code: "bad_skill", Field: "path",
-					Message: fmt.Sprintf("%s: %s", cmp.Or(p, "The repository root"), row.Error)}
-			}
-			entries[row.Name] = config.Skill{Repo: in.Repo, Path: p, Ref: in.Ref, Commit: s.Commit,
-				Description: row.Description, Agents: in.Agents, Enabled: true}
-		}
-		return b.applySkills(func(cur config.Config) (map[string]any, error) {
-			for _, id := range slices.Sorted(maps.Keys(entries)) {
-				if _, ok := cur.Skills[id]; ok {
-					return nil, &fieldError{Code: "skill_exists", Field: "path",
-						Message: fmt.Sprintf("A skill named %s is already installed", id)}
-				}
-			}
-			return entries, nil
-		})
-	})
-}
-
-func (b *Broker) skillsUpdate(_ context.Context, body []byte) (int, any) {
-	var in struct {
-		IDs []string `json:"ids"`
-		Ref string   `json:"ref"`
-	}
-	if err := decode(body, &in); err != nil {
-		return badRequest(err)
-	}
-	if len(in.IDs) == 0 || len(in.IDs) > maxSkillBatch {
-		return fieldInvalid("ids", fmt.Sprintf("Choose 1 to %d skills", maxSkillBatch))
-	}
-	cur, _, _ := b.snapshot()
-	want := make(map[string]config.Skill, len(in.IDs))
-	for _, id := range in.IDs {
-		s, ok := cur.Skills[id]
-		_, dup := want[id]
-		switch {
-		case !ok:
-			return fieldInvalid("ids", fmt.Sprintf("No skill named %s is installed", id))
-		case dup:
-			return fieldInvalid("ids", "List each skill once")
-		case s.Repo != cur.Skills[in.IDs[0]].Repo:
-			return fieldInvalid("ids", "These skills come from different repositories; update one repository at a time")
-		}
-		want[id] = s
-	}
-	first := want[in.IDs[0]]
-	ref := cmp.Or(in.Ref, first.Ref)
-	if !config.ValidGitRef(ref) {
-		return fieldInvalid("ref", "The ref must be a branch, tag or commit")
-	}
-	if code, v, ok := b.normalMode(); !ok {
-		return code, v
-	}
-	ids := slices.Sorted(maps.Keys(want))
-	var paths []string
-	for _, id := range ids {
-		paths = append(paths, want[id].Path)
-	}
-	slices.Sort(paths)
-	paths = slices.Compact(paths)
-	return b.scanJob("skills.update", first.Repo, ref, paths, func(s skillScan) (json.RawMessage, error) {
-		byPath := rowsByPath(s.Skills)
-		for _, id := range ids {
-			p := want[id].Path
-			row, ok := byPath[p]
-			at := cmp.Or(p, "the repository root")
-			switch {
-			case !ok:
-				return nil, &fieldError{Code: "no_skill", Field: "ref",
-					Message: fmt.Sprintf("%s is no longer at %s in %s; remove it or update the others alone", id, at, ref)}
-			case row.Error != "":
-				return nil, &fieldError{Code: "bad_skill", Field: "ref", Message: fmt.Sprintf("%s at %s in %s: %s", id, at, ref, row.Error)}
-			case row.Name != id:
-				return nil, &fieldError{Code: "name_changed", Field: "ref",
-					Message: fmt.Sprintf("%s in %s holds skill %s, not %s", at, ref, row.Name, id)}
-			}
-		}
-		return b.applySkills(func(cur config.Config) (map[string]any, error) {
-			changes := map[string]any{}
-			for _, id := range ids {
-				now, ok := cur.Skills[id]
-				if !ok || now.Repo != want[id].Repo || now.Path != want[id].Path {
-					return nil, &fieldError{Code: "unknown_skill",
-						Message: fmt.Sprintf("The skill %s was removed or changed meanwhile; try again", id)}
-				}
-				row := byPath[now.Path]
-				if now.Ref == ref && now.Commit == s.Commit && now.Description == row.Description {
-					continue
-				}
-				changes[id] = map[string]any{"ref": ref, "commit": s.Commit, "description": row.Description}
-			}
-			return changes, nil
-		})
-	})
-}
-
-// scanRow and skillScan are berth skills scan's answer; skills.scan adds
-// installed.
+// scanRow and skillScan are berth skills scan's answer.
 type scanRow struct {
 	Path        string `json:"path"`
 	Name        string `json:"name,omitempty"`
 	Description string `json:"description,omitempty"`
 	Error       string `json:"error,omitempty"`
-	Installed   bool   `json:"installed,omitempty"`
 }
 
 type skillScan struct {
@@ -398,25 +201,4 @@ func fieldFailure(err error) json.RawMessage {
 	}
 	raw, _ := json.Marshal(map[string]any{"error": se})
 	return raw
-}
-
-// applySkills patches the entries build returns, keyed by skill id, and
-// lists the ids it patched; no entries means nothing changed.
-func (b *Broker) applySkills(build func(cur config.Config) (map[string]any, error)) (json.RawMessage, error) {
-	var ids []string
-	next, changed, err := b.applyPatch(func(cur config.Config) (map[string]any, error) {
-		entries, err := build(cur)
-		if err != nil || len(entries) == 0 {
-			return nil, err
-		}
-		ids = slices.Sorted(maps.Keys(entries))
-		return map[string]any{"skills": entries}, nil
-	})
-	if err != nil {
-		return nil, err
-	}
-	if !changed {
-		ids = []string{}
-	}
-	return json.Marshal(map[string]any{"skills": ids, "changed": changed, "revision": next.Revision})
 }

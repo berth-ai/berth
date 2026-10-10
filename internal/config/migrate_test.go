@@ -6,14 +6,14 @@ import (
 	"testing"
 )
 
-func legacy(repo, ref, path, commit, desc string, agents []string, on bool) Skill {
-	return Skill{Repo: repo, Ref: ref, Path: path, Commit: commit, Description: desc, Agents: agents, Enabled: on}
+func legacy(repo, ref, path, commit, desc string, agents []string, on bool) LegacySkill {
+	return LegacySkill{Repo: repo, Ref: ref, Path: path, Commit: commit, Description: desc, Agents: agents, Enabled: on}
 }
 
 func TestMigrateSkills(t *testing.T) {
 	const anth = "https://github.com/anthropics/skills"
 	t.Run("one group", func(t *testing.T) {
-		got := MigrateSkills(map[string]Skill{
+		got := MigrateSkills(map[string]LegacySkill{
 			"pdf":  legacy(anth, "main", "skills/pdf", goodCommit, "PDF tools", nil, true),
 			"docx": legacy(anth, "main", "skills/docx", goodCommit, "Word", []string{"@openai/codex"}, false),
 		})
@@ -33,7 +33,7 @@ func TestMigrateSkills(t *testing.T) {
 		}
 	})
 	t.Run("drifted", func(t *testing.T) {
-		got := MigrateSkills(map[string]Skill{
+		got := MigrateSkills(map[string]LegacySkill{
 			"pdf":  legacy(anth, "main", "skills/pdf", goodCommit2, "PDF tools", nil, true),
 			"docx": legacy(anth, "main", "skills/docx", goodCommit, "Word", nil, true),
 			"xlsx": legacy(anth, "main", "skills/xlsx", goodCommit, "Sheets", nil, true),
@@ -47,7 +47,7 @@ func TestMigrateSkills(t *testing.T) {
 		}
 	})
 	t.Run("ids", func(t *testing.T) {
-		got := MigrateSkills(map[string]Skill{
+		got := MigrateSkills(map[string]LegacySkill{
 			"a": legacy("https://github.com/acme/tools", "main", "a", goodCommit, "A", nil, true),
 			"b": legacy("https://github.com/acme/tools", "v2", "b", goodCommit2, "B", nil, true),
 			"c": legacy("https://gitlab.com/acme/tools", "main", "", goodCommit, "C", nil, true),
@@ -61,7 +61,7 @@ func TestMigrateSkills(t *testing.T) {
 		}
 	})
 	t.Run("validates", func(t *testing.T) {
-		got := MigrateSkills(map[string]Skill{
+		got := MigrateSkills(map[string]LegacySkill{
 			"pdf":  legacy(anth, "main", "skills/pdf", goodCommit2, "PDF tools", nil, true),
 			"docx": legacy(anth, "main", "skills/docx", goodCommit, "Word", []string{"@openai/codex"}, true),
 		})
@@ -90,6 +90,31 @@ func TestCommonParent(t *testing.T) {
 	} {
 		if got := commonParent(tc.paths); got != tc.want {
 			t.Errorf("commonParent(%v) = %q, want %q", tc.paths, got, tc.want)
+		}
+	}
+}
+func TestUpgrade(t *testing.T) {
+	const five = `{"schema":5,"revision":3,"skills":{"pdf":{"repo":"https://github.com/anthropics/skills","path":"skills/pdf","ref":"main","commit":"` + goodCommit + `","description":"PDF tools","agents":null,"enabled":true}},"workspaces":{}}`
+	c, err := Upgrade([]byte(five))
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := c.Skills.Sources["anthropics-skills"]
+	if c.Schema != Schema || c.Revision != 3 || s.Commit != goodCommit || s.Attached["pdf"].Agents != nil || !s.Attached["pdf"].Enabled {
+		t.Errorf("upgraded = %+v", c)
+	}
+	if c, err := Upgrade([]byte(`{"schema":1,"revision":1}`)); err != nil || c.Schema != Schema || c.Skills.Sources == nil {
+		t.Errorf("schema 1 = %+v, %v", c, err)
+	}
+	for name, raw := range map[string]string{
+		"newer":            `{"schema":7}`,
+		"not an object":    `[1]`,
+		"bad old skill":    `{"schema":5,"skills":{"pdf":{"url":"x"}}}`,
+		"flat skills at 6": `{"schema":6,"skills":{"pdf":{}}}`,
+		"unknown key":      `{"schema":6,"surprise":true}`,
+	} {
+		if _, err := Upgrade([]byte(raw)); err == nil {
+			t.Errorf("%s: no error", name)
 		}
 	}
 }

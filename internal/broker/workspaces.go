@@ -144,10 +144,40 @@ func (b *Broker) workspacesAdd(_ context.Context, body []byte) (int, any) {
 // statusTimeout leaves berth workspaces status its budget plus a start.
 const statusTimeout = workspace.StatusBudget + 5*time.Second
 
-// forgetPatch removes workspace id and, once other sections refer to
-// workspaces, every reference to it.
-func forgetPatch(id string) map[string]any {
-	return map[string]any{"workspaces": map[string]any{id: nil}}
+// forgetPatch removes workspace id and every reference to it: skill
+// attachments and MCP workspace lists, in one patch.
+func forgetPatch(cur config.Config, id string) map[string]any {
+	patch := map[string]any{"workspaces": map[string]any{id: nil}}
+	sources := map[string]any{}
+	for sid, src := range cur.Skills.Sources {
+		attached := map[string]any{}
+		for name, a := range src.Attached {
+			if _, ok := a.Workspaces[id]; ok {
+				attached[name] = map[string]any{"workspaces": map[string]any{id: nil}}
+			}
+		}
+		if len(attached) > 0 {
+			sources[sid] = map[string]any{"attached": attached}
+		}
+	}
+	if len(sources) > 0 {
+		patch["skills"] = map[string]any{"sources": sources}
+	}
+	lists := map[string]any{}
+	for server, list := range cur.MCP.Workspaces {
+		if !slices.Contains(list, id) {
+			continue
+		}
+		if rest := slices.DeleteFunc(slices.Clone(list), func(w string) bool { return w == id }); len(rest) > 0 {
+			lists[server] = rest
+		} else {
+			lists[server] = nil
+		}
+	}
+	if len(lists) > 0 {
+		patch["mcp"] = map[string]any{"workspaces": lists}
+	}
+	return patch
 }
 
 func (b *Broker) workspacesForget(_ context.Context, body []byte) (int, any) {
@@ -178,7 +208,7 @@ func (b *Broker) workspacesForget(_ context.Context, body []byte) (int, any) {
 			if now, ok := cur.Workspaces[in.ID]; !ok || now.Path != w.Path {
 				return nil, &fieldError{Code: "unknown_workspace", Message: fmt.Sprintf("The workspace %s was removed or changed meanwhile", in.ID)}
 			}
-			return forgetPatch(in.ID), nil
+			return forgetPatch(cur, in.ID), nil
 		})
 		if err != nil {
 			return nil, err

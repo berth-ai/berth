@@ -121,3 +121,51 @@ func TestPatchMCPErrors(t *testing.T) {
 		}
 	}
 }
+func TestPatchSources(t *testing.T) {
+	c := Defaults()
+	c.Workspaces = map[string]Workspace{"a": {Path: "a", Env: map[string]WorkspaceEnv{}}}
+	add := `{"skills":{"sources":{"x":{"repo":"https://github.com/a/b","ref":"main","path":"skills","commit":"` + goodCommit + `",
+		"found":{"pdf":{"path":"skills/pdf","description":"PDF tools"}},"attached":{"pdf":{}}}}}}`
+	c, err := Patch(c, json.RawMessage(add))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if a := c.Skills.Sources["x"].Attached["pdf"]; !a.Enabled || a.Agents != nil || a.Workspaces == nil || len(a.Workspaces) != 0 {
+		t.Fatalf("a new attachment starts from the template: %+v", a)
+	}
+	if err := c.Validate(); err != nil {
+		t.Fatalf("Validate = %v", err)
+	}
+	c, err = Patch(c, json.RawMessage(`{"skills":{"sources":{"x":{"attached":{"pdf":{"agents":["@openai/codex"],"enabled":false,"workspaces":{"a":"link"}}}}}},"mcp":{"workspaces":{"context7":["a"]}}}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if a := c.Skills.Sources["x"].Attached["pdf"]; a.Enabled || !slices.Equal(a.Agents, []string{"@openai/codex"}) || a.Workspaces["a"] != ModeLink {
+		t.Errorf("merged = %+v", a)
+	}
+	if !slices.Equal(c.MCP.Workspaces["context7"], []string{"a"}) {
+		t.Errorf("mcp.workspaces = %v", c.MCP.Workspaces)
+	}
+	c, err = Patch(c, json.RawMessage(`{"skills":{"sources":{"x":{"attached":{"pdf":{"agents":null,"workspaces":{"a":null}}},"found":{"pdf":null}}}},"mcp":{"workspaces":{"context7":null}}}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	x := c.Skills.Sources["x"]
+	if a := x.Attached["pdf"]; a.Agents != nil || len(a.Workspaces) != 0 || len(x.Found) != 0 || len(c.MCP.Workspaces) != 0 {
+		t.Errorf("after nulls = %+v, mcp %v", x, c.MCP.Workspaces)
+	}
+	if _, err := Patch(c, json.RawMessage(`{"skills":{"sources":{"x":{"attached":{"pdf":{"bogus":1}}}}}}`)); err == nil ||
+		!strings.Contains(err.Error(), "skills.sources.x.attached.pdf.bogus: is not a setting") {
+		t.Errorf("unknown attachment field = %v", err)
+	}
+	if _, err := Patch(c, json.RawMessage(`{"skills":{"pdf":{}}}`)); err == nil || !strings.Contains(err.Error(), "skills.pdf: is not a setting") {
+		t.Errorf("C2's flat patch = %v", err)
+	}
+	if tmpl := userMaps["skills.sources.*.attached"]["workspaces"].(map[string]any); len(tmpl) != 0 {
+		t.Errorf("the template was modified: %v", tmpl)
+	}
+	c, err = Patch(c, json.RawMessage(`{"skills":{"sources":{"x":null}}}`))
+	if err != nil || len(c.Skills.Sources) != 0 {
+		t.Errorf("remove = %v, %v", c.Skills.Sources, err)
+	}
+}

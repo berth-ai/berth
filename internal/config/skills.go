@@ -1,22 +1,18 @@
 package config
 
 import (
-	"fmt"
-	"maps"
 	"net/url"
 	"regexp"
-	"slices"
 	"strings"
 	"unicode"
-	"unicode/utf8"
 )
 
-// Skill is a skill installed from a git repository: the folder holding its
-// SKILL.md, pinned to a commit. Its id is the name in that SKILL.md.
-type Skill struct {
+// LegacySkill is a schema 2 to 5 skill: C2's flat skills map held one per
+// name. Upgrade turns them into sources.
+type LegacySkill struct {
 	Repo        string   `json:"repo"`
-	Path        string   `json:"path"` // folder in the repository; empty is the root
-	Ref         string   `json:"ref"`  // what the user asked for; Commit is what it resolved to
+	Path        string   `json:"path"`
+	Ref         string   `json:"ref"`
 	Commit      string   `json:"commit"`
 	Description string   `json:"description"`
 	Agents      []string `json:"agents"` // nil means all agents
@@ -94,36 +90,3 @@ func ValidGitRef(ref string) bool {
 
 // ValidCommit reports whether c is a full SHA-1 or SHA-256 commit id.
 func ValidCommit(c string) bool { return commitPattern.MatchString(c) }
-
-func validateSkills(v *validator, skills map[string]Skill) {
-	for _, id := range slices.Sorted(maps.Keys(skills)) {
-		s, field := skills[id], "skills."+id
-		if !SkillIDPattern.MatchString(id) {
-			v.add(field, "%q is not a skill name: use 1 to 64 lowercase letters, digits and dashes", id)
-			continue
-		}
-		if msg := CheckSkillRepo(s.Repo); msg != "" {
-			v.add(field+".repo", "%s", msg)
-		}
-		if !ValidSkillPath(s.Path) {
-			v.add(field+".path", "must be a folder inside the repository, such as skills/pdf")
-		}
-		if !ValidGitRef(s.Ref) {
-			v.add(field+".ref", "must be a branch, tag or commit")
-		}
-		if !ValidCommit(s.Commit) {
-			v.add(field+".commit", "must be a full commit hash")
-		}
-		if n := utf8.RuneCountInString(s.Description); n == 0 || n > 1024 {
-			v.add(field+".description", "must be 1 to 1024 characters")
-		}
-		if s.Agents != nil && len(s.Agents) == 0 {
-			v.add(field+".agents", "must name at least one agent; use null to make the skill available to all agents")
-		}
-		for i, p := range s.Agents {
-			if !packagePattern.MatchString(p) {
-				v.add(fmt.Sprintf("%s.agents[%d]", field, i), "%q is not an npm package name", p)
-			}
-		}
-	}
-}

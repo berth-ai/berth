@@ -51,6 +51,9 @@ func ReadMCPFile(path string) (MCP, error) {
 	if f.Available != nil {
 		m.Available = f.Available
 	}
+	if f.Workspaces != nil {
+		m.Workspaces = f.Workspaces
+	}
 	return m, nil
 }
 

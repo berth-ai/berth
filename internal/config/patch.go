@@ -57,25 +57,27 @@ func toMap(c Config) map[string]any {
 
 // userMaps are settings whose keys the user chooses. A patch may add keys
 // there and null removes one. A new entry starts from a copy of the
-// template; nil means entries are plain values (lists), replaced whole.
-// "workspaces.*.env" applies to the env of every workspace.
+// template; nil means entries are plain values (lists, strings), replaced
+// whole. A * segment matches any key.
 var userMaps = map[string]map[string]any{
-	"mcp.servers":      {"url": "", "auth": AuthNone, "enabled": true},
-	"mcp.available":    nil,
-	"skills":           {"repo": "", "path": "", "ref": "", "commit": "", "description": "", "agents": nil, "enabled": true},
-	"workspaces":       {"path": "", "repo": "", "env": map[string]any{}, "instructions": map[string]any{"shared": false}},
-	"workspaces.*.env": {"value": "", "secret": false},
+	"mcp.servers":                            {"url": "", "auth": AuthNone, "enabled": true},
+	"mcp.available":                          nil,
+	"mcp.workspaces":                         nil,
+	"skills.sources":                         {"repo": "", "ref": "", "path": "", "commit": "", "found": map[string]any{}, "attached": map[string]any{}},
+	"skills.sources.*.found":                 {"path": "", "description": "", "error": ""},
+	"skills.sources.*.attached":              {"enabled": true, "agents": nil, "workspaces": map[string]any{}},
+	"skills.sources.*.attached.*.workspaces": nil,
+	"workspaces":                             {"path": "", "repo": "", "env": map[string]any{}, "instructions": map[string]any{"shared": false}},
+	"workspaces.*.env":                       {"value": "", "secret": false},
 }
 
-// userMapAt returns the user map template at field.
+// userMapAt returns the user map template at field. Patterns never
+// overlap, so at most one matches.
 func userMapAt(field string) (map[string]any, bool) {
-	if t, ok := userMaps[field]; ok {
-		return t, true
-	}
-	if rest, ok := strings.CutPrefix(field, "workspaces."); ok {
-		if _, sub, ok := strings.Cut(rest, "."); ok {
-			t, ok := userMaps["workspaces.*."+sub]
-			return t, ok
+	segs := strings.Split(field, ".")
+	for pattern, tmpl := range userMaps {
+		if slices.EqualFunc(strings.Split(pattern, "."), segs, func(p, s string) bool { return p == "*" || p == s }) {
+			return tmpl, true
 		}
 	}
 	return nil, false

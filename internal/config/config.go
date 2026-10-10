@@ -16,9 +16,10 @@ import (
 )
 
 // Schema is the config schema this binary understands. Schema 1 had no mcp
-// section, schema 2 no skills section, schema 3 no agents.added and schema
-// 4 no workspaces; such files still load, with their defaults.
-const Schema = 5
+// section, schema 2 no skills section, schema 3 no agents.added, schema 4
+// no workspaces, and schemas 2 to 5 held skills as a flat map; Upgrade
+// reads them all.
+const Schema = 6
 
 // Config is the content of /var/lib/berth/config.json.
 type Config struct {
@@ -28,7 +29,7 @@ type Config struct {
 	Agents     Agents               `json:"agents"`
 	Runtime    Runtime              `json:"runtime"`
 	MCP        MCP                  `json:"mcp"`
-	Skills     map[string]Skill     `json:"skills"`
+	Skills     Skills               `json:"skills"`
 	Workspaces map[string]Workspace `json:"workspaces"`
 }
 
@@ -61,8 +62,9 @@ type Runtime struct {
 
 // MCP holds the MCP servers users add and the agents each server reaches.
 type MCP struct {
-	Servers   map[string]MCPServer `json:"servers"`
-	Available map[string][]string  `json:"available"` // server id → agent packages; missing means all agents
+	Servers    map[string]MCPServer `json:"servers"`
+	Available  map[string][]string  `json:"available"`  // server id → agent packages; missing means all agents
+	Workspaces map[string][]string  `json:"workspaces"` // server id → workspace ids; missing means none
 }
 
 // MCPServer is a remote MCP server reached over streamable HTTP.
@@ -86,8 +88,8 @@ func Defaults() Config {
 		Frontends:  Frontends{Terminal: Toggle{Enabled: true}},
 		Agents:     Agents{Ref: "main", Disabled: []string{}, Added: []string{}, Keep: 3, BootTimeout: 600, MCPTimeout: 120},
 		Runtime:    Runtime{TZ: "UTC"},
-		MCP:        MCP{Servers: map[string]MCPServer{}, Available: map[string][]string{}},
-		Skills:     map[string]Skill{},
+		MCP:        MCP{Servers: map[string]MCPServer{}, Available: map[string][]string{}, Workspaces: map[string][]string{}},
+		Skills:     Skills{Sources: map[string]Source{}},
 		Workspaces: map[string]Workspace{},
 	}
 }
@@ -173,7 +175,8 @@ func (c Config) Validate() error {
 		v.add("runtime.tz", "%q is not a time zone such as UTC or Europe/Rome", c.Runtime.TZ)
 	}
 	c.MCP.validate(v)
-	validateSkills(v, c.Skills)
+	validateSources(v, c.Skills.Sources, c.Workspaces)
+	validateMCPWorkspaces(v, c.MCP.Workspaces, c.Workspaces)
 	validateWorkspaces(v, c.Workspaces)
 	return v.err()
 }
@@ -264,16 +267,14 @@ func (c *Config) normalize() {
 		slices.Sort(list)
 		c.MCP.Available[id] = slices.Compact(list)
 	}
-	if c.Skills == nil {
-		c.Skills = map[string]Skill{}
+	if c.MCP.Workspaces == nil {
+		c.MCP.Workspaces = map[string][]string{}
 	}
-	for id, s := range c.Skills {
-		if s.Agents != nil {
-			slices.Sort(s.Agents)
-			s.Agents = slices.Compact(s.Agents)
-			c.Skills[id] = s
-		}
+	for id, list := range c.MCP.Workspaces {
+		slices.Sort(list)
+		c.MCP.Workspaces[id] = slices.Compact(list)
 	}
+	c.Skills.normalize()
 	if c.Workspaces == nil {
 		c.Workspaces = map[string]Workspace{}
 	}
