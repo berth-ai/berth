@@ -432,3 +432,60 @@ func TestFakeWorkspaces(t *testing.T) {
 		t.Errorf("a wrong confirm = %d", code)
 	}
 }
+
+func TestFakeWorkspaceAttachments(t *testing.T) {
+	f := newFake("normal")
+	f.step = 0
+	f.mu.Lock()
+	next := clone(f.cfg)
+	next["workspaces"].(map[string]any)["acme-api"] = map[string]any{"path": "acme/api", "repo": "https://github.com/acme/api",
+		"env": map[string]any{}, "instructions": map[string]any{"shared": false}}
+	sourcesOf(next)["acme-eng-skills"] = map[string]any{"repo": "https://github.com/acme/eng-skills", "ref": "main", "path": "",
+		"commit": fakeCommit, "found": map[string]any{
+			"changelog":     map[string]any{"path": "changelog", "description": "Keep CHANGELOG.md"},
+			"release-notes": map[string]any{"path": "release-notes", "description": "Notes"}},
+		"attached": map[string]any{
+			"changelog":     map[string]any{"enabled": true, "agents": nil, "workspaces": map[string]any{"acme-api": "link"}},
+			"release-notes": map[string]any{"enabled": true, "agents": []any{}, "workspaces": map[string]any{"acme-api": "vendor"}}}}
+	next["mcp"].(map[string]any)["workspaces"] = map[string]any{"files": []any{"acme-api"}}
+	f.replace(next)
+	f.mu.Unlock()
+
+	code, out := f.verb("workspaces.report", map[string]any{"id": "acme-api"})
+	rep := out.(map[string]any)["report"].(map[string]any)
+	entries := rep["skills"].(map[string]any)["entries"].(map[string]any)
+	if code != http.StatusOK || entries["acme-eng-skills/changelog"].(map[string]any)["mode"] != "link" ||
+		entries["acme-eng-skills/release-notes"].(map[string]any)["edited"] != true {
+		t.Fatalf("report = %d %v", code, out)
+	}
+	mcp := rep["mcp"].(map[string]any)
+	if mcp["trust"] != true || mcp["files"].(map[string]any)[".mcp.json"].(map[string]any)["tracked"] != true {
+		t.Errorf("mcp = %v", mcp)
+	}
+	if code, _ := f.verb("workspaces.report", map[string]any{"id": "nope"}); code != http.StatusNotFound {
+		t.Errorf("unknown = %d", code)
+	}
+
+	resolve := func(action string) {
+		t.Helper()
+		f.verb("skills.vendor.resolve", map[string]any{"source": "acme-eng-skills", "name": "release-notes", "workspace": "acme-api", "action": action})
+		waitFakeJobs(t, f)
+	}
+	resolve("overwrite")
+	_, out = f.verb("workspaces.report", map[string]any{"id": "acme-api"})
+	entries = out.(map[string]any)["report"].(map[string]any)["skills"].(map[string]any)["entries"].(map[string]any)
+	if entries["acme-eng-skills/release-notes"].(map[string]any)["edited"] == true {
+		t.Error("overwrite kept the edit")
+	}
+	resolve("release")
+	if _, ok := sourcesOf(f.cfg)["acme-eng-skills"].(map[string]any)["attached"].(map[string]any)["release-notes"]; ok {
+		t.Error("release kept a workspace-only attachment")
+	}
+
+	f.verb("workspaces.forget", map[string]any{"id": "acme-api"})
+	waitFakeJobs(t, f)
+	a := sourcesOf(f.cfg)["acme-eng-skills"].(map[string]any)["attached"].(map[string]any)["changelog"].(map[string]any)
+	if len(a["workspaces"].(map[string]any)) != 0 || len(f.cfg["mcp"].(map[string]any)["workspaces"].(map[string]any)) != 0 {
+		t.Errorf("forget kept references: %v %v", a, f.cfg["mcp"])
+	}
+}

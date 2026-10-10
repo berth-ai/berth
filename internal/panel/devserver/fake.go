@@ -44,27 +44,29 @@ type job struct {
 // calls. Config is kept as decoded JSON so patches merge like the real
 // store's.
 type fake struct {
-	mu       sync.Mutex
-	mode     string
-	user     string
-	cfg      map[string]any
-	prev     map[string]any
-	keys     map[string]bool
-	git      map[string]string
-	forges   map[string]bool
-	tools    []map[string]string
-	jobs     []*job
-	started  time.Time
-	step     time.Duration
-	signedIn map[string]bool     // pkg + " " + method
-	sessions map[string][]string // workspace id → window names
+	mu          sync.Mutex
+	mode        string
+	user        string
+	cfg         map[string]any
+	prev        map[string]any
+	keys        map[string]bool
+	git         map[string]string
+	forges      map[string]bool
+	tools       []map[string]string
+	jobs        []*job
+	started     time.Time
+	step        time.Duration
+	signedIn    map[string]bool     // pkg + " " + method
+	sessions    map[string][]string // workspace id → window names
+	overwritten map[string]bool     // "<ws>/<source>/<name>" after Overwrite
 }
 
 func newFake(mode string) *fake {
 	return &fake{
-		signedIn: map[string]bool{},
-		sessions: map[string][]string{},
-		mode:     mode, user: devUser, started: time.Now().UTC(), step: 400 * time.Millisecond,
+		signedIn:    map[string]bool{},
+		sessions:    map[string][]string{},
+		overwritten: map[string]bool{},
+		mode:        mode, user: devUser, started: time.Now().UTC(), step: 400 * time.Millisecond,
 		cfg:    defaultConfig(1),
 		keys:   map[string]bool{"EXAMPLE_API_KEY": false, "COPILOT_GITHUB_TOKEN": false},
 		git:    map[string]string{"name": "", "email": ""},
@@ -292,6 +294,20 @@ func (f *fake) verb(name string, in map[string]any) (int, any) {
 		return http.StatusOK, map[string]any{"candidates": f.candidates()}
 	case "workspaces.launch":
 		return f.launch(in)
+	case "workspaces.report":
+		id := str(in["id"])
+		if f.workspacePath(id) == "" {
+			return http.StatusNotFound, apiError("unknown_workspace", "No workspace named "+id)
+		}
+		return http.StatusOK, map[string]any{"report": f.report(id)}
+	case "skills.vendor.resolve":
+		switch {
+		case in["action"] != "overwrite" && in["action"] != "release":
+			return http.StatusBadRequest, fieldError("invalid_request", "action", "The action must be overwrite or release")
+		case f.workspacePath(str(in["workspace"])) == "":
+			return http.StatusNotFound, apiError("unknown_workspace", "No workspace named "+str(in["workspace"]))
+		}
+		return f.start(name, in)
 	case "workspaces.forget":
 		w, ok := f.cfg["workspaces"].(map[string]any)[str(in["id"])].(map[string]any)
 		switch {
@@ -435,10 +451,11 @@ func (f *fake) packages() []map[string]any {
 	pkgs := []map[string]any{
 		{"package": "@example/agent-cli", "name": "Example Agent", "kind": "agent", "version": "2.1.0", "origin": "locked", "enabled": !off["@example/agent-cli"], "icon": "claude",
 			"bins": []string{"example"}, "keys": []map[string]any{{"name": "EXAMPLE_API_KEY", "set": f.keys["EXAMPLE_API_KEY"]}},
-			"skills_dir": "~/.example/skills"},
+			"skills_dir": "~/.example/skills", "skills_project": ".example/skills", "mcp_project": ".mcp.json"},
 		{"package": "@example/other-cli", "name": "Other Agent", "kind": "agent", "version": "1.4.0", "origin": "locked", "enabled": !off["@example/other-cli"],
 			"bins": []string{"other"}, "keys": []map[string]any{},
-			"skills_dir": "~/.other/skills", "skills_via": []string{"@example/agent-cli"}},
+			"skills_dir": "~/.other/skills", "skills_via": []string{"@example/agent-cli"},
+			"skills_project": ".agents/skills", "mcp_project": ".other/config.toml", "mcp_trust": true},
 		{"package": "@example/mcp-files", "name": "Files MCP", "kind": "mcp", "version": "0.6.2", "origin": "locked", "enabled": !off["@example/mcp-files"],
 			"bins": []string{}, "keys": []map[string]any{}, "mcp_id": "files"},
 	}
@@ -458,7 +475,7 @@ func (f *fake) check() map[string]any {
 
 var groups = map[string]string{"update": "agents", "rollback": "agents", "gc": "agents",
 	"tools.add": "tools", "tools.remove": "tools", "preset.install": "tools", "forge.login": "forge",
-	"skills.sources.preview": "skills", "skills.sources.add": "skills", "skills.sources.update": "skills", "skills.sync": "skills-sync", "agent.login": "agent-login",
+	"skills.sources.preview": "skills", "skills.sources.add": "skills", "skills.sources.update": "skills", "skills.sync": "skills-sync", "skills.vendor.resolve": "skills", "agent.login": "agent-login",
 	"agents.add": "agents", "agents.rollback": "agents", "workspaces.add": "workspaces", "workspaces.forget": "workspaces"}
 
 func (f *fake) start(verb string, in map[string]any) (int, any) {
@@ -500,6 +517,9 @@ func (f *fake) start(verb string, in map[string]any) (int, any) {
 		}
 	case "workspaces.forget":
 		args = []string{"/usr/local/bin/berth", "workspaces", "kill", "--json", "--id", str(in["id"])}
+	case "skills.vendor.resolve":
+		args = []string{"/usr/local/bin/berth", "skills", "vendor", "--json", "--workspace", str(in["workspace"]),
+			"--key", str(in["source"]) + "/" + str(in["name"]), "--action", str(in["action"])}
 	}
 	j := &job{ID: len(f.jobs) + 1, Verb: verb, Group: group, Args: args, State: "running", StartedAt: time.Now().UTC(),
 		Result: json.RawMessage("null"), input: make(chan string, 1), cancel: make(chan struct{})}
@@ -531,10 +551,12 @@ func (f *fake) run(j *job, in map[string]any) {
 				"Receiving objects: 100% (42/42), done.", "Resolving deltas: 100% (7/7), done."}
 		}
 	case "workspaces.forget":
-		lines = []string{"kill      ws-" + str(in["id"])}
+		lines = []string{"kill      ws-" + str(in["id"]), "release   what Berth wrote into " + str(in["id"])}
 		if in["delete"] == true {
 			lines = append(lines, "remove    the folder of "+str(in["id"])) // run reads f.cfg only under f.mu
 		}
+	case "skills.vendor.resolve":
+		lines = []string{str(in["action"]) + "   " + str(in["name"]) + " in " + str(in["workspace"])}
 	case "skills.sources.preview", "skills.sources.add", "skills.sources.update":
 		lines = []string{"fetch     " + j.Args[5] + "@" + j.Args[7], "list      SKILL.md files", "read      frontmatter"}
 	}
@@ -572,10 +594,29 @@ func (f *fake) run(j *job, in map[string]any) {
 		id := str(in["id"])
 		path := f.workspacePath(id)
 		next := clone(f.cfg)
-		delete(next["workspaces"].(map[string]any), id)
+		forgetRefs(next, id)
 		f.replace(next)
 		delete(f.sessions, id)
-		j.Result, _ = json.Marshal(map[string]any{"id": id, "path": path, "deleted": in["delete"] == true, "left": []string{}})
+		j.Result, _ = json.Marshal(map[string]any{"id": id, "path": path, "deleted": in["delete"] == true, "left": []string{}, "kept": []string{}})
+	case "skills.vendor.resolve":
+		ws, src, name := str(in["workspace"]), str(in["source"]), str(in["name"])
+		if in["action"] == "overwrite" {
+			f.overwritten[ws+"/"+src+"/"+name] = true
+			f.start("skills.sync", nil)
+		} else {
+			next := clone(f.cfg)
+			attached, _ := sourcesOf(next)[src].(map[string]any)["attached"].(map[string]any)
+			if a, ok := attached[name].(map[string]any); ok {
+				wss, _ := a["workspaces"].(map[string]any)
+				delete(wss, ws)
+				if agents, isList := a["agents"].([]any); isList && len(agents) == 0 && len(wss) == 0 {
+					delete(attached, name)
+				}
+				f.replace(next)
+				f.start("skills.sync", nil)
+			}
+		}
+		j.Result, _ = json.Marshal(map[string]any{"action": in["action"], "workspace": ws, "name": name, "changed": in["action"] == "release"})
 	case "agents.add":
 		f.setAdded(copilotPkg, true)
 		j.Result = json.RawMessage(`{"id":"copilot","package":"@github/copilot","version":"1.0.91","hash":"0123456789ab"}`)
@@ -1099,4 +1140,71 @@ func (f *fake) launch(in map[string]any) (int, any) {
 		reply["window"] = window
 	}
 	return http.StatusOK, reply
+}
+
+// forgetRefs removes workspace id and every reference to it from cfg.
+func forgetRefs(cfg map[string]any, id string) {
+	delete(cfg["workspaces"].(map[string]any), id)
+	for _, s := range sourcesOf(cfg) {
+		attached, _ := s.(map[string]any)["attached"].(map[string]any)
+		for _, a := range attached {
+			if wss, ok := a.(map[string]any)["workspaces"].(map[string]any); ok {
+				delete(wss, id)
+			}
+		}
+	}
+	lists, _ := cfg["mcp"].(map[string]any)["workspaces"].(map[string]any)
+	for server, l := range lists {
+		rest := slices.DeleteFunc(strs(l), func(w string) bool { return w == id })
+		if len(rest) == 0 {
+			delete(lists, server)
+		} else {
+			lists[server] = toAny(rest)
+		}
+	}
+}
+
+// report answers workspaces.report from the config, as the converger
+// would have left the workspace.
+func (f *fake) report(id string) map[string]any {
+	folder := "/workspaces/" + f.workspacePath(id)
+	entries := map[string]any{}
+	for sid, s := range sourcesOf(f.cfg) {
+		src := s.(map[string]any)
+		attached, _ := src["attached"].(map[string]any)
+		for name, a := range attached {
+			att := a.(map[string]any)
+			wss, _ := att["workspaces"].(map[string]any)
+			mode := str(wss[id])
+			if mode == "" || att["enabled"] == false {
+				continue
+			}
+			key := sid + "/" + name
+			e := map[string]any{"name": name, "mode": mode, "commit": src["commit"], "from": name,
+				"links": []string{".agents/skills/" + name, ".example/skills/" + name}}
+			if mode == "vendor" {
+				e["dir"], e["links"] = ".agents/skills/"+name, []string{".example/skills/" + name}
+				e["edited"] = name == "release-notes" && !f.overwritten[id+"/"+key]
+			}
+			entries[key] = e
+		}
+	}
+	var ids []string
+	lists, _ := f.cfg["mcp"].(map[string]any)["workspaces"].(map[string]any)
+	for server, l := range lists {
+		if slices.Contains(strs(l), id) {
+			ids = append(ids, server)
+		}
+	}
+	slices.Sort(ids)
+	files := map[string]any{}
+	if len(ids) > 0 {
+		cloned := str(f.cfg["workspaces"].(map[string]any)[id].(map[string]any)["repo"]) != ""
+		files[".mcp.json"] = map[string]any{"style": "claude", "key": "mcpServers", "ids": ids, "created": !cloned, "tracked": cloned}
+		files[".other/config.toml"] = map[string]any{"style": "codex-toml", "ids": ids, "created": true}
+	}
+	return map[string]any{
+		"skills": map[string]any{"path": folder, "entries": entries, "dirs": []string{}},
+		"mcp":    map[string]any{"path": folder, "files": files, "dirs": []string{}, "trust": len(ids) > 0},
+	}
 }
