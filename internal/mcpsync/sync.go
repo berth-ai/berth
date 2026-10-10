@@ -35,6 +35,8 @@ type Syncer struct {
 	DataHome   string       // $XDG_DATA_HOME; empty means Home/.local/share
 	Settings   string       // mcp.json, the user's MCP settings; empty means defaults
 	Keys       string       // agents.env, which holds bearer tokens; empty means none
+	Workspaces string       // workspaces.json; empty means no workspaces
+	Git        string       // the git binary for tracked-file checks; empty means git
 	Log        io.Writer
 
 	// beforeRename runs between writing a temp file and replacing path;
@@ -60,6 +62,7 @@ func (s Syncer) Run() error {
 		}
 	}
 	servers := s.desired(desc, settings, keys, false)
+	_, wsFailed := s.syncWorkspaces(desc, settings)
 
 	statePath := StatePath(s.Home)
 	st, err := loadState(statePath)
@@ -97,6 +100,7 @@ func (s Syncer) Run() error {
 	if err := saveState(statePath, st); err != nil {
 		return fmt.Errorf("save %s: %w", statePath, err)
 	}
+	failed = append(failed, wsFailed...)
 	if len(failed) > 0 {
 		return fmt.Errorf("MCP registration failed for %s", strings.Join(failed, ", "))
 	}

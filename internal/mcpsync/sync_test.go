@@ -28,9 +28,12 @@ const fixturePkg = `{
   "berthAgents": {
     "schema": 1,
     "agents": {
-      "a-cli": {"mcp": {"file": "~/.a/settings.json", "style": "claude", "key": "mcpServers"}},
-      "c-cli": {"mcp": {"file": "~/.c/config.toml", "style": "codex-toml"}},
-      "o-cli": {"mcp": {"file": "$XDG_CONFIG_HOME/o/o.json", "style": "opencode", "key": "mcp"}}
+      "a-cli": {"mcp": {"file": "~/.a/settings.json", "style": "claude", "key": "mcpServers",
+                        "project": {"file": ".mcp.json", "key": "mcpServers"}}},
+      "c-cli": {"mcp": {"file": "~/.c/config.toml", "style": "codex-toml",
+                        "project": {"file": ".c/config.toml", "trust": true}}},
+      "o-cli": {"mcp": {"file": "$XDG_CONFIG_HOME/o/o.json", "style": "opencode", "key": "mcp",
+                        "project": {"file": "opencode.json", "key": "mcp"}}}
     },
     "servers": {
       "p-mcp": {"id": "playwright", "bin": "p-mcp", "args": ["--headless"]},
@@ -72,7 +75,8 @@ func newFixture(t *testing.T) *fixture {
 	t.Cleanup(func() { legacyAgents = saved })
 	f := &fixture{t: t, log: &bytes.Buffer{}, cur: cur}
 	f.s = Syncer{Layer: filepath.Join(root, "bin"), Home: filepath.Join(root, "home"), Log: f.log,
-		Settings: filepath.Join(root, "mcp.json"), Keys: filepath.Join(root, "agents.env")}
+		Settings: filepath.Join(root, "mcp.json"), Keys: filepath.Join(root, "agents.env"),
+		Workspaces: filepath.Join(root, "workspaces.json")}
 	must(t, os.MkdirAll(f.s.Layer, 0o755))
 	must(t, os.MkdirAll(f.s.Home, 0o755))
 	for _, bin := range fixtureDeps {
