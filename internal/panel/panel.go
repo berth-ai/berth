@@ -38,8 +38,8 @@ var browserVerbs = map[string]bool{
 	"preset.install": true, "git.identity": true, "forge.status": true, "forge.login": true,
 	"skills.scan": true, "skills.add": true, "skills.update": true,
 	"agents.registry": true, "agents.add": true, "agents.remove": true, "agents.rollback": true,
-	"workspaces.add": true,
-	"login.status":   true, "login.start": true, "login.input": true, "login.cancel": true, "login.logout": true,
+	"workspaces.add": true, "workspaces.forget": true, "workspaces.status": true, "workspaces.candidates": true, "workspaces.launch": true,
+	"login.status": true, "login.start": true, "login.input": true, "login.cancel": true, "login.logout": true,
 }
 
 var jobID = regexp.MustCompile(`^[0-9]{1,9}$`)

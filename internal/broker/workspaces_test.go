@@ -2,6 +2,7 @@ package broker
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"slices"
@@ -220,5 +221,145 @@ func TestWorkspaceAddRechecksAfterTheJob(t *testing.T) {
 	j := finishJob(t, tb, out)
 	if e, _ := resultOf(t, j)["error"].(map[string]any); j.State != StateFailed || e["code"] != "id_exists" {
 		t.Errorf("job = %+v %s", j, j.Result)
+	}
+}
+
+// addWorkspace saves workspace id at path through config.apply.
+func addWorkspace(t *testing.T, tb *testBroker, id, path string) {
+	t.Helper()
+	cur, _, _ := tb.b.snapshot()
+	body := fmt.Sprintf(`{"base_revision":%d,"patch":{"workspaces":{%q:{"path":%q}}}}`, cur.Revision, id, path)
+	if code, out := tb.verb(t, "config.apply", body); code != 200 {
+		t.Fatalf("apply = %d %v", code, out)
+	}
+}
+
+func TestWorkspaceForget(t *testing.T) {
+	tb := newTestBroker(t)
+	log := withWorkspaces(t, tb)
+	addWorkspace(t, tb, "api", "acme/api")
+	_, out := tb.verb(t, "workspaces.forget", `{"id":"api"}`)
+	j := finishJob(t, tb, out)
+	if res := resultOf(t, j); j.State != StateSucceeded || res["deleted"] != false || res["path"] != "acme/api" {
+		t.Fatalf("job = %+v %s", j, j.Result)
+	}
+	if !slices.Equal(calls(log), []string{"workspaces kill --json --id api"}) {
+		t.Errorf("calls = %v", calls(log))
+	}
+	if cfg, _, _ := tb.b.snapshot(); len(cfg.Workspaces) != 0 {
+		t.Errorf("workspaces = %v", cfg.Workspaces)
+	}
+	if ws, _ := config.ReadWorkspacesFile(tb.b.WorkspacesSettings); len(ws) != 0 {
+		t.Errorf("workspaces.json = %v", ws)
+	}
+}
+
+func TestWorkspaceForgetAndDelete(t *testing.T) {
+	tb := newTestBroker(t)
+	log := withWorkspaces(t, tb)
+	addWorkspace(t, tb, "api", "acme/api")
+	for body, want := range map[string]string{
+		`{"id":"api","delete":true}`:                  "confirm_mismatch",
+		`{"id":"api","delete":true,"confirm":"acme"}`: "confirm_mismatch",
+		`{"id":"api","confirm":"acme/api"}`:           "invalid_request",
+	} {
+		if code, out := tb.verb(t, "workspaces.forget", body); code != 400 || errCode(out) != want {
+			t.Errorf("%s: %d %v, want 400 %s", body, code, out, want)
+		}
+	}
+	if code, out := tb.verb(t, "workspaces.forget", `{"id":"nope"}`); code != 404 || errCode(out) != "unknown_workspace" {
+		t.Errorf("unknown = %d %v", code, out)
+	}
+	_, out := tb.verb(t, "workspaces.forget", `{"id":"api","delete":true,"confirm":"acme/api"}`)
+	j := finishJob(t, tb, out)
+	if res := resultOf(t, j); j.State != StateSucceeded || res["deleted"] != true {
+		t.Fatalf("job = %+v %s", j, j.Result)
+	}
+	if want := []string{"workspaces kill --json --id api", "workspaces remove --json --path acme/api"}; !slices.Equal(calls(log), want) {
+		t.Errorf("calls = %v", calls(log))
+	}
+}
+
+func TestWorkspaceDeleteIncomplete(t *testing.T) {
+	tb := newTestBroker(t)
+	withWorkspaces(t, tb)
+	addWorkspace(t, tb, "api", "acme/api")
+	t.Setenv("FAKE_WS_LEFT", "1")
+	_, out := tb.verb(t, "workspaces.forget", `{"id":"api","delete":true,"confirm":"acme/api"}`)
+	j := finishJob(t, tb, out)
+	e, _ := resultOf(t, j)["error"].(map[string]any)
+	if j.State != StateFailed || e["code"] != "delete_incomplete" || fmt.Sprint(e["left"]) != "[acme/api/locked/f]" {
+		t.Errorf("job = %+v %s", j, j.Result)
+	}
+	if cfg, _, _ := tb.b.snapshot(); len(cfg.Workspaces) != 0 {
+		t.Error("the workspace must stay forgotten")
+	}
+}
+
+func TestWorkspaceStatusAndCandidates(t *testing.T) {
+	tb := newTestBroker(t)
+	log := withWorkspaces(t, tb)
+	if code, out := tb.verb(t, "workspaces.status", `{}`); code != 200 || len(out["workspaces"].(map[string]any)) != 0 || len(calls(log)) != 0 {
+		t.Fatalf("empty status = %d %v, calls %v", code, out, calls(log))
+	}
+	addWorkspace(t, tb, "web", "acme/web")
+	addWorkspace(t, tb, "api", "acme/api")
+	code, out := tb.verb(t, "workspaces.status", `{}`)
+	ws := out["workspaces"].(map[string]any)
+	api, web := ws["api"].(map[string]any), ws["web"].(map[string]any)
+	if code != 200 || api["dirty"] != 2.0 || api["session"] != true || web["unknown"] != true || web["dirty"] != -1.0 {
+		t.Errorf("status = %d %v", code, out)
+	}
+	code, out = tb.verb(t, "workspaces.candidates", `{}`)
+	if c, _ := out["candidates"].([]any); code != 200 || len(c) != 1 || c[0].(map[string]any)["path"] != "scratch" {
+		t.Errorf("candidates = %d %v", code, out)
+	}
+	want := []string{
+		"workspaces status --json --ws api=acme/api --ws web=acme/web",
+		"workspaces candidates --json --exclude acme/api --exclude acme/web",
+	}
+	if !slices.Equal(calls(log), want) {
+		t.Errorf("calls = %v", calls(log))
+	}
+}
+
+func TestWorkspaceLaunch(t *testing.T) {
+	tb := newTestBroker(t)
+	withAgents(t, tb)
+	log := withWorkspaces(t, tb)
+	addWorkspace(t, tb, "api", "acme/api")
+	if code, out := tb.verb(t, "workspaces.launch", `{"id":"api","agent":"agent-a"}`); code != 200 || out["session"] != "ws-api" || out["window"] != "a" {
+		t.Errorf("agent launch = %d %v", code, out)
+	}
+	if code, out := tb.verb(t, "workspaces.launch", `{"id":"api"}`); code != 200 || out["window"] != "" {
+		t.Errorf("shell launch = %d %v", code, out)
+	}
+	want := []string{
+		"workspaces launch --json --id api --path acme/api --window a --run " + filepath.Join(tb.dir, "bin", "a"),
+		"workspaces launch --json --id api --path acme/api",
+	}
+	if !slices.Equal(calls(log), want) {
+		t.Errorf("calls = %v", calls(log))
+	}
+	for body, want := range map[string]struct {
+		code int
+		err  string
+	}{
+		`{"id":"nope"}`:                {404, "unknown_workspace"},
+		`{"id":"api","agent":"mcp-b"}`: {400, "unknown_agent"},
+		`{"id":"api","agent":"nope"}`:  {400, "unknown_agent"},
+	} {
+		if code, out := tb.verb(t, "workspaces.launch", body); code != want.code || errCode(out) != want.err {
+			t.Errorf("%s: %d %v, want %d %s", body, code, out, want.code, want.err)
+		}
+	}
+	cur, _, _ := tb.b.snapshot()
+	tb.verb(t, "config.apply", fmt.Sprintf(`{"base_revision":%d,"patch":{"agents":{"disabled":["agent-a"]}}}`, cur.Revision))
+	if code, out := tb.verb(t, "workspaces.launch", `{"id":"api","agent":"agent-a"}`); code != 409 || errCode(out) != "agent_disabled" {
+		t.Errorf("disabled = %d %v", code, out)
+	}
+	t.Setenv("FAKE_WS_MISSING", "1")
+	if code, out := tb.verb(t, "workspaces.launch", `{"id":"api"}`); code != 409 || errCode(out) != "workspace_missing" {
+		t.Errorf("missing folder = %d %v", code, out)
 	}
 }
