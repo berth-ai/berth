@@ -535,3 +535,105 @@ test("a workspace is cloned, launched and forgotten", async ({ page }) => {
   await expect(page.getByText(/No workspaces yet\./)).toBeVisible();
   expect(problems).toEqual([]);
 });
+
+test("skills and MCP servers are attached to a workspace", async ({ page }) => {
+  const problems = await watch(page);
+  await signIn(page);
+
+  // A cloned workspace (its .mcp.json is tracked by git in the fake).
+  await page.goto(`${NORMAL}/#/workspaces`);
+  await page.getByRole("button", { name: "Add workspace" }).first().click();
+  const addWs = page.getByRole("dialog", { name: "Add a workspace" });
+  await addWs.getByLabel("Repository").fill("acme/api");
+  await addWs.getByRole("button", { name: "Clone", exact: true }).click();
+  await expect(h1(page, "acme-api")).toBeVisible();
+
+  // A source; changelog goes to all agents and, linked, to the workspace.
+  await page.goto(`${NORMAL}/#/skills`);
+  await page.getByRole("button", { name: "Add source" }).click();
+  const addSrc = page.getByRole("dialog", { name: "Add a skill source" });
+  await addSrc.getByLabel("Repository").fill("acme/eng-skills");
+  await addSrc.getByRole("button", { name: "Find skills" }).click();
+  await addSrc.getByRole("button", { name: "Add source" }).click();
+  await expect(page).toHaveURL(/#\/skills\/acme-eng-skills$/);
+  await page.getByRole("button", { name: "Attach changelog" }).click();
+  const picker = page.getByRole("dialog", { name: "Attach changelog" });
+  await picker.getByRole("checkbox", { name: /^acme-api/ }).click();
+  await expect(picker.getByRole("group", { name: "How acme-api gets changelog" })).toBeVisible();
+  await picker.getByRole("button", { name: "Attach" }).click();
+  await expect(page.getByText(/changelog is attached to all agents and acme-api\./)).toBeVisible();
+  await expect(
+    page
+      .getByRole("row")
+      .filter({ hasText: "Keep CHANGELOG.md" })
+      .getByText("All agents · acme-api"),
+  ).toBeVisible();
+
+  // The workspace's Skills tab; release-notes, vendored, has local edits in the fake.
+  await page.goto(`${NORMAL}/#/workspaces/acme-api?tab=skills`);
+  const changelog = page.getByRole("row").filter({ hasText: "changelog" });
+  await expect(changelog.getByText("Linked")).toBeVisible();
+  const attachVendored = async () => {
+    await page.getByRole("button", { name: "Attach skill…" }).click();
+    const dialog = page.getByRole("dialog", { name: "Attach a skill to acme-api" });
+    await dialog.getByLabel("Search skills").fill("release");
+    await dialog.getByRole("button", { name: "Vendor" }).click();
+    await dialog.getByRole("button", { name: "Attach release-notes from acme-eng-skills" }).click();
+    await expect(page.getByText(/release-notes is vendored into acme-api\./)).toBeVisible();
+  };
+  await attachVendored();
+  const notes = page.getByRole("row").filter({ hasText: "release-notes" });
+  await expect(notes.getByText("Local edits")).toBeVisible();
+
+  // Stop managing: Berth lets go and the row goes.
+  await notes.getByRole("button", { name: "Stop managing release-notes" }).click();
+  await page.getByRole("alertdialog").getByRole("button", { name: "Stop managing" }).click();
+  await expect(page.getByText(/release-notes in acme-api is yours now/)).toBeVisible();
+  await expect(page.getByRole("row").filter({ hasText: "release-notes" })).toHaveCount(0);
+
+  // Again, then Overwrite: the copy becomes Berth's again.
+  await attachVendored();
+  await expect(notes.getByText("Local edits")).toBeVisible();
+  await notes.getByRole("button", { name: "Overwrite release-notes" }).click();
+  await page.getByRole("alertdialog").getByRole("button", { name: "Overwrite" }).click();
+  await expect(page.getByText(/Berth replaces release-notes in acme-api/)).toBeVisible();
+  await expect(notes.getByText("Vendored")).toBeVisible();
+
+  // The MCP tab: Files MCP in this workspace; a tracked file and trust notes.
+  await page.getByRole("button", { name: "MCP", exact: true }).click();
+  await page.getByRole("switch", { name: "Add Files MCP to acme-api" }).click();
+  await expect(page.getByText(/Files MCP is attached to acme-api\./)).toBeVisible();
+  const files = page.getByRole("list", { name: "Project files" });
+  await expect(files.getByText(".mcp.json")).toBeVisible();
+  await expect(files.getByText(/Tracked by git: Berth's entries show in git diff\./)).toBeVisible();
+  await expect(
+    page.getByText("Other Agent trusts this folder while a server is attached here."),
+  ).toBeVisible();
+  await page.goto(`${NORMAL}/#/mcp`);
+  await expect(page.getByRole("button", { name: "Choose agents for Files MCP" })).toHaveText(
+    "All agents · acme-api",
+  );
+
+  // Forget drops every reference; then remove the source.
+  await page.goto(`${NORMAL}/#/workspaces/acme-api`);
+  await page.getByRole("button", { name: "Forget", exact: true }).click();
+  await page.getByRole("alertdialog").getByRole("button", { name: "Forget" }).click();
+  await expect(page.getByText(/acme-api forgotten; its folder stays\./)).toBeVisible();
+  await page.goto(`${NORMAL}/#/mcp`);
+  await expect(page.getByRole("button", { name: "Choose agents for Files MCP" })).toHaveText(
+    "All agents",
+  );
+  await page.goto(`${NORMAL}/#/skills/acme-eng-skills`);
+  await expect(
+    page
+      .getByRole("row")
+      .filter({ hasText: "Keep CHANGELOG.md" })
+      .getByText("All agents", { exact: true }),
+  ).toBeVisible();
+  await page.getByRole("button", { name: "Remove", exact: true }).click();
+  const remove = page.getByRole("dialog", { name: "Remove acme-eng-skills?" });
+  await remove.getByLabel("Type acme-eng-skills to confirm").fill("acme-eng-skills");
+  await remove.getByRole("button", { name: "Remove source" }).click();
+  await expect(page).toHaveURL(/#\/skills$/);
+  expect(problems).toEqual([]);
+});
