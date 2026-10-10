@@ -10,7 +10,7 @@ import (
 	"path/filepath"
 )
 
-// StoreDir holds one exported copy of every installed skill.
+// StoreDir holds the exports, one folder per source with one per attached skill.
 func StoreDir(home string) string { return filepath.Join(home, ".local", "share", "berth", "skills") }
 
 // StatePath records what Berth owns: store copies and links.
@@ -19,12 +19,21 @@ func StatePath(home string) string {
 }
 
 type state struct {
-	Commits map[string]string `json:"commits"` // skill id → commit in the store
+	Exports map[string]export `json:"exports"` // "<source>/<name>" → what that store folder holds
 	Links   []string          `json:"links"`   // links Berth created, sorted
+	// Legacy lists C2's copies at StoreDir/<id>, by the commit they held.
+	// The old state called them commits; the next sync removes them.
+	Legacy map[string]string `json:"commits,omitempty"`
+}
+
+// export is what one store folder holds.
+type export struct {
+	Commit string `json:"commit"`
+	Path   string `json:"path"`
 }
 
 func loadState(path string) (state, error) {
-	st := state{Commits: map[string]string{}, Links: []string{}}
+	st := newState()
 	raw, err := os.ReadFile(path)
 	if errors.Is(err, fs.ErrNotExist) {
 		return st, nil
@@ -33,15 +42,22 @@ func loadState(path string) (state, error) {
 		return st, err
 	}
 	if err := json.Unmarshal(raw, &st); err != nil {
-		return state{Commits: map[string]string{}, Links: []string{}}, fmt.Errorf("%s: %w", path, err)
+		return newState(), fmt.Errorf("%s: %w", path, err)
 	}
-	if st.Commits == nil {
-		st.Commits = map[string]string{}
+	if st.Exports == nil {
+		st.Exports = map[string]export{}
 	}
 	if st.Links == nil {
 		st.Links = []string{}
 	}
+	if st.Legacy == nil {
+		st.Legacy = map[string]string{}
+	}
 	return st, nil
+}
+
+func newState() state {
+	return state{Exports: map[string]export{}, Links: []string{}, Legacy: map[string]string{}}
 }
 
 func saveState(path string, st state) error {

@@ -11,6 +11,7 @@ import (
 	"maps"
 	"net/http"
 	"os/exec"
+	"reflect"
 	"slices"
 	"strings"
 	"time"
@@ -32,7 +33,8 @@ func sameSkills(a, b map[string]config.Skill) bool {
 	})
 }
 
-// writeSkillsSettings publishes s to SkillsSettings, readable by the agent group.
+// writeSkillsSettings publishes the skills as sources to SkillsSettings,
+// readable by the agent group.
 func (b *Broker) writeSkillsSettings(s map[string]config.Skill) error {
 	if b.SkillsSettings == "" {
 		return nil
@@ -41,7 +43,7 @@ func (b *Broker) writeSkillsSettings(s map[string]config.Skill) error {
 	if b.Agent != nil {
 		uid, gid = 0, int(b.Agent.GID)
 	}
-	return config.WriteSkillsFile(b.SkillsSettings, s, uid, gid)
+	return config.WriteSkillsFile(b.SkillsSettings, config.MigrateSkills(s), uid, gid)
 }
 
 // skillsStale reports whether SkillsSettings differs from s.
@@ -50,7 +52,7 @@ func (b *Broker) skillsStale(s map[string]config.Skill) bool {
 		return false
 	}
 	pub, err := config.ReadSkillsFile(b.SkillsSettings)
-	return err != nil || !sameSkills(pub, s)
+	return err != nil || !reflect.DeepEqual(pub, config.MigrateSkills(s))
 }
 
 // startSkillsSync runs the skills converger as a job.

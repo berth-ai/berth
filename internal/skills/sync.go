@@ -21,16 +21,17 @@ import (
 // SyncTimeout bounds one berth skills sync.
 const SyncTimeout = 10 * time.Minute
 
-// Syncer converges skills for the installed agent set: one exported copy
-// per skill, linked into the skills directory of every agent it reaches.
-// It changes only links and copies it made itself.
+// Syncer converges skills for the installed agent set: one export per
+// attached skill, at its source's commit, linked into the skills directory
+// of every agent it reaches. It changes only links and exports it made
+// itself.
 type Syncer struct {
 	Set        agentset.Set // the merged agent set
 	Layer      string       // the wrapper layer, /var/lib/berth/bin
 	Home       string       // the agent user's home
 	ConfigHome string       // $XDG_CONFIG_HOME; empty means Home/.config
 	DataHome   string       // $XDG_DATA_HOME; empty means Home/.local/share
-	Settings   string       // skills.json; empty means no skills
+	Settings   string       // skills.json; empty means no sources
 	Git        Git
 	Log        io.Writer
 }
@@ -43,16 +44,42 @@ type target struct {
 	also      []string // descriptor paths
 }
 
-// Run converges every skill. A skill that fails keeps its links and does
-// not stop the others; the error names every failed skill.
+// attachment is one attached skill of one source.
+type attachment struct {
+	source, name string
+	src          config.Source
+	att          config.Attachment
+}
+
+// key names the attachment's export, <source>/<name> under the store.
+func (a attachment) key() string { return a.source + "/" + a.name }
+
+func (a attachment) label() string { return a.name + " from " + a.source }
+
+// attachments lists every attachment, by source then name.
+func attachments(sources map[string]config.Source) []attachment {
+	var out []attachment
+	for _, id := range slices.Sorted(maps.Keys(sources)) {
+		src := sources[id]
+		for _, name := range slices.Sorted(maps.Keys(src.Attached)) {
+			out = append(out, attachment{source: id, name: name, src: src, att: src.Attached[name]})
+		}
+	}
+	return out
+}
+
+// Run converges every attachment. One that fails keeps its links and does
+// not stop the others; the error names every failed one. A missing
+// attachment (its source no longer holds a valid skill of that name) keeps
+// its links and export and is only logged.
 func (s Syncer) Run(ctx context.Context) error {
 	targets, err := s.targets()
 	if err != nil {
 		return err
 	}
-	skills := map[string]config.Skill{}
+	sources := map[string]config.Source{}
 	if s.Settings != "" {
-		if skills, err = config.ReadSkillsFile(s.Settings); err != nil {
+		if sources, err = config.ReadSkillsFile(s.Settings); err != nil {
 			return err
 		}
 	}
@@ -61,29 +88,32 @@ func (s Syncer) Run(ctx context.Context) error {
 	if err != nil {
 		s.logf("%v; starting over", err)
 	}
-	keep := map[string]bool{}
+	// A C2 copy named like a source sits where that source's folder goes.
+	s.clearLegacy(&st, func(id string) bool { _, ok := sources[id]; return ok })
+	keep, used := map[string]bool{}, map[string]bool{}
 	var failed []string
-	for _, id := range slices.Sorted(maps.Keys(skills)) {
-		sk := skills[id]
-		if !sk.Enabled {
+	for _, a := range attachments(sources) {
+		used[a.key()] = true
+		if !a.att.Enabled {
 			continue
 		}
-		if err := s.ensureStore(ctx, id, sk, &st); err != nil {
-			s.logf("skill %s: %v; leaving it as it was", id, err)
-			failed = append(failed, id)
-			for _, l := range st.Links {
-				if s.pointsTo(l, id) {
-					keep[l] = true
-				}
-			}
+		if f, ok := a.src.Found[a.name]; !ok || !f.Valid() {
+			s.logf("%s is not in %s at %s; keeping its links", a.name, a.source, short(a.src.Commit))
+			s.keepLinks(st, a.key(), keep)
 			continue
 		}
-		for _, t := range reach(targets, sk.Agents) {
-			link := filepath.Join(t.dir, id)
-			linked, err := s.link(link, id, st.Links)
+		if err := s.ensureExport(ctx, a, &st); err != nil {
+			s.logf("%s: %v; leaving it as it was", a.label(), err)
+			failed = append(failed, a.label())
+			s.keepLinks(st, a.key(), keep)
+			continue
+		}
+		for _, t := range reach(targets, a.att.Agents) {
+			link := filepath.Join(t.dir, a.name)
+			linked, err := s.link(link, a.key(), st.Links)
 			if err != nil {
-				s.logf("skill %s for %s: %v", id, t.name, err)
-				failed = append(failed, id)
+				s.logf("%s for %s: %v", a.label(), t.name, err)
+				failed = append(failed, a.label())
 				continue
 			}
 			if linked {
@@ -102,17 +132,9 @@ func (s Syncer) Run(ctx context.Context) error {
 		}
 	}
 	st.Links = slices.Sorted(maps.Keys(keep))
-	for _, id := range slices.Sorted(maps.Keys(st.Commits)) {
-		if _, ok := skills[id]; !ok {
-			if err := os.RemoveAll(filepath.Join(StoreDir(s.Home), id)); err != nil {
-				s.logf("cannot remove %s: %v", id, err)
-				continue
-			}
-			delete(st.Commits, id)
-			s.logf("removed %s", id)
-		}
-	}
-	s.pruneCaches(skills)
+	s.pruneExports(&st, used)
+	s.clearLegacy(&st, func(string) bool { return true })
+	s.pruneCaches(sources)
 	if err := saveState(statePath, st); err != nil {
 		return fmt.Errorf("save %s: %w", statePath, err)
 	}
@@ -128,6 +150,8 @@ func (s Syncer) logf(format string, args ...any) {
 		fmt.Fprintf(s.Log, "berth skills sync: "+format+"\n", args...)
 	}
 }
+
+func short(commit string) string { return commit[:min(12, len(commit))] }
 
 // targets lists the enabled agents with a skills descriptor, by package.
 func (s Syncer) targets() ([]target, error) {
@@ -148,7 +172,8 @@ func (s Syncer) resolve(p string) string {
 }
 
 // reach lists the agents that get a link of their own: those in list (all
-// when nil), minus any that already see the skill through also.
+// when nil, none when empty), minus any that already see the skill
+// through also.
 func reach(targets []target, list []string) []target {
 	var picked []target
 	for _, t := range targets {
@@ -168,46 +193,58 @@ func reach(targets []target, list []string) []target {
 	return out
 }
 
-// ensureStore makes the store copy of id hold sk.Path at sk.Commit.
-func (s Syncer) ensureStore(ctx context.Context, id string, sk config.Skill, st *state) error {
-	root := StoreDir(s.Home)
-	final := filepath.Join(root, id)
-	if fi, err := os.Stat(final); err == nil && fi.IsDir() && st.Commits[id] == sk.Commit {
+// exportDir is where the store keeps the export key names.
+func (s Syncer) exportDir(key string) string {
+	return filepath.Join(StoreDir(s.Home), filepath.FromSlash(key))
+}
+
+// ensureExport makes a's export hold its folder at its source's commit.
+func (s Syncer) ensureExport(ctx context.Context, a attachment, st *state) error {
+	f, src := a.src.Found[a.name], a.src
+	final := s.exportDir(a.key())
+	want := export{Commit: src.Commit, Path: f.Path}
+	if fi, err := os.Stat(final); err == nil && fi.IsDir() && st.Exports[a.key()] == want {
 		return nil
 	}
-	if !config.ValidCommit(sk.Commit) {
-		return fmt.Errorf("%q is not a commit", sk.Commit)
+	switch {
+	case !config.WorkspaceIDPattern.MatchString(a.source) || !config.SkillIDPattern.MatchString(a.name):
+		return errors.New("the published source or skill name is malformed")
+	case !config.ValidCommit(src.Commit):
+		return fmt.Errorf("%q is not a commit", src.Commit)
+	case !config.ValidSkillPath(f.Path):
+		return fmt.Errorf("%q is not a folder", f.Path)
 	}
-	if !s.Git.AllowFile || !strings.HasPrefix(sk.Repo, "file://") {
-		if msg := config.CheckSkillRepo(sk.Repo); msg != "" {
+	if !s.Git.AllowFile || !strings.HasPrefix(src.Repo, "file://") {
+		if msg := config.CheckSkillRepo(src.Repo); msg != "" {
 			return fmt.Errorf("repository %s", msg)
 		}
 	}
-	dir := CacheDir(s.Home, sk.Repo)
-	if !s.Git.HasCommit(ctx, dir, sk.Commit) {
-		got, err := s.Git.Fetch(ctx, dir, sk.Repo, sk.Commit)
+	cache := CacheDir(s.Home, src.Repo)
+	if !s.Git.HasCommit(ctx, cache, src.Commit) {
+		got, err := s.Git.Fetch(ctx, cache, src.Repo, src.Commit)
 		if err != nil {
-			return fmt.Errorf("fetch %s at %s: %w", sk.Repo, sk.Commit[:12], err)
+			return fmt.Errorf("fetch %s at %s: %w", src.Repo, short(src.Commit), err)
 		}
-		if got != sk.Commit {
-			return fmt.Errorf("fetching %s gave %s", sk.Commit[:12], got[:12])
+		if got != src.Commit {
+			return fmt.Errorf("fetching %s gave %s", short(src.Commit), short(got))
 		}
 	}
-	if err := os.MkdirAll(root, 0o755); err != nil {
+	dir := filepath.Dir(final)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return err
 	}
-	tmp, err := os.MkdirTemp(root, ".tmp-"+id+"-")
+	tmp, err := os.MkdirTemp(dir, ".tmp-"+a.name+"-")
 	if err != nil {
 		return err
 	}
 	defer os.RemoveAll(tmp)
-	if err := s.Git.Archive(ctx, dir, sk.Commit, sk.Path, func(r io.Reader) error {
-		return extract(r, tmp, func(f string, a ...any) { s.logf(id+": "+f, a...) })
+	if err := s.Git.Archive(ctx, cache, src.Commit, f.Path, func(r io.Reader) error {
+		return extract(r, tmp, func(format string, args ...any) { s.logf(a.label()+": "+format, args...) })
 	}); err != nil {
 		return err
 	}
 	if _, err := os.Stat(filepath.Join(tmp, "SKILL.md")); err != nil {
-		return fmt.Errorf("no SKILL.md at %s in %s", sk.Path, sk.Commit[:12])
+		return fmt.Errorf("no SKILL.md at %s in %s", f.Path, short(src.Commit))
 	}
 	if err := os.Chmod(tmp, 0o755); err != nil {
 		return err
@@ -215,9 +252,53 @@ func (s Syncer) ensureStore(ctx context.Context, id string, sk config.Skill, st 
 	if err := swap(tmp, final); err != nil {
 		return err
 	}
-	st.Commits[id] = sk.Commit
-	s.logf("installed %s at %s", id, sk.Commit[:12])
+	st.Exports[a.key()] = want
+	s.logf("installed %s at %s", a.label(), short(src.Commit))
 	return nil
+}
+
+// keepLinks keeps the links that point to export key.
+func (s Syncer) keepLinks(st state, key string, keep map[string]bool) {
+	for _, l := range st.Links {
+		if s.pointsTo(l, key) {
+			keep[l] = true
+		}
+	}
+}
+
+// pruneExports deletes the exports no attachment names, then the source
+// folders that leaves empty.
+func (s Syncer) pruneExports(st *state, used map[string]bool) {
+	for _, key := range slices.Sorted(maps.Keys(st.Exports)) {
+		if used[key] {
+			continue
+		}
+		dir := s.exportDir(key)
+		if err := os.RemoveAll(dir); err != nil {
+			s.logf("cannot remove %s: %v", key, err)
+			continue
+		}
+		delete(st.Exports, key)
+		os.Remove(filepath.Dir(dir)) // only succeeds once the source folder is empty
+		s.logf("removed %s", key)
+	}
+}
+
+// clearLegacy deletes the C2 copies (StoreDir/<id>) that drop picks.
+func (s Syncer) clearLegacy(st *state, drop func(id string) bool) {
+	for _, id := range slices.Sorted(maps.Keys(st.Legacy)) {
+		if !drop(id) {
+			continue
+		}
+		if config.SkillIDPattern.MatchString(id) {
+			if err := os.RemoveAll(filepath.Join(StoreDir(s.Home), id)); err != nil {
+				s.logf("cannot remove the old copy of %s: %v", id, err)
+				continue
+			}
+			s.logf("removed the old copy of %s", id)
+		}
+		delete(st.Legacy, id)
+	}
 }
 
 // swap replaces final with tmp, keeping final if the rename fails.
@@ -242,10 +323,11 @@ func swap(tmp, final string) error {
 	return os.RemoveAll(old)
 }
 
-// link makes path a symlink to the store copy of id. Something at path
-// that Berth did not create is left alone; linked is false then.
-func (s Syncer) link(path, id string, owned []string) (bool, error) {
-	want := filepath.Join(StoreDir(s.Home), id)
+// link makes path a symlink to export key. Something at path that Berth
+// did not create is left alone; linked is false then.
+func (s Syncer) link(path, key string, owned []string) (bool, error) {
+	want := s.exportDir(key)
+	name := filepath.Base(path)
 	cur, err := os.Readlink(path)
 	switch {
 	case err == nil && cur == want:
@@ -253,7 +335,7 @@ func (s Syncer) link(path, id string, owned []string) (bool, error) {
 	case err == nil && slices.Contains(owned, path):
 	case errors.Is(err, fs.ErrNotExist):
 	default:
-		s.logf("skill %s is already defined by the user in %s; skipping it", id, filepath.Dir(path))
+		s.logf("skill %s is already defined by the user in %s; skipping it", name, filepath.Dir(path))
 		return false, nil
 	}
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
@@ -268,7 +350,7 @@ func (s Syncer) link(path, id string, owned []string) (bool, error) {
 		os.Remove(tmp)
 		return false, err
 	}
-	s.logf("linked %s into %s", id, filepath.Dir(path))
+	s.logf("linked %s into %s", name, filepath.Dir(path))
 	return true, nil
 }
 
@@ -278,17 +360,17 @@ func (s Syncer) owned(path string) bool {
 	return err == nil && strings.HasPrefix(cur, StoreDir(s.Home)+string(filepath.Separator))
 }
 
-func (s Syncer) pointsTo(path, id string) bool {
+func (s Syncer) pointsTo(path, key string) bool {
 	cur, err := os.Readlink(path)
-	return err == nil && cur == filepath.Join(StoreDir(s.Home), id)
+	return err == nil && cur == s.exportDir(key)
 }
 
-// pruneCaches deletes cache repositories no configured skill uses. A cache
-// locked by a running resolve is left for the next sync.
-func (s Syncer) pruneCaches(skills map[string]config.Skill) {
+// pruneCaches deletes cache repositories no source uses. A cache locked by
+// a running resolve is left for the next sync.
+func (s Syncer) pruneCaches(sources map[string]config.Source) {
 	want := map[string]bool{}
-	for _, sk := range skills {
-		want[CacheDir(s.Home, sk.Repo)] = true
+	for _, src := range sources {
+		want[CacheDir(s.Home, src.Repo)] = true
 	}
 	entries, err := os.ReadDir(CacheRoot(s.Home))
 	if err != nil {

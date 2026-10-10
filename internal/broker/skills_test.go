@@ -27,6 +27,12 @@ func withSkills(t *testing.T, tb *testBroker) {
 	tb.b.Load()
 }
 
+// publishedCommit is the commit skills.json holds for addPDF's source.
+func publishedCommit(tb *testBroker) string {
+	s, _ := config.ReadSkillsFile(tb.b.SkillsSettings)
+	return s["anthropics-skills"].Commit
+}
+
 func skillRuns(tb *testBroker) int {
 	raw, _ := os.ReadFile(filepath.Join(tb.dir, "skills.log"))
 	return strings.Count(string(raw), "synced\n")
@@ -57,9 +63,8 @@ func TestSkillChangePublishesAndSyncs(t *testing.T) {
 	if code, out := tb.verb(t, "config.apply", addPDF); code != 200 {
 		t.Fatalf("apply = %d %v", code, out)
 	}
-	s, err := config.ReadSkillsFile(tb.b.SkillsSettings)
-	if err != nil || s["pdf"].Commit != skillCommit {
-		t.Errorf("skills.json = %+v, %v", s, err)
+	if got := publishedCommit(tb); got != skillCommit {
+		t.Errorf("skills.json commit = %q", got)
 	}
 	if fi, _ := os.Stat(tb.b.SkillsSettings); fi.Mode().Perm() != 0o640 {
 		t.Errorf("mode = %v", fi.Mode())
@@ -110,13 +115,13 @@ func TestRecoveryDoesNotPublishSkills(t *testing.T) {
 	waitSkillRuns(t, tb, 1)
 	os.Remove(tb.b.SkillsSettings)
 	tb.b.Load()
-	if s, _ := config.ReadSkillsFile(tb.b.SkillsSettings); s["pdf"].Commit == "" {
-		t.Errorf("Load did not republish: %+v", s)
+	if publishedCommit(tb) == "" {
+		t.Errorf("Load did not republish")
 	}
 	os.WriteFile(filepath.Join(tb.dir, "config.json"), []byte(`{"schema":`), 0o600)
 	tb.b.Load()
-	if s, _ := config.ReadSkillsFile(tb.b.SkillsSettings); s["pdf"].Commit == "" {
-		t.Errorf("recovery overwrote skills.json: %+v", s)
+	if publishedCommit(tb) == "" {
+		t.Errorf("recovery overwrote skills.json")
 	}
 }
 
@@ -130,8 +135,8 @@ func TestRevertRepublishesSkills(t *testing.T) {
 	if code, out := tb.verb(t, "config.revert", `{}`); code != 200 {
 		t.Fatalf("revert = %d %v", code, out)
 	}
-	if s, _ := config.ReadSkillsFile(tb.b.SkillsSettings); s["pdf"].Commit != skillCommit {
-		t.Errorf("skills.json after revert = %+v", s)
+	if got := publishedCommit(tb); got != skillCommit {
+		t.Errorf("skills.json after revert = %q", got)
 	}
 	waitSkillRuns(t, tb, 3)
 }

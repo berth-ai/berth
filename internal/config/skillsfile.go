@@ -8,29 +8,30 @@ import (
 	"os"
 )
 
-// SkillsFileSchema is the schema of skills.json, the copy of the skills
-// section that berth skills sync reads: it runs as agent, which cannot read
-// config.json.
-const SkillsFileSchema = 1
+// SkillsFileSchema is the schema of skills.json, the copy of the skill
+// sources that berth skills sync reads: it runs as agent, which cannot
+// read config.json. Schema 1 held C's flat skills map.
+const SkillsFileSchema = 2
 
 type skillsFile struct {
-	Schema int              `json:"schema"`
-	Skills map[string]Skill `json:"skills"`
+	Schema  int               `json:"schema"`
+	Sources map[string]Source `json:"sources"`
 }
 
 // WriteSkillsFile publishes s for the agent-side converger; mode 0640,
 // owned by uid:gid (-1 keeps it).
-func WriteSkillsFile(path string, s map[string]Skill, uid, gid int) error {
-	raw, err := json.MarshalIndent(skillsFile{Schema: SkillsFileSchema, Skills: s}, "", "  ")
+func WriteSkillsFile(path string, s map[string]Source, uid, gid int) error {
+	raw, err := json.MarshalIndent(skillsFile{Schema: SkillsFileSchema, Sources: s}, "", "  ")
 	if err != nil {
 		return err
 	}
 	return WriteFileAtomic(path, append(raw, '\n'), 0o640, uid, gid)
 }
 
-// ReadSkillsFile reads skills.json; a missing file holds no skills.
-func ReadSkillsFile(path string) (map[string]Skill, error) {
-	out := map[string]Skill{}
+// ReadSkillsFile reads skills.json; a missing file holds no sources. Any
+// other schema is refused: the broker rewrites the file when it starts.
+func ReadSkillsFile(path string) (map[string]Source, error) {
+	out := map[string]Source{}
 	raw, err := os.ReadFile(path)
 	if errors.Is(err, fs.ErrNotExist) {
 		return out, nil
@@ -42,11 +43,11 @@ func ReadSkillsFile(path string) (map[string]Skill, error) {
 	if err := json.Unmarshal(raw, &f); err != nil {
 		return out, fmt.Errorf("%s: %w", path, err)
 	}
-	if f.Schema > SkillsFileSchema {
+	if f.Schema != SkillsFileSchema {
 		return out, fmt.Errorf("%s has schema %d; this Berth reads schema %d", path, f.Schema, SkillsFileSchema)
 	}
-	if f.Skills != nil {
-		out = f.Skills
+	if f.Sources != nil {
+		out = f.Sources
 	}
 	return out, nil
 }
