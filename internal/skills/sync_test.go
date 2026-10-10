@@ -114,7 +114,9 @@ func (w *world) link(dir, name string) string {
 	return l
 }
 
-func (w *world) export(source, name string) string { return filepath.Join(StoreDir(w.home), source, name) }
+func (w *world) export(source, name string) string {
+	return filepath.Join(StoreDir(w.home), source, name)
+}
 
 func exists(p string) bool { _, err := os.Lstat(p); return err == nil }
 
