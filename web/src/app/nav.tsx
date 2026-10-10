@@ -5,6 +5,7 @@ import {
   CircleUser,
   CircleX,
   Code,
+  FolderGit2,
   LayoutGrid,
   Menu,
   Plug,
@@ -25,6 +26,7 @@ import { ThemePicker } from "./theme-picker";
 
 const NAV = [
   { to: "/", label: "Overview", icon: LayoutGrid },
+  { to: "/workspaces", label: "Workspaces", icon: FolderGit2 },
   { to: "/terminal", label: "Terminal", icon: SquareTerminal },
   { to: "/ide", label: "IDE", icon: Code },
   { to: "/agents", label: "Agents", icon: Bot },
