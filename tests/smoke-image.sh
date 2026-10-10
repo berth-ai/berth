@@ -15,7 +15,7 @@ boot_timeout=${SMOKE_BOOT_TIMEOUT:-200}
 cleanup() {
   docker ps -aq --filter "name=^$prefix-" | xargs -r docker rm -f >/dev/null 2>&1 || true
   docker volume rm -f "$home_vol" "$agents_vol" "$config_vol" >/dev/null 2>&1 || true
-  docker run --rm -v "$ws:/w" --entrypoint rm "$image" -rf /w/keep >/dev/null 2>&1 || true
+  docker run --rm -v "$ws:/w" --entrypoint rm "$image" -rf /w/keep /w/octocat >/dev/null 2>&1 || true
   rm -rf "$ws"
 }
 trap cleanup EXIT
@@ -363,6 +363,43 @@ for s in pdf docx xlsx; do
   if xa main test -e "/home/agent/.local/share/berth/skills/$s"; then fail "removed $s's store copy kept"; fi
   if xa main test -e "/home/agent/.claude/skills/$s"; then fail "removed $s still linked for claude"; fi
 done
+
+step "a workspace is cloned, launched, forgotten, adopted again and deleted"
+hello=https://github.com/octocat/Hello-World
+hello_pin=7fd1a60b01f91b314f59955a4e4d4e80d8edf11d
+# The test's /workspaces is a private temporary folder; let agent create projects in it.
+x main chmod 0777 /workspaces
+added=$(wait_job "$(verb main workspaces.add '{"mode":"clone","repo":"'"$hello"'","ref":"'"$hello_pin"'","path":"octocat/Hello-World","id":"hello"}' | jq -r .job.id)")
+jq -e '.state == "succeeded" and .result.id == "hello" and .result.writable' <<<"$added" >/dev/null ||
+  fail "workspaces.add clone: $added"
+[[ $(x main stat -c '%a %U %G' /var/lib/berth/workspaces.json) == "640 root agent" ]] || fail "workspaces.json ownership"
+x main jq -e '.workspaces.hello.path == "/workspaces/octocat/Hello-World"' /var/lib/berth/workspaces.json >/dev/null ||
+  fail "workspaces.json: $(x main cat /var/lib/berth/workspaces.json)"
+[[ $(x main stat -c %U /workspaces/octocat/Hello-World) == agent ]] || fail "the clone is not agent's"
+if x main sh -c 'ls -A /workspaces/octocat | grep -q "^\.berth-tmp-"'; then fail "the clone left its temporary folder"; fi
+status=$(verb main workspaces.status '{}')
+jq -e --arg h "${hello_pin:0:12}" '.workspaces.hello | .exists and .git and .writable and .head == $h and .branch == "" and .dirty == 0' \
+  <<<"$status" >/dev/null || fail "workspaces.status: $status"
+verb main workspaces.launch '{"id":"hello"}' | jq -e '.session == "ws-hello"' >/dev/null || fail "shell launch"
+[[ $(xa main tmux display-message -p -t ws-hello '#{pane_current_path}') == /workspaces/octocat/Hello-World ]] ||
+  fail "the session does not start in the workspace"
+verb main workspaces.launch '{"id":"hello","agent":"@anthropic-ai/claude-code"}' | jq -e '.window == "claude"' >/dev/null ||
+  fail "agent launch"
+xa main tmux list-windows -t ws-hello -F '#{window_name}' | grep -qx claude || fail "no claude window in ws-hello"
+if xa main berth-term ws-nope 2>/dev/null; then fail "berth-term attached an unknown workspace"; fi
+forgot=$(wait_job "$(verb main workspaces.forget '{"id":"hello"}' | jq -r .job.id)")
+jq -e '.state == "succeeded" and (.result.deleted | not)' <<<"$forgot" >/dev/null || fail "workspaces.forget: $forgot"
+if xa main tmux has-session -t =ws-hello 2>/dev/null; then fail "forget left the session running"; fi
+x main test -d /workspaces/octocat/Hello-World/.git || fail "forget removed the folder"
+verb main config.get '{}' | jq -e '.config.workspaces == {}' >/dev/null || fail "forget kept the workspace"
+verb main workspaces.candidates '{}' | jq -e '.candidates | any(.path == "octocat/Hello-World" and .git)' >/dev/null ||
+  fail "the forgotten folder is not a candidate"
+adopted=$(wait_job "$(verb main workspaces.add '{"mode":"adopt","path":"octocat/Hello-World","id":"hello"}' | jq -r .job.id)")
+jq -e '.state == "succeeded" and .result.git and .result.writable' <<<"$adopted" >/dev/null || fail "adopt: $adopted"
+deleted=$(wait_job "$(verb main workspaces.forget '{"id":"hello","delete":true,"confirm":"octocat/Hello-World"}' | jq -r .job.id)")
+jq -e '.state == "succeeded" and .result.deleted' <<<"$deleted" >/dev/null || fail "delete: $deleted"
+if x main test -e /workspaces/octocat/Hello-World; then fail "delete left the folder"; fi
+x main test -d /workspaces/octocat || fail "delete removed the parent folder"
 
 step "a registry agent is added, wired, signs in and is removed"
 added=$(wait_job "$(verb main agents.add '{"id":"copilot"}' | jq -r .job.id)")
