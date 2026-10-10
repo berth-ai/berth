@@ -415,6 +415,66 @@ jq -e '.state == "succeeded" and .result.deleted' <<<"$deleted" >/dev/null || fa
 if x main test -e /workspaces/octocat/Hello-World; then fail "delete left the folder"; fi
 x main test -d /workspaces/octocat || fail "delete removed the parent folder"
 
+step "skills and an MCP server are attached to a workspace, linked and vendored, then released on forget"
+hello_dir=/workspaces/octocat/Hello-World
+store=/home/agent/.local/share/berth/skills/anthropics-skills
+added=$(wait_job "$(verb main workspaces.add '{"mode":"clone","repo":"'"$hello"'","ref":"'"$hello_pin"'","path":"octocat/Hello-World","id":"hello"}' | jq -r .job.id)")
+jq -e '.state == "succeeded"' <<<"$added" >/dev/null || fail "cloning hello again: $added"
+pin=8a1541c4a3ffa5a20a5a91de0dcf3f0bab1d1ef4
+wait_job "$(verb main skills.sources.add '{"repo":"https://github.com/anthropics/skills","ref":"'"$pin"'","path":"skills","commit":"'"$pin"'"}' | jq -r .job.id)" |
+  jq -e '.state == "succeeded"' >/dev/null || fail "skills.sources.add for the workspace"
+verb main config.apply '{"base_revision":'"$(rev main)"',"patch":{"skills":{"sources":{"anthropics-skills":{"attached":{
+  "pdf":{"enabled":true,"agents":[],"workspaces":{"hello":"link"}},
+  "docx":{"enabled":true,"agents":[],"workspaces":{"hello":"vendor"}}}}}},
+  "mcp":{"workspaces":{"playwright":["hello"]}}}}' >/dev/null || fail "attaching to the workspace"
+for ((i = 0; i < 120; i++)); do
+  xa main test -f "$hello_dir/.agents/skills/docx/SKILL.md" && xa main test -L "$hello_dir/.claude/skills/pdf" &&
+    xa main test -f "$hello_dir/.mcp.json" && break
+  sleep 1
+done
+for d in .claude/skills .agents/skills; do
+  [[ $(xa main readlink "$hello_dir/$d/pdf") == "$store/pdf" ]] || fail "pdf not linked in $d"
+done
+[[ $(xa main readlink "$hello_dir/.claude/skills/docx") == ../../.agents/skills/docx ]] || fail "docx not linked to its copy"
+if xa main test -L "$hello_dir/.agents/skills/docx"; then fail "the vendored docx is a link"; fi
+exclude=$(xa main cat "$hello_dir/.git/info/exclude")
+for line in /.claude/skills/pdf /.agents/skills/pdf /.mcp.json /opencode.json /.codex/config.toml /.gemini/settings.json; do
+  grep -qxF "$line" <<<"$exclude" || fail "exclude block lacks $line: $exclude"
+done
+if grep -q docx <<<"$exclude"; then fail "vendored docx is hidden from git"; fi
+while IFS= read -r l; do
+  [[ -z $l || $l == '?? .agents/skills/docx/'* || $l == '?? .claude/skills/docx' ]] || fail "unexpected git status line: $l"
+done < <(xa main git -C "$hello_dir" status --porcelain --untracked-files=all)
+xa main jq -e '.mcpServers.playwright.command == "/var/lib/berth/bin/playwright-mcp"' "$hello_dir/.mcp.json" >/dev/null ||
+  fail ".mcp.json: $(xa main cat "$hello_dir/.mcp.json")"
+for ((i = 0; i < 60; i++)); do
+  xa main grep -qF "[projects.\"$hello_dir\"]" /home/agent/.codex/config.toml && break
+  sleep 1
+done
+xa main grep -qF "[projects.\"$hello_dir\"]" /home/agent/.codex/config.toml || fail "Codex does not trust the workspace"
+listed=$(xa main sh -c "cd $hello_dir && gemini skills list" 2>/dev/null || true)
+if ! grep -q pdf <<<"$listed" || ! grep -q docx <<<"$listed"; then
+  fail "gemini does not see the workspace's skills: $listed"
+fi
+verb main workspaces.report '{"id":"hello"}' |
+  jq -e '.report.skills.entries["anthropics-skills/docx"].mode == "vendor" and .report.mcp.files[".mcp.json"].created and .report.mcp.trust' \
+  >/dev/null || fail "workspaces.report: $(verb main workspaces.report '{"id":"hello"}')"
+
+forgot=$(wait_job "$(verb main workspaces.forget '{"id":"hello"}' | jq -r .job.id)")
+jq -e '.state == "succeeded" and .result.kept == []' <<<"$forgot" >/dev/null || fail "forget: $forgot"
+for p in .claude .agents .mcp.json opencode.json .codex .gemini; do
+  if xa main test -e "$hello_dir/$p"; then fail "forget left $p"; fi
+done
+if xa main grep -qF '# >>> berth' "$hello_dir/.git/info/exclude"; then fail "forget left the exclude block"; fi
+[[ -z $(xa main git -C "$hello_dir" status --porcelain --untracked-files=all) ]] || fail "forget left the checkout dirty"
+if xa main test -e /home/agent/.local/state/berth/workspaces/hello.json; then fail "forget left the state file"; fi
+for ((i = 0; i < 60; i++)); do
+  ! xa main grep -qF "[projects.\"$hello_dir\"]" /home/agent/.codex/config.toml && break
+  sleep 1
+done
+if xa main grep -qF "[projects.\"$hello_dir\"]" /home/agent/.codex/config.toml; then fail "forget left Codex's trust"; fi
+verb main skills.sources.remove '{"id":"anthropics-skills"}' >/dev/null || fail "removing the source"
+
 step "a registry agent is added, wired, signs in and is removed"
 added=$(wait_job "$(verb main agents.add '{"id":"copilot"}' | jq -r .job.id)")
 jq -e '.state == "succeeded" and .result.package == "@github/copilot"' <<<"$added" >/dev/null ||
