@@ -150,6 +150,11 @@ func mergeUserMap(dst, tmpl, patch map[string]any, prefix string, v *validator) 
 				cur = deepCopy(tmpl).(map[string]any)
 				dst[key] = cur
 			}
+			for k, d := range tmpl {
+				if _, ok := cur[k]; !ok {
+					cur[k] = deepCopy(d) // omitted from the JSON because empty
+				}
+			}
 			merge(cur, tmpl, obj, field, v)
 		}
 	}

@@ -169,3 +169,18 @@ func TestPatchSources(t *testing.T) {
 		t.Errorf("remove = %v, %v", c.Skills.Sources, err)
 	}
 }
+
+// A found row decoded from the config omits its empty error; a patch may
+// still set it, as an update does when a SKILL.md breaks.
+func TestPatchSetsOmittedFoundFields(t *testing.T) {
+	c := Defaults()
+	c.Skills.Sources["s"] = Source{Repo: "https://github.com/anthropics/skills", Ref: "main", Path: "skills", Commit: goodCommit,
+		Found: map[string]Found{"pdf": {Path: "skills/pdf", Description: "PDF tools"}}, Attached: map[string]Attachment{}}
+	got, err := Patch(c, json.RawMessage(`{"skills":{"sources":{"s":{"found":{"pdf":{"path":"skills/pdf","description":"","error":"broken"}}}}}}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if f := got.Skills.Sources["s"].Found["pdf"]; f.Error != "broken" || f.Description != "" {
+		t.Errorf("pdf = %+v", f)
+	}
+}

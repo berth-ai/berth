@@ -269,3 +269,114 @@ func checkAttachments(cur, next config.Config) error {
 	}
 	return &config.ValidationError{Fields: fields}
 }
+
+func (b *Broker) skillsSourcesUpdate(_ context.Context, body []byte) (int, any) {
+	var in struct {
+		ID     string `json:"id"`
+		Ref    string `json:"ref"`
+		Commit string `json:"commit"`
+	}
+	if err := decode(body, &in); err != nil {
+		return badRequest(err)
+	}
+	if code, v, ok := b.normalMode(); !ok {
+		return code, v
+	}
+	cur, _, _ := b.snapshot()
+	src, ok := cur.Skills.Sources[in.ID]
+	if !ok {
+		return fail(http.StatusNotFound, "unknown_source", "No source named %s", in.ID)
+	}
+	if !config.ValidCommit(in.Commit) {
+		return rejectJob(&fieldError{Code: "invalid_request", Field: "commit", Message: "Preview the update again; the commit is missing"})
+	}
+	ref := cmp.Or(in.Ref, src.Ref)
+	if !config.ValidGitRef(ref) {
+		return rejectJob(&fieldError{Code: "invalid_request", Field: "ref", Message: "The ref must be a branch, tag or commit"})
+	}
+	return b.scanJob("skills.sources.update", src.Repo, in.Commit, []string{src.Path}, func(s skillScan) (json.RawMessage, error) {
+		found := foundOf(s.Skills)
+		missing := []string{}
+		next, changed, err := b.applyPatch(func(cur config.Config) (map[string]any, error) {
+			now, ok := cur.Skills.Sources[in.ID]
+			if !ok || now.Repo != src.Repo || now.Path != src.Path {
+				return nil, &fieldError{Code: "unknown_source", Message: fmt.Sprintf("The source %s was removed or changed meanwhile; try again", in.ID)}
+			}
+			after := now
+			after.Found = found
+			if m := after.Missing(); m != nil {
+				missing = m
+			}
+			if now.Ref == ref && now.Commit == s.Commit && maps.Equal(now.Found, found) {
+				return nil, nil
+			}
+			return map[string]any{"skills": map[string]any{"sources": map[string]any{in.ID: map[string]any{
+				"ref": ref, "commit": s.Commit, "found": replaceFound(now.Found, found)}}}}, nil
+		})
+		if err != nil {
+			return nil, err
+		}
+		return json.Marshal(map[string]any{"id": in.ID, "commit": s.Commit, "changed": changed, "revision": next.Revision, "missing": missing})
+	})
+}
+
+// replaceFound is the merge patch that turns found rows old into next:
+// every row whole, and null for each name next lacks. A merge patch keeps
+// absent keys, so the nulls are what drop them.
+func replaceFound(old, next map[string]config.Found) map[string]any {
+	out := make(map[string]any, len(old)+len(next))
+	for name := range old {
+		out[name] = nil
+	}
+	for name, f := range next {
+		out[name] = map[string]any{"path": f.Path, "description": f.Description, "error": f.Error}
+	}
+	return out
+}
+
+func (b *Broker) skillsSourcesRemove(_ context.Context, body []byte) (int, any) {
+	var in struct {
+		ID string `json:"id"`
+	}
+	if err := decode(body, &in); err != nil {
+		return badRequest(err)
+	}
+	if code, v, ok := b.normalMode(); !ok {
+		return code, v
+	}
+	if cur, _, _ := b.snapshot(); !hasSource(cur, in.ID) {
+		return fail(http.StatusNotFound, "unknown_source", "No source named %s", in.ID)
+	}
+	next, _, err := b.applyPatch(func(cur config.Config) (map[string]any, error) {
+		if !hasSource(cur, in.ID) {
+			return nil, nil // removed meanwhile
+		}
+		return map[string]any{"skills": map[string]any{"sources": map[string]any{in.ID: nil}}}, nil
+	})
+	if err != nil {
+		return fail(http.StatusInternalServerError, "write_failed", "%v", err)
+	}
+	return http.StatusOK, map[string]any{"id": in.ID, "revision": next.Revision}
+}
+
+func hasSource(cur config.Config, id string) bool { _, ok := cur.Skills.Sources[id]; return ok }
+
+// configUpgrade turns an exported config of any schema this Berth reads
+// into the current shape, for the panel's import preview. It changes
+// nothing; config.apply validates what the panel then sends.
+func (b *Broker) configUpgrade(_ context.Context, body []byte) (int, any) {
+	var in struct {
+		Config json.RawMessage `json:"config"`
+	}
+	if err := decode(body, &in); err != nil {
+		return badRequest(err)
+	}
+	if len(in.Config) == 0 || string(in.Config) == "null" {
+		return badRequest(errors.New("send the exported config"))
+	}
+	c, err := config.Upgrade(in.Config)
+	if err != nil {
+		return fail(http.StatusBadRequest, "invalid_config", "That file is not a config this Berth can read: %v", err)
+	}
+	return http.StatusOK, map[string]any{"config": c}
+}

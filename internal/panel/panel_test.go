@@ -421,7 +421,8 @@ func TestVerbAllowlist(t *testing.T) {
 	e := newEnv(t, "normal")
 	c := e.client()
 	e.login(c)
-	for _, verb := range []string{"frobnicate", "..%2fstatus", "auth.verify", "setup.complete", "auth.reset"} {
+	for _, verb := range []string{"frobnicate", "..%2fstatus", "auth.verify", "setup.complete", "auth.reset",
+		"skills.scan", "skills.add", "skills.update"} {
 		before := e.fb.count()
 		resp, body := e.do(c, "POST", "/api/verbs/"+verb, `{}`, nil)
 		if resp.StatusCode != http.StatusNotFound || !strings.Contains(body, "unknown_verb") || e.fb.count() != before {
@@ -431,7 +432,7 @@ func TestVerbAllowlist(t *testing.T) {
 	for _, verb := range []string{
 		"tools.list", "tools.versions", "tools.registry", "tools.add", "tools.remove",
 		"preset.install", "git.identity", "forge.status", "forge.login",
-		"skills.scan", "skills.add", "skills.update",
+		"skills.sources.preview", "skills.sources.add", "skills.sources.update", "skills.sources.remove", "config.upgrade",
 		"login.status", "login.start", "login.input", "login.cancel", "login.logout",
 	} {
 		resp, body := e.do(c, "POST", "/api/verbs/"+verb, `{}`, nil)

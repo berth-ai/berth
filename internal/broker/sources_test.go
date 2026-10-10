@@ -3,6 +3,7 @@ package broker
 import (
 	"encoding/json"
 	"fmt"
+	"slices"
 	"strings"
 	"testing"
 
@@ -253,5 +254,121 @@ func TestConfigApplyRefusesSecondProvider(t *testing.T) {
 	code, out := applyNow(t, tb, `{"skills":{"sources":{"anthropics-skills-v2":{"attached":{"pdf":{}}}}}}`)
 	if code != 400 || !strings.Contains(fmt.Sprint(out), "every agent already gets pdf from anthropics-skills") {
 		t.Errorf("second provider = %d %v", code, out)
+	}
+}
+
+func TestSourcesUpdateReplacesFound(t *testing.T) {
+	tb := newTestBroker(t)
+	withSkills(t, tb)
+	fakeScan(t, tb)
+	addSource(t, tb, "")
+	applyNow(t, tb, `{"skills":{"sources":{"anthropics-skills":{"attached":{"pdf":{},"docx":{"agents":["agent-a"]}}}}}}`)
+	j := skillJob(t, tb, "skills.sources.update", `{"id":"anthropics-skills","ref":"v2","commit":"`+skillCommit2+`"}`)
+	r := result(t, j)
+	if j.State != StateSucceeded || r["changed"] != true || r["commit"] != skillCommit2 || r["revision"] != float64(3) || fmt.Sprint(r["missing"]) != "[]" {
+		t.Fatalf("update = %s", j.Result)
+	}
+	srcs, _ := sourcesNow(t, tb)
+	s := srcs["anthropics-skills"]
+	if s.Ref != "v2" || s.Commit != skillCommit2 || len(s.Found) != 2 || s.Found["pdf"].Description != "PDF tools v2" {
+		t.Errorf("source = %+v (root and bad must be gone)", s)
+	}
+	if len(s.Attached) != 2 || s.Attached["docx"].Agents[0] != "agent-a" {
+		t.Errorf("attachments = %+v", s.Attached)
+	}
+	if got := lastScan(t, tb); got != "skills scan --json --repo "+anthRepo+" --ref "+skillCommit2 {
+		t.Errorf("the update must scan the previewed commit: %s", got)
+	}
+}
+
+func TestSourcesUpdateReportsMissing(t *testing.T) {
+	tb := newTestBroker(t)
+	withSkills(t, tb)
+	fakeScan(t, tb)
+	addSource(t, tb, "")
+	applyNow(t, tb, attach("root"))
+	r := result(t, skillJob(t, tb, "skills.sources.update", `{"id":"anthropics-skills","commit":"`+skillCommit2+`"}`))
+	if fmt.Sprint(r["missing"]) != "[root]" {
+		t.Fatalf("update = %v", r)
+	}
+	srcs, _ := sourcesNow(t, tb)
+	if s := srcs["anthropics-skills"]; s.Ref != "main" || !slices.Equal(s.Missing(), []string{"root"}) {
+		t.Errorf("source = %+v", s)
+	}
+}
+
+func TestSourcesUpdateUnchanged(t *testing.T) {
+	tb := newTestBroker(t)
+	withSkills(t, tb)
+	fakeScan(t, tb)
+	addSource(t, tb, "")
+	r := result(t, skillJob(t, tb, "skills.sources.update", `{"id":"anthropics-skills","commit":"`+skillCommit+`"}`))
+	if r["changed"] != false || r["revision"] != float64(1) {
+		t.Errorf("update = %v", r)
+	}
+}
+
+func TestSourcesUpdateRefusals(t *testing.T) {
+	tb := newTestBroker(t)
+	withSkills(t, tb)
+	fakeScan(t, tb)
+	addSource(t, tb, "")
+	for name, tc := range map[string]struct {
+		body string
+		code int
+		err  string
+	}{
+		"unknown":   {`{"id":"nope","commit":"` + skillCommit + `"}`, 404, "unknown_source"},
+		"no commit": {`{"id":"anthropics-skills"}`, 400, "invalid_request"},
+		"bad ref":   {`{"id":"anthropics-skills","ref":"a..b","commit":"` + skillCommit + `"}`, 400, "invalid_request"},
+		"extra":     {`{"id":"anthropics-skills","commit":"` + skillCommit + `","path":"x"}`, 400, "invalid_request"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if code, out := tb.verb(t, "skills.sources.update", tc.body); code != tc.code || errCode(out) != tc.err {
+				t.Errorf("= %d %v", code, out)
+			}
+		})
+	}
+}
+
+func TestSourcesRemove(t *testing.T) {
+	tb := newTestBroker(t)
+	withSkills(t, tb)
+	fakeScan(t, tb)
+	addSource(t, tb, "")
+	applyNow(t, tb, attach("pdf"))
+	waitSkillRuns(t, tb, 2)
+	code, out := tb.verb(t, "skills.sources.remove", `{"id":"anthropics-skills"}`)
+	if code != 200 || out["id"] != "anthropics-skills" || out["revision"] != float64(3) {
+		t.Fatalf("remove = %d %v", code, out)
+	}
+	if srcs, _ := sourcesNow(t, tb); len(srcs) != 0 {
+		t.Errorf("sources = %v", srcs)
+	}
+	waitSkillRuns(t, tb, 3)
+	if code, out := tb.verb(t, "skills.sources.remove", `{"id":"anthropics-skills"}`); code != 404 || errCode(out) != "unknown_source" {
+		t.Errorf("again = %d %v", code, out)
+	}
+}
+
+func TestConfigUpgrade(t *testing.T) {
+	tb := newTestBroker(t)
+	five := `{"schema":5,"revision":9,"skills":{"pdf":{"repo":"` + anthRepo + `","path":"skills/pdf","ref":"main","commit":"` + skillCommit + `","description":"PDF tools","agents":null,"enabled":true}}}`
+	code, out := tb.verb(t, "config.upgrade", `{"config":`+five+`}`)
+	if code != 200 {
+		t.Fatalf("upgrade = %d %v", code, out)
+	}
+	cfg := out["config"].(map[string]any)
+	src := cfg["skills"].(map[string]any)["sources"].(map[string]any)["anthropics-skills"].(map[string]any)
+	if cfg["schema"] != float64(config.Schema) || src["commit"] != skillCommit || src["path"] != "skills" {
+		t.Errorf("upgraded = %v", cfg)
+	}
+	if _, rev := sourcesNow(t, tb); rev != 0 {
+		t.Error("config.upgrade changed the config")
+	}
+	for _, body := range []string{`{"config":{"schema":7}}`, `{"config":[1]}`, `{}`} {
+		if code, out := tb.verb(t, "config.upgrade", body); code != 400 {
+			t.Errorf("%s = %d %v", body, code, out)
+		}
 	}
 }
