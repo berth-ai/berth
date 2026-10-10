@@ -4,6 +4,8 @@ import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { WorkspaceChecklist } from "@/components/workspace-checklist";
+import { mcpTargetsText, toggled } from "./attachments-logic";
 import { availableLabel, pickedAfter } from "./mcp-logic";
 
 /** AgentChecklist picks the agents a server or skill reaches; null means all
@@ -66,8 +68,17 @@ export function AgentChecklist({
   );
 }
 
+/** WorkspaceTargets is the workspaces a server is attached to, and how to change them. */
+export interface WorkspaceTargets {
+  all: string[];
+  value: string[];
+  note?: string;
+  onChange: (next: string[]) => Promise<void>;
+}
+
 /** AvailablePicker shows who gets a server or skill and saves each change as
- * it is made. label replaces the default list of agents. */
+ * it is made. label replaces the default list of agents. With workspaces, a
+ * server also picks the workspaces whose project files list it. */
 export function AvailablePicker({
   server,
   value,
@@ -75,6 +86,7 @@ export function AvailablePicker({
   notes,
   unsupported,
   label,
+  workspaces,
   onChange,
 }: {
   server: string;
@@ -83,6 +95,7 @@ export function AvailablePicker({
   notes?: Record<string, string>;
   unsupported?: AgentPackage[];
   label?: string;
+  workspaces?: WorkspaceTargets;
   onChange: (next: string[] | null) => Promise<void>;
 }) {
   const [busy, setBusy] = useState(false);
@@ -91,14 +104,22 @@ export function AvailablePicker({
     await onChange(next);
     setBusy(false);
   };
+  const saveWs = async (next: string[]) => {
+    setBusy(true);
+    await workspaces?.onChange(next);
+    setBusy(false);
+  };
   return (
     <Popover>
       <PopoverTrigger
         render={<Button variant="outline" size="sm" aria-label={`Choose agents for ${server}`} />}
       >
-        {label ?? availableLabel(value, agents)}
+        {label ??
+          (workspaces
+            ? mcpTargetsText(value, workspaces.value, agents)
+            : availableLabel(value, agents))}
       </PopoverTrigger>
-      <PopoverContent align="start" className="w-64">
+      <PopoverContent align="start" className="flex w-72 flex-col gap-4">
         <AgentChecklist
           value={value ?? null}
           agents={agents}
@@ -107,6 +128,15 @@ export function AvailablePicker({
           disabled={busy}
           onChange={(next) => void save(next)}
         />
+        {workspaces ? (
+          <WorkspaceChecklist
+            workspaces={workspaces.all}
+            checked={workspaces.value}
+            disabled={busy}
+            note={workspaces.note || undefined}
+            onToggle={(ws, on) => void saveWs(toggled(workspaces.value, ws, on))}
+          />
+        ) : null}
       </PopoverContent>
     </Popover>
   );

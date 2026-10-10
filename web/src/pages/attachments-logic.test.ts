@@ -9,6 +9,7 @@ import {
   strandedSkills,
   targetsText,
   toggled,
+  trustNote,
   workspaceSkills,
   wsConflicts,
   wsPatch,
@@ -157,5 +158,11 @@ describe("workspace attachments", () => {
     expect(mcpFileNote({ style: "claude", ids: ["c7"], created: true })).toMatch(/hidden from git/);
     expect(mcpFileNote({ style: "claude", ids: ["c7"], tracked: true })).toMatch(/git diff/);
     expect(mcpFileNote({ style: "claude", ids: ["c7"] })).toMatch(/merges/);
+  });
+
+  it("says which agents will trust a workspace", () => {
+    const codex = { ...agent("c", "Codex"), mcp_trust: true };
+    expect(trustNote([...AGENTS, codex])).toBe("Codex will trust each workspace you tick.");
+    expect(trustNote([...AGENTS, { ...codex, enabled: false }])).toBe("");
   });
 });

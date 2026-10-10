@@ -237,3 +237,10 @@ export const resolvedText = (action: "overwrite" | "release", name: string, ws: 
   action === "overwrite"
     ? `Berth replaces ${name} in ${ws} with the source's copy in the background.`
     : `${name} in ${ws} is yours now; Berth no longer manages it.`;
+
+/** trustNote names the enabled agents that trust a workspace whose
+ * project file Berth writes (Codex), or "". */
+export function trustNote(agents: AgentPackage[]): string {
+  const names = agents.filter((a) => a.enabled && a.mcp_trust).map((a) => a.name);
+  return names.length ? `${names.join(" and ")} will trust each workspace you tick.` : "";
+}

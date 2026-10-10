@@ -25,6 +25,7 @@ import { count } from "@/lib/format";
 import { notify } from "@/lib/notify";
 import { useTitle } from "@/lib/use-title";
 import { disabledAfter, keyBadge } from "./agents-logic";
+import { mcpWorkspacesPatch, trustNote } from "./attachments-logic";
 import { AvailablePicker } from "./available-picker";
 import {
   AUTH_LABELS,
@@ -51,6 +52,9 @@ export function McpPage() {
   const rows = packages && view ? mcpRows(packages, view.config, view.secrets ?? {}) : undefined;
   const agents = (packages ?? []).filter((p) => p.kind === "agent");
   const available = view?.config.mcp?.available ?? {};
+  const wsAll = Object.keys(view?.config.workspaces ?? {}).sort();
+  const wsLists = view?.config.mcp?.workspaces ?? {};
+  const note = trustNote(packages ?? []);
 
   const apply = async (patch: object, done: string) => {
     try {
@@ -66,7 +70,7 @@ export function McpPage() {
     <Page>
       <PageHeader
         title="MCP servers"
-        description="Tools your agents can call. Choose which agents get each server."
+        description="Tools your agents can call. Choose which agents and workspaces get each server."
       />
       <PanelCard
         title="Servers"
@@ -105,12 +109,15 @@ export function McpPage() {
                   agents={agents}
                   all={packages ?? []}
                   available={r.id ? available[r.id] : undefined}
+                  wsAll={wsAll}
+                  wsList={r.id ? wsLists[r.id] : undefined}
+                  trust={note}
                   onApply={apply}
                   onEdit={setDialog}
                   onRemove={(id) =>
                     confirm({
                       title: `Remove ${id}?`,
-                      body: "Berth removes it from every agent's configuration and deletes its token.",
+                      body: "Berth removes it from every agent's configuration and every workspace, and deletes its token.",
                       confirm: "Remove",
                       danger: true,
                       action: () => apply(removePatch(id), `${id} removed.`),
@@ -142,6 +149,9 @@ function ServerRows({
   agents,
   all,
   available,
+  wsAll,
+  wsList,
+  trust,
   onApply,
   onEdit,
   onRemove,
@@ -150,6 +160,9 @@ function ServerRows({
   agents: AgentPackage[];
   all: AgentPackage[];
   available: string[] | undefined;
+  wsAll: string[];
+  wsList: string[] | undefined;
+  trust: string;
   onApply: (patch: object, done: string) => Promise<void>;
   onEdit: (e: Editing) => void;
   onRemove: (id: string) => void;
@@ -245,6 +258,18 @@ function ServerRows({
               server={row.name}
               value={available}
               agents={agents}
+              workspaces={{
+                all: wsAll,
+                value: wsList ?? [],
+                note: trust,
+                onChange: (next) =>
+                  onApply(
+                    mcpWorkspacesPatch(row.id, next),
+                    next.length
+                      ? `${row.name} is attached to ${next.join(", ")}.`
+                      : `${row.name} is in no workspace.`,
+                  ),
+              }}
               onChange={(next) =>
                 onApply(
                   availablePatch(row.id, next),
