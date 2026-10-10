@@ -24,27 +24,58 @@ func StatePath(home string) string {
 	return filepath.Join(home, ".local", "state", "berth", "mcp.json")
 }
 
+// stateSchema is the state file's schema. Schema 1 had no schema field: a
+// plain map of config file → server ids.
+const stateSchema = 2
+
+// state records what Berth wrote into the agents' own config files.
+type state struct {
+	Schema int                 `json:"schema"`
+	Files  map[string][]string `json:"files"`           // config file → server ids
+	Trust  map[string][]string `json:"trust,omitempty"` // config file → folders marked trusted
+}
+
+func newState() state {
+	return state{Schema: stateSchema, Files: map[string][]string{}, Trust: map[string][]string{}}
+}
+
 // loadState reads the state file; a missing file is an empty state.
-func loadState(path string) (map[string][]string, error) {
-	st := map[string][]string{}
+func loadState(path string) (state, error) {
+	st := newState()
 	data, err := os.ReadFile(path)
 	if errors.Is(err, fs.ErrNotExist) {
 		return st, nil
 	}
 	if err != nil {
-		return nil, err
+		return st, err
 	}
-	if err := json.Unmarshal(data, &st); err != nil {
-		return nil, fmt.Errorf("%s: %w", path, err)
+	var probe struct {
+		Schema int `json:"schema"`
 	}
-	if st == nil {
-		st = map[string][]string{}
+	_ = json.Unmarshal(data, &probe)
+	switch {
+	case probe.Schema == 0:
+		err = json.Unmarshal(data, &st.Files)
+	case probe.Schema > stateSchema:
+		err = fmt.Errorf("schema %d is newer than this Berth reads", probe.Schema)
+	default:
+		err = json.Unmarshal(data, &st)
 	}
+	if err != nil {
+		return newState(), fmt.Errorf("%s: %w", path, err)
+	}
+	if st.Files == nil {
+		st.Files = map[string][]string{}
+	}
+	if st.Trust == nil {
+		st.Trust = map[string][]string{}
+	}
+	st.Schema = stateSchema
 	return st, nil
 }
 
 // saveState writes st when it differs from what is on disk.
-func saveState(path string, st map[string][]string) error {
+func saveState(path string, st state) error {
 	data, err := json.MarshalIndent(st, "", "  ")
 	if err != nil {
 		return err

@@ -7,6 +7,7 @@ import (
 	"maps"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 )
 
@@ -31,15 +32,33 @@ func tableID(header string) string {
 	return m[1] + m[2]
 }
 
+var projectTable = regexp.MustCompile(`^\[\s*projects\.("(?:[^"\\]|\\.)*")\s*\]\s*(?:#.*)?$`)
+
+// tableProject returns the folder of a [projects."<folder>"] header, or "".
+func tableProject(header string) string {
+	m := projectTable.FindStringSubmatch(header)
+	if m == nil {
+		return ""
+	}
+	p, err := strconv.Unquote(m[1])
+	if err != nil {
+		return ""
+	}
+	return p
+}
+
 // editCodex rewrites Berth's block in a Codex config.toml so it holds
-// servers, and removes the top-level [mcp_servers.<id>] tables of owned ids
-// that `codex mcp add` wrote before Berth kept a block. A server the user
-// defines outside the block is left out and returned in skipped. It returns
-// data itself when nothing changes.
-func editCodex(data []byte, servers []server, owned []string) ([]byte, []string, error) {
+// servers and, for each folder in trust, a [projects."<folder>"] table
+// that trusts it. It removes the top-level [mcp_servers.<id>] tables of
+// owned ids that `codex mcp add` wrote before Berth kept a block. Owned
+// and trusted are what Berth wrote before. A server or folder the user
+// defines outside the block is left out: servers are returned in skipped,
+// and trustedNow lists the folders the block trusts. It returns data
+// itself when nothing changes.
+func editCodex(data []byte, servers []server, owned, trust, trusted []string) ([]byte, []string, []string, error) {
 	text := string(data)
 	if strings.Count(text, `"""`)%2 == 1 || strings.Count(text, `'''`)%2 == 1 {
-		return nil, nil, errUnsafeTOML
+		return nil, nil, nil, errUnsafeTOML
 	}
 	lines := strings.Split(text, "\n")
 	if lines[len(lines)-1] == "" {
@@ -50,8 +69,14 @@ func editCodex(data []byte, servers []server, owned []string) ([]byte, []string,
 	// edits can land between the markers (it appends tables before trailing
 	// comments), so only Berth's tables go; anything else moves after the
 	// block.
-	berths := func(id string) bool {
-		return slices.Contains(owned, id) || slices.ContainsFunc(servers, func(s server) bool { return s.ID == id })
+	berths := func(header string) bool {
+		if id := tableID(header); id != "" {
+			return slices.Contains(owned, id) || slices.ContainsFunc(servers, func(s server) bool { return s.ID == id })
+		}
+		if p := tableProject(header); p != "" {
+			return slices.Contains(trusted, p) || slices.Contains(trust, p)
+		}
+		return false
 	}
 	var kept, foreign []string
 	inBlock, placed, ours := false, false, true
@@ -69,8 +94,7 @@ func editCodex(data []byte, servers []server, owned []string) ([]byte, []string,
 			foreign = nil
 		case inBlock:
 			if strings.HasPrefix(t, "[") {
-				id := tableID(t)
-				ours = id != "" && berths(id)
+				ours = berths(t)
 			}
 			if !ours {
 				foreign = append(foreign, l)
@@ -80,12 +104,13 @@ func editCodex(data []byte, servers []server, owned []string) ([]byte, []string,
 		}
 	}
 	if inBlock {
-		return nil, nil, errUnsafeTOML
+		return nil, nil, nil, errUnsafeTOML
 	}
 
 	// Drop legacy tables of owned ids; note the ids the user defines.
 	var rest []string
 	user := map[string]bool{}
+	userTrust := map[string]bool{}
 	dropping := false
 	for _, l := range kept {
 		if l == marker {
@@ -98,6 +123,9 @@ func editCodex(data []byte, servers []server, owned []string) ([]byte, []string,
 			dropping = id != "" && slices.Contains(owned, id)
 			if id != "" && !dropping {
 				user[id] = true
+			}
+			if p := tableProject(t); p != "" {
+				userTrust[p] = true
 			}
 		}
 		if !dropping {
@@ -112,6 +140,14 @@ func editCodex(data []byte, servers []server, owned []string) ([]byte, []string,
 			continue
 		}
 		block = append(block, codexTable(s)...)
+	}
+	var trustedNow []string
+	for _, p := range trust {
+		if userTrust[p] {
+			continue
+		}
+		block = append(block, "[projects."+tomlString(p)+"]", `trust_level = "trusted"`)
+		trustedNow = append(trustedNow, p)
 	}
 	if len(block) > 0 {
 		block = append(append([]string{blockStart}, block...), blockEnd)
@@ -136,9 +172,9 @@ func editCodex(data []byte, servers []server, owned []string) ([]byte, []string,
 		out = append(out, '\n')
 	}
 	if bytes.Equal(out, data) {
-		return data, skipped, nil
+		return data, skipped, trustedNow, nil
 	}
-	return out, skipped, nil
+	return out, skipped, trustedNow, nil
 }
 
 // codexTable renders one server's [mcp_servers.<id>] table.

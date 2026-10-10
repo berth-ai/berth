@@ -18,7 +18,7 @@ args = ["--headless", "--no-sandbox"]
 
 func codex(t *testing.T, in string, servers []server, owned []string) (string, []string) {
 	t.Helper()
-	out, skipped, err := editCodex([]byte(in), servers, owned)
+	out, skipped, _, err := editCodex([]byte(in), servers, owned, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -71,11 +71,11 @@ func TestCodexSkipsUserTable(t *testing.T) {
 
 func TestCodexUnchangedReturnsInput(t *testing.T) {
 	in := []byte("a = 1\n\n" + pwBlock)
-	out, _, err := editCodex(in, []server{cpw}, []string{"playwright"})
+	out, _, _, err := editCodex(in, []server{cpw}, []string{"playwright"}, nil, nil)
 	if err != nil || !bytes.Equal(out, in) {
 		t.Errorf("out %q err %v", out, err)
 	}
-	if out, _, err := editCodex(nil, nil, nil); err != nil || len(out) != 0 {
+	if out, _, _, err := editCodex(nil, nil, nil, nil, nil); err != nil || len(out) != 0 {
 		t.Errorf("empty edit of a missing file = %q, %v", out, err)
 	}
 }
@@ -86,7 +86,7 @@ func TestCodexRefusesUnsafeFiles(t *testing.T) {
 		"open literal": "x = '''\nabc\n",
 		"open block":   "# >>> berth mcp (managed; edits are overwritten)\n[mcp_servers.a]\n",
 	} {
-		if _, _, err := editCodex([]byte(in), []server{cpw}, nil); !errors.Is(err, errUnsafeTOML) {
+		if _, _, _, err := editCodex([]byte(in), []server{cpw}, nil, nil, nil); !errors.Is(err, errUnsafeTOML) {
 			t.Errorf("%s: err = %v", name, err)
 		}
 	}

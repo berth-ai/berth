@@ -224,3 +224,58 @@ func TestMissingWorkspaceFailsAlone(t *testing.T) {
 		t.Error("the user-level files did not converge")
 	}
 }
+
+func TestCodexTrustsTheWorkspace(t *testing.T) {
+	f := newFixture(t)
+	ws := f.workspace("api")
+	header := `[projects."` + ws + `"]`
+	f.settings(config.MCP{Workspaces: map[string][]string{"context7": {"api"}}})
+	f.sync()
+	got := f.read(cFile)
+	start, end := strings.Index(got, blockStart), strings.Index(got, blockEnd)
+	if i := strings.Index(got, header); i < start || i > end || !strings.Contains(got, `trust_level = "trusted"`) {
+		t.Fatalf("trust not in Berth's block:\n%s", got)
+	}
+	if !f.wsState("api").MCP.Trust {
+		t.Error("the report does not say Codex trusts the folder")
+	}
+	f.settings(config.MCP{})
+	f.sync()
+	if strings.Contains(f.read(cFile), header) {
+		t.Errorf("trust kept after detach:\n%s", f.read(cFile))
+	}
+}
+
+func TestCodexTrustLeavesUserTables(t *testing.T) {
+	f := newFixture(t)
+	ws := f.workspace("api")
+	header := `[projects."` + ws + `"]`
+	f.write(cFile, header+"\ntrust_level = \"untrusted\"\n")
+	f.settings(config.MCP{Workspaces: map[string][]string{"context7": {"api"}}})
+	f.sync()
+	if got := f.read(cFile); strings.Count(got, header) != 1 || !strings.Contains(got, `"untrusted"`) {
+		t.Errorf("the user's choice was overridden:\n%s", got)
+	}
+}
+
+func TestCodexTableInsideBlockIsKept(t *testing.T) {
+	// Codex appends its own tables where it likes, sometimes inside Berth's block.
+	in := blockStart + "\n[mcp_servers.context7]\ncommand = \"x\"\n[projects.\"/elsewhere\"]\ntrust_level = \"trusted\"\n" + blockEnd + "\n"
+	out, _, trusted, err := editCodex([]byte(in), nil, []string{"context7"}, nil, nil)
+	if err != nil || !strings.Contains(string(out), `[projects."/elsewhere"]`) || strings.Contains(string(out), blockStart) || len(trusted) != 0 {
+		t.Errorf("out = %s, trusted = %v, %v", out, trusted, err)
+	}
+}
+
+func TestOldStateFileIsRead(t *testing.T) {
+	f := newFixture(t)
+	f.write(".local/state/berth/mcp.json", `{"`+f.path(aFile)+`":["context7"]}`)
+	f.write(aFile, `{"mcpServers":{"context7":{"command":"old"}}}`)
+	f.sync()
+	if strings.Contains(f.read(aFile), `"old"`) {
+		t.Error("ownership from the old state was lost")
+	}
+	if got := f.read(".local/state/berth/mcp.json"); !strings.Contains(got, `"schema": 2`) {
+		t.Errorf("state = %s", got)
+	}
+}

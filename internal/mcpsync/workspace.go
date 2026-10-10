@@ -173,7 +173,7 @@ func (s Syncer) syncProjectFile(ws string, t projectTarget, servers []server, se
 	if existed && !had && len(before) <= wsstate.MaxOriginal {
 		f.Original = string(before)
 	}
-	ids, err := s.syncFile(full, locksource.MCPTarget{File: t.file, Style: t.style, Key: t.key}, servers, f.IDs)
+	ids, _, err := s.syncFile(full, locksource.MCPTarget{File: t.file, Style: t.style, Key: t.key}, fileEdit{servers: servers, owned: f.IDs})
 	if err != nil {
 		return err
 	}

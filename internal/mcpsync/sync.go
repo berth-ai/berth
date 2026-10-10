@@ -62,13 +62,13 @@ func (s Syncer) Run() error {
 		}
 	}
 	servers := s.desired(desc, settings, keys, false)
-	_, wsFailed := s.syncWorkspaces(desc, settings)
+	trust, wsFailed := s.syncWorkspaces(desc, settings)
 
 	statePath := StatePath(s.Home)
 	st, err := loadState(statePath)
 	if err != nil {
 		s.logf("%v; starting over", err)
-		st = map[string][]string{}
+		st = newState()
 	}
 
 	var failed []string
@@ -82,19 +82,31 @@ func (s Syncer) Run() error {
 			continue
 		}
 		path := s.resolve(t.File)
-		owned, synced := st[path]
+		owned, synced := st.Files[path]
 		if !synced && slices.Contains(legacyAgents, dep) {
 			// Berth never synced this file; berth-mcp-setup may have
 			// registered its servers there.
 			owned = slices.Clone(legacyIDs)
 		}
-		ids, err := s.syncFile(path, *t, availableTo(servers, settings.Available, dep), owned)
+		want := slices.Sorted(slices.Values(trust[dep]))
+		ids, trusted, err := s.syncFile(path, *t, fileEdit{servers: availableTo(servers, settings.Available, dep),
+			owned: owned, trust: want, trusted: st.Trust[path]})
 		if err != nil {
 			s.logf("failed to converge MCP servers for %s: %v", name, err)
 			failed = append(failed, name)
 			continue
 		}
-		st[path] = ids
+		for _, p := range want {
+			if !slices.Contains(trusted, p) {
+				s.logf("%s already says whether to trust %s; leaving it", path, p)
+			}
+		}
+		st.Files[path] = ids
+		if len(trusted) > 0 {
+			st.Trust[path] = trusted
+		} else {
+			delete(st.Trust, path)
+		}
 		s.logf("converged MCP servers for %s", name)
 	}
 	if err := saveState(statePath, st); err != nil {
@@ -175,27 +187,35 @@ func availableTo(servers []server, avail map[string][]string, dep string) []serv
 	return out
 }
 
+// fileEdit is what one config file should hold of Berth's.
+type fileEdit struct {
+	servers []server
+	owned   []string // server ids Berth wrote there before
+	trust   []string // folders to mark trusted (codex-toml only)
+	trusted []string // folders Berth marked trusted there before
+}
+
 // syncFile converges one config file and returns the ids Berth now owns
 // there.
-func (s Syncer) syncFile(path string, t locksource.MCPTarget, servers []server, owned []string) ([]string, error) {
+func (s Syncer) syncFile(path string, t locksource.MCPTarget, e fileEdit) ([]string, []string, error) {
 	real, err := realPath(path)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	if err := os.MkdirAll(filepath.Dir(real), 0o755); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	for range maxAttempts {
 		data, perm, err := readConfig(real)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
-		out, ids, err := s.render(path, t, data, servers, owned)
+		out, ids, trusted, err := s.render(path, t, data, e)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		if bytes.Equal(out, data) && (perm != 0 || len(out) == 0) {
-			return ids, nil
+			return ids, trusted, nil
 		}
 		if perm == 0 {
 			perm = 0o600
@@ -217,34 +237,34 @@ func (s Syncer) syncFile(path string, t locksource.MCPTarget, servers []server, 
 			continue
 		}
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
-		return ids, nil
+		return ids, trusted, nil
 	}
-	return nil, fmt.Errorf("%s kept changing while Berth edited it", path)
+	return nil, nil, fmt.Errorf("%s kept changing while Berth edited it", path)
 }
 
 // render computes a file's new content and the ids Berth owns in it.
-func (s Syncer) render(path string, t locksource.MCPTarget, data []byte, servers []server, owned []string) ([]byte, []string, error) {
+func (s Syncer) render(path string, t locksource.MCPTarget, data []byte, e fileEdit) ([]byte, []string, []string, error) {
 	var out []byte
-	var skipped []string
+	var skipped, trusted []string
 	if t.Style == locksource.StyleCodexTOML {
 		var err error
-		out, skipped, err = editCodex(data, servers, owned)
+		out, skipped, trusted, err = editCodex(data, e.servers, e.owned, e.trust, e.trusted)
 		if err != nil {
-			return nil, nil, fmt.Errorf("%s: %w; leaving it unchanged", path, err)
+			return nil, nil, nil, fmt.Errorf("%s: %w; leaving it unchanged", path, err)
 		}
 	} else {
 		existing, err := objectKeys(data, t.Key)
 		if errors.Is(err, errNotPlainJSON) {
-			return nil, nil, fmt.Errorf("%s is not plain JSON; leaving it unchanged", path)
+			return nil, nil, nil, fmt.Errorf("%s is not plain JSON; leaving it unchanged", path)
 		}
 		if err != nil {
-			return nil, nil, fmt.Errorf("%s: %w", path, err)
+			return nil, nil, nil, fmt.Errorf("%s: %w", path, err)
 		}
 		var keep []server
-		for _, sv := range servers {
-			if slices.Contains(existing, sv.ID) && !slices.Contains(owned, sv.ID) {
+		for _, sv := range e.servers {
+			if slices.Contains(existing, sv.ID) && !slices.Contains(e.owned, sv.ID) {
 				skipped = append(skipped, sv.ID)
 				continue
 			}
@@ -252,20 +272,20 @@ func (s Syncer) render(path string, t locksource.MCPTarget, data []byte, servers
 		}
 		entries, err := jsonEntries(t.Style, keep)
 		if err != nil {
-			return nil, nil, err
+			return nil, nil, nil, err
 		}
 		var del []string
-		for _, id := range owned {
+		for _, id := range e.owned {
 			if !slices.ContainsFunc(keep, func(sv server) bool { return sv.ID == id }) {
 				del = append(del, id)
 			}
 		}
 		if out, err = editJSON(data, t.Key, entries, del); err != nil {
-			return nil, nil, fmt.Errorf("%s: %w", path, err)
+			return nil, nil, nil, fmt.Errorf("%s: %w", path, err)
 		}
 	}
 	for _, id := range skipped {
 		s.logf("%s already defines the MCP server %s; not registering Berth's there", path, id)
 	}
-	return out, idsExcept(servers, skipped), nil
+	return out, idsExcept(e.servers, skipped), trusted, nil
 }

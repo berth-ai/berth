@@ -127,11 +127,13 @@ func (f *fixture) sync() {
 }
 
 func (f *fixture) state() map[string][]string {
-	var st map[string][]string
+	var st struct {
+		Files map[string][]string `json:"files"`
+	}
 	data, err := os.ReadFile(StatePath(f.s.Home))
 	must(f.t, err)
 	must(f.t, json.Unmarshal(data, &st))
-	return st
+	return st.Files
 }
 
 const (
