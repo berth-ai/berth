@@ -117,6 +117,9 @@ func (s Syncer) convergeWorkspace(ws string, sec *wsstate.MCP, servers []server,
 	}
 	sec.Path, sec.Error, sec.Skipped = ws, "", map[string]string{}
 	if fi, err := os.Stat(ws); err != nil || !fi.IsDir() {
+		if len(servers) == 0 && len(sec.Files) == 0 {
+			return nil // nothing to write or remove
+		}
 		sec.Error = fmt.Sprintf("the folder %s is missing", ws)
 		return errors.New(sec.Error)
 	}

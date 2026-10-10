@@ -271,3 +271,15 @@ func TestProjectDirs(t *testing.T) {
 		}
 	}
 }
+
+func TestWorkspaceMissingWithoutSkillsIsQuiet(t *testing.T) {
+	w := newWorld(t)
+	w.publish(map[string]string{"old": filepath.Join(t.TempDir(), "gone")})
+	w.write(map[string]config.Source{"fx": w.source(map[string]config.Attachment{"pdf": to()})})
+	if log, err := w.run(); err != nil {
+		t.Fatalf("a missing folder with nothing attached failed the sync: %v\n%s", err, log)
+	}
+	if ids, _ := (wsstate.Store{Home: w.home}).IDs(); len(ids) != 0 {
+		t.Errorf("state files: %v", ids)
+	}
+}

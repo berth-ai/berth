@@ -109,6 +109,9 @@ func (s Syncer) convergeWorkspace(id, ws string, sec *wsstate.Skills, wants []ws
 	}
 	sec.Path, sec.Error, sec.Skipped = ws, "", map[string]string{}
 	if fi, err := os.Stat(ws); err != nil || !fi.IsDir() {
+		if len(wants) == 0 && len(sec.Entries) == 0 {
+			return nil // nothing to place or remove
+		}
 		sec.Error = fmt.Sprintf("the folder %s is missing", ws)
 		return errors.New(sec.Error)
 	}

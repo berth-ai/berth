@@ -279,3 +279,16 @@ func TestOldStateFileIsRead(t *testing.T) {
 		t.Errorf("state = %s", got)
 	}
 }
+
+func TestMissingWorkspaceWithoutServersIsQuiet(t *testing.T) {
+	f := newFixture(t)
+	f.publish(map[string]string{"gone": filepath.Join(t.TempDir(), "gone")})
+	f.settings(config.MCP{})
+	f.load()
+	if err := f.s.Run(); err != nil {
+		t.Errorf("a missing folder with nothing attached failed the sync: %v", err)
+	}
+	if ids, _ := (wsstate.Store{Home: f.s.Home}).IDs(); len(ids) != 0 {
+		t.Errorf("state files: %v", ids)
+	}
+}
