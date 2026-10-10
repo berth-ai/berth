@@ -4,7 +4,7 @@ import { useEffect, useEffectEvent, useId, useRef, useState } from "react";
 import { keys, queryClient, useConfig, useStatus } from "@/api/queries";
 import { verb } from "@/api/request";
 import { runJob } from "@/api/run-job";
-import type { AgentPackage, DiffRow, Job, Source, SourceDiff } from "@/api/types";
+import type { AgentPackage, DiffRow, Job, SkillMode, Source, SourceDiff } from "@/api/types";
 import { BusyButton } from "@/components/busy-button";
 import { useConfirm } from "@/components/confirm";
 import { EmptyState } from "@/components/empty-state";
@@ -40,6 +40,7 @@ import { cn } from "@/lib/utils";
 import { applyAndNotify, BG } from "./apply-notify";
 import { AttachPicker } from "./attach-picker";
 import { AttachedSwitch } from "./attached-switch";
+import { targetsText, wsConflicts } from "./attachments-logic";
 import { refError, repoLabel, shortCommit, skillAgents, unsupportedAgents } from "./skills-logic";
 import {
   attachPatch,
@@ -59,10 +60,18 @@ import {
 const mono = "font-mono text-xs";
 
 /** attachedText is the toast after the Attach picker saved. */
-function attachedText(name: string, next: string[] | null, agents: AgentPackage[]): string {
-  if (next === null) return `${name} is attached to all agents.`;
-  if (!next.length) return `${name} detached.`;
-  return `${name} is attached to ${whoText({ enabled: true, agents: next }, agents)}.`;
+function attachedText(
+  name: string,
+  next: string[] | null,
+  ws: Record<string, SkillMode>,
+  agents: AgentPackage[],
+): string {
+  const ids = Object.keys(ws).sort();
+  if (next !== null && !next.length && !ids.length) return `${name} detached.`;
+  const where = ids.length ? ids.join(", ") : "";
+  if (next === null) return `${name} is attached to all agents${where ? ` and ${where}` : ""}.`;
+  if (!next.length) return `${name} is attached to ${where}.`;
+  return `${name} is attached to ${whoText({ enabled: true, agents: next }, agents)}${where ? ` and ${where}` : ""}.`;
 }
 
 /** SourcePage is one skill source: its facts, its last scan with who gets
@@ -109,7 +118,7 @@ export function SourcePage({ id }: { id: string }) {
   const detach = (name: string) =>
     confirm({
       title: `Detach ${name}?`,
-      body: "Berth removes it from every agent and deletes its copy.",
+      body: "Berth removes it from every agent and workspace and deletes its copy. A vendored copy with local edits stays until you resolve it on the workspace's Skills tab.",
       confirm: "Detach",
       danger: true,
       action: () => applyAndNotify(detachPatch(id, name), `${name} detached.`),
@@ -180,7 +189,7 @@ export function SourcePage({ id }: { id: string }) {
                     </div>
                   </TableCell>
                   <TableCell data-label="Attached to" className="text-xs text-fg-secondary">
-                    {whoText(attachment, agents)}
+                    {targetsText(attachment, agents)}
                   </TableCell>
                   <TableCell data-label="Enabled">
                     <AttachedSwitch
@@ -225,7 +234,7 @@ export function SourcePage({ id }: { id: string }) {
                   {found.error
                     ? "Can't be attached"
                     : attachment
-                      ? whoText(attachment, agents)
+                      ? targetsText(attachment, agents)
                       : "Not attached"}
                 </TableCell>
                 <TableCell data-label="Enabled">
@@ -263,10 +272,12 @@ export function SourcePage({ id }: { id: string }) {
           agents={agents}
           unsupported={unsupported}
           taken={conflicts(sources, id, picking, agents)}
-          onSave={(next) =>
+          workspaces={Object.keys(config.data.config.workspaces ?? {}).sort()}
+          wsTaken={wsConflicts(sources, id, picking)}
+          onSave={(next, ws) =>
             applyAndNotify(
-              attachPatch(id, picking, next, source.attached?.[picking] ?? null),
-              attachedText(picking, next, agents),
+              attachPatch(id, picking, next, source.attached?.[picking] ?? null, ws),
+              attachedText(picking, next, ws, agents),
             )
           }
           onClose={() => setPicking(null)}

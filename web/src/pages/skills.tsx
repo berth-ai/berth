@@ -23,6 +23,7 @@ import { useTitle } from "@/lib/use-title";
 import { cn } from "@/lib/utils";
 import { applyAndNotify } from "./apply-notify";
 import { AttachedSwitch } from "./attached-switch";
+import { targetsText } from "./attachments-logic";
 import { UpdateDialog } from "./source";
 import { SourceDialog, type SourceStart } from "./source-dialog";
 import { repoLabel, shortCommit, skillAgents, type SkillView } from "./skills-logic";
@@ -35,7 +36,6 @@ import {
   type SourceEntry,
   sourceList,
   sourceSummary,
-  whoText,
 } from "./sources-logic";
 
 const VIEWS = [
@@ -297,7 +297,7 @@ function AttachedTable({ rows, agents }: { rows: AttachedRow[]; agents: AgentPac
               </Link>
             </TableCell>
             <TableCell data-label="Attached to" className="text-xs text-fg-secondary">
-              {whoText(r.attachment, agents)}
+              {targetsText(r.attachment, agents)}
             </TableCell>
             <TableCell data-label="Enabled">
               <AttachedSwitch

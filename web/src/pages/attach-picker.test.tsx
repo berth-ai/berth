@@ -19,7 +19,13 @@ const AGENTS = [agent("a", "Alpha"), agent("b", "Beta", ["a"]), agent("c", "Gamm
 const box = (name: RegExp) => screen.getByRole("checkbox", { name });
 const button = (name: string) => screen.getByRole<HTMLButtonElement>("button", { name });
 
-function picker(props: { attachment?: Attachment | null; taken?: Record<string, string> } = {}) {
+function picker(
+  props: {
+    attachment?: Attachment | null;
+    taken?: Record<string, string>;
+    wsTaken?: Record<string, string>;
+  } = {},
+) {
   const onSave = vi.fn(async () => true);
   const onClose = vi.fn();
   render(
@@ -30,6 +36,8 @@ function picker(props: { attachment?: Attachment | null; taken?: Record<string, 
       agents={AGENTS}
       unsupported={[agent("x", "Xeno")]}
       taken={props.taken ?? {}}
+      workspaces={["api", "web"]}
+      wsTaken={props.wsTaken ?? {}}
       onSave={onSave}
       onClose={onClose}
     />,
@@ -46,7 +54,7 @@ describe("AttachPicker", () => {
     expect(box(/^Xeno/).hasAttribute("data-disabled")).toBe(true);
     fireEvent.click(button("Attach"));
     await vi.waitFor(() => expect(onClose).toHaveBeenCalled());
-    expect(onSave).toHaveBeenCalledWith(null);
+    expect(onSave).toHaveBeenCalledWith(null, {});
   });
 
   it("lists today's agents once All is unticked", async () => {
@@ -54,7 +62,7 @@ describe("AttachPicker", () => {
     fireEvent.click(box(/^All agents/));
     fireEvent.click(box(/^Gamma/));
     fireEvent.click(button("Attach"));
-    await vi.waitFor(() => expect(onSave).toHaveBeenCalledWith(["a", "b"]));
+    await vi.waitFor(() => expect(onSave).toHaveBeenCalledWith(["a", "b"], {}));
   });
 
   it("locks the agents another source provides", () => {
@@ -78,11 +86,35 @@ describe("AttachPicker", () => {
     expect(button("Save")).toBeTruthy();
     fireEvent.click(box(/^Gamma/));
     fireEvent.click(button("Detach"));
-    await vi.waitFor(() => expect(onSave).toHaveBeenCalledWith([]));
+    await vi.waitFor(() => expect(onSave).toHaveBeenCalledWith([], {}));
   });
 
   it("cannot attach to no agent", () => {
     picker({ taken: { "*": "o", a: "o", b: "o", c: "o" } });
     expect(button("Attach").disabled).toBe(true);
+  });
+
+  it("attaches to a workspace, vendored", async () => {
+    const { onSave } = picker();
+    fireEvent.click(box(/^api/));
+    fireEvent.click(screen.getByRole("button", { name: "Vendor" }));
+    fireEvent.click(button("Attach"));
+    await vi.waitFor(() => expect(onSave).toHaveBeenCalledWith(null, { api: "vendor" }));
+  });
+
+  it("locks a workspace another source provides", () => {
+    picker({ wsTaken: { web: "other" } });
+    expect(box(/^web/).hasAttribute("data-disabled")).toBe(true);
+    expect(screen.getByText("Gets notes from other")).toBeTruthy();
+  });
+
+  it("detaches once no agent and no workspace is left", async () => {
+    const { onSave } = picker({
+      attachment: { enabled: true, agents: [], workspaces: { api: "link" } },
+    });
+    expect(button("Save")).toBeTruthy();
+    fireEvent.click(box(/^api/));
+    fireEvent.click(button("Detach"));
+    await vi.waitFor(() => expect(onSave).toHaveBeenCalledWith([], {}));
   });
 });
