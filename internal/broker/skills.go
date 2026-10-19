@@ -76,10 +76,6 @@ type fieldError struct {
 
 func (e *fieldError) Error() string { return e.Message }
 
-func fieldInvalid(field, msg string) (int, any) {
-	return validationResponse(&config.ValidationError{Fields: []config.FieldError{{Field: field, Message: msg}}})
-}
-
 // normalMode answers setup and recovery the way config.apply does.
 func (b *Broker) normalMode() (int, any, bool) {
 	switch _, mode, _ := b.snapshot(); mode {
