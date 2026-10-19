@@ -475,6 +475,66 @@ done
 if xa main grep -qF "[projects.\"$hello_dir\"]" /home/agent/.codex/config.toml; then fail "forget left Codex's trust"; fi
 verb main skills.sources.remove '{"id":"anthropics-skills"}' >/dev/null || fail "removing the source"
 
+step "a workspace's env reaches its windows, instructions are shared, and forget cleans up"
+hello_dir=/workspaces/octocat/Hello-World
+# The previous step forgot hello and kept its folder: adopt it again.
+added=$(wait_job "$(verb main workspaces.add '{"mode":"adopt","path":"octocat/Hello-World","id":"hello"}' | jq -r .job.id)")
+jq -e '.state == "succeeded"' <<<"$added" >/dev/null || fail "adopting hello for env: $added"
+# shellcheck disable=SC2016 # the $(id) must stay literal: nothing may evaluate it
+secret='smoke s3cret $(id) "q"'
+verb main config.apply "$(jq -nc --argjson rev "$(rev main)" --arg s "$secret" '{base_revision: $rev,
+  patch: {workspaces: {hello: {env: {LOG_LEVEL: {value: "smoke"}, SMOKE_SECRET: {secret: true, value: ""}}}}},
+  secrets: {"workspaces.hello.SMOKE_SECRET": $s}}')" >/dev/null || fail "setting workspace env"
+[[ $(x main stat -c '%a %U %G' /var/lib/berth/secrets/workspaces/hello.json) == "640 root agent" ]] ||
+  fail "secrets file ownership"
+if x main grep -q s3cret /var/lib/berth/config.json /var/lib/berth/workspaces.json; then fail "the secret reached a config file"; fi
+verb main config.get '{}' | jq -e '.secrets["workspaces.hello.SMOKE_SECRET"].set' >/dev/null || fail "secret not reported as set"
+verb main workspaces.launch '{"id":"hello"}' >/dev/null || fail "shell launch with env"
+pane=$(xa main tmux list-panes -t =ws-hello -F '#{pane_pid}' | head -1)
+for ((i = 0; i < 20; i++)); do
+  xa main sh -c "tr '\\0' '\\n' </proc/$pane/environ" | grep -qx 'LOG_LEVEL=smoke' && break
+  sleep 0.5
+done
+environ=$(xa main sh -c "tr '\\0' '\\n' </proc/$pane/environ")
+grep -qx 'LOG_LEVEL=smoke' <<<"$environ" || fail "the window lacks LOG_LEVEL"
+grep -qxF "SMOKE_SECRET=$secret" <<<"$environ" || fail "the window lacks SMOKE_SECRET"
+if x main ps -eo args | grep -q s3cret; then fail "the secret is in a process's argv"; fi
+if xa main tmux show-environment -t =ws-hello 2>/dev/null | grep -q s3cret; then fail "the secret is in tmux's environment"; fi
+xa main tmux show-options -t =ws-hello default-command | grep -q berth-ws-env || fail "default-command does not use berth-ws-env"
+verb main workspaces.restart '{"id":"hello"}' | jq -e '.killed' >/dev/null || fail "workspaces.restart"
+
+agents_md=$(verb main workspaces.instructions.write '{"id":"hello","file":"CLAUDE.md","content":"# from smoke\n","base_sha256":""}')
+jq -e '.sha256 | length == 64' <<<"$agents_md" >/dev/null || fail "instructions write: $agents_md"
+verb main config.apply '{"base_revision":'"$(rev main)"',"patch":{"workspaces":{"hello":{"instructions":{"shared":true}}}}}' >/dev/null ||
+  fail "sharing instructions"
+verb main workspaces.instructions.merge '{"id":"hello","file":"CLAUDE.md"}' | jq -e '.merged' >/dev/null || fail "instructions merge"
+for ((i = 0; i < 60; i++)); do
+  xa main test -L "$hello_dir/GEMINI.md" && break
+  sleep 1
+done
+for f in CLAUDE.md GEMINI.md; do
+  [[ $(xa main readlink "$hello_dir/$f") == AGENTS.md ]] || fail "$f does not link to AGENTS.md"
+done
+[[ $(xa main cat "$hello_dir/AGENTS.md") == "# from smoke" ]] || fail "AGENTS.md: $(xa main cat "$hello_dir/AGENTS.md")"
+exclude=$(xa main cat "$hello_dir/.git/info/exclude")
+for line in /CLAUDE.md /GEMINI.md; do
+  grep -qxF "$line" <<<"$exclude" || fail "links not hidden from git: $exclude"
+done
+[[ $(xa main git -C "$hello_dir" status --porcelain --untracked-files=all) == '?? AGENTS.md' ]] ||
+  fail "git status: $(xa main git -C "$hello_dir" status --porcelain --untracked-files=all)"
+
+forgot=$(wait_job "$(verb main workspaces.forget '{"id":"hello"}' | jq -r .job.id)")
+jq -e '.state == "succeeded"' <<<"$forgot" >/dev/null || fail "forget: $forgot"
+for f in CLAUDE.md GEMINI.md; do
+  if xa main test -e "$hello_dir/$f" || xa main test -L "$hello_dir/$f"; then fail "forget left $f"; fi
+done
+xa main test -f "$hello_dir/AGENTS.md" || fail "forget removed the user's AGENTS.md"
+if x main test -e /var/lib/berth/secrets/workspaces/hello.json; then fail "forget left the secrets file"; fi
+deleted=$(wait_job "$(verb main workspaces.add '{"mode":"adopt","path":"octocat/Hello-World","id":"hello"}' | jq -r .job.id)")
+jq -e '.state == "succeeded"' <<<"$deleted" >/dev/null || fail "adopting hello to delete it"
+deleted=$(wait_job "$(verb main workspaces.forget '{"id":"hello","delete":true,"confirm":"octocat/Hello-World"}' | jq -r .job.id)")
+jq -e '.state == "succeeded" and .result.deleted' <<<"$deleted" >/dev/null || fail "deleting hello: $deleted"
+
 step "a registry agent is added, wired, signs in and is removed"
 added=$(wait_job "$(verb main agents.add '{"id":"copilot"}' | jq -r .job.id)")
 jq -e '.state == "succeeded" and .result.package == "@github/copilot"' <<<"$added" >/dev/null ||
