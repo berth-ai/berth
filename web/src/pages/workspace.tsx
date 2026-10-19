@@ -31,6 +31,7 @@ import { useTitle } from "@/lib/use-title";
 import { FrontendOff, keepRightClick } from "./frontend";
 import { repoLabel } from "./skills-logic";
 import { SessionBadge } from "./workspaces";
+import { WorkspaceEnv } from "./workspace-env";
 import { WorkspaceInstructions } from "./workspace-instructions";
 import { WorkspaceMcp } from "./workspace-mcp";
 import { WorkspaceSkills } from "./workspace-skills";
@@ -143,6 +144,8 @@ export function WorkspacePage({
         <WorkspaceMcp id={id} />
       ) : tab === "instructions" ? (
         <WorkspaceInstructions id={id} />
+      ) : tab === "env" ? (
+        <WorkspaceEnv id={id} />
       ) : (
         <Overview
           id={id}
