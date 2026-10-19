@@ -579,7 +579,8 @@ test("skills and MCP servers are attached to a workspace", async ({ page }) => {
     await dialog.getByLabel("Search skills").fill("release");
     await dialog.getByRole("button", { name: "Vendor" }).click();
     await dialog.getByRole("button", { name: "Attach release-notes from acme-eng-skills" }).click();
-    await expect(page.getByText(/release-notes is vendored into acme-api\./)).toBeVisible();
+    // The first attach's toast may still show: look at the newest.
+    await expect(page.getByText(/release-notes is vendored into acme-api\./).last()).toBeVisible();
   };
   await attachVendored();
   const notes = page.getByRole("row").filter({ hasText: "release-notes" });
