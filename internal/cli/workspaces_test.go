@@ -101,6 +101,14 @@ func TestWorkspacesSessions(t *testing.T) {
 	if code != 0 || !strings.Contains(out, `"killed": true`) {
 		t.Errorf("kill: exit %d, %s", code, out)
 	}
+	out, _, code = run(t, cfg, "workspaces", "restart", "--json", "--id", "gone", "--path", "acme/gone")
+	if code != 1 || !strings.Contains(out, `"code": "missing"`) {
+		t.Errorf("restart in a missing folder: exit %d, %s", code, out)
+	}
+	out, _, code = run(t, cfg, "workspaces", "restart", "--json", "--id", "api", "--path", "acme/api")
+	if code != 0 || !strings.Contains(out, `"killed": true`) || !strings.Contains(out, `"session": "ws-api"`) {
+		t.Errorf("restart: exit %d, %s", code, out)
+	}
 }
 
 func TestWorkspacesUsage(t *testing.T) {

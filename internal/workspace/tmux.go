@@ -6,6 +6,7 @@ import (
 	"context"
 	"fmt"
 	"os/exec"
+	"slices"
 	"strings"
 	"time"
 )
@@ -13,7 +14,8 @@ import (
 // Tmux drives agent's tmux server, where each workspace has one session,
 // ws-<id>, as berth-term names it.
 type Tmux struct {
-	Path string // the tmux binary; empty means tmux on PATH
+	Path   string // the tmux binary; empty means tmux on PATH
+	EnvCmd string // berth-ws-env; windows run through it, so they get the workspace's variables
 }
 
 // SessionName is the tmux session of workspace id.
@@ -65,16 +67,33 @@ type Window struct {
 // Launch opens w in workspace id's session, creating the session in dir
 // when it is not running; a new session's first window is w itself. A
 // program runs, then the default shell, so its output stays readable
-// after it exits.
+// after it exits. With EnvCmd, every window runs through it, and the
+// session's default-command does too, so windows the user opens get the
+// workspace's variables as well; it is set on every launch, which also
+// covers sessions berth-term or tmux-continuum created.
 func (t Tmux) Launch(ctx context.Context, id, dir string, w Window) error {
 	s := SessionName(id)
 	var opts []string
 	if w.Name != "" {
 		opts = append(opts, "-n", w.Name)
 	}
-	if w.Run != "" {
-		// The broker's agent environment has no SHELL; ask tmux which shell it runs.
-		shell, err := t.run(ctx, "start-server", ";", "show-options", "-gv", "default-shell")
+	var after []string // commands run in the same tmux call, after the window
+	switch {
+	case t.EnvCmd != "":
+		shell, err := t.shell(ctx)
+		if err != nil {
+			return err
+		}
+		env := shellQuote(t.EnvCmd) + " " + shellQuote(id) + " -- "
+		def := "exec " + env + shellQuote(shell) + " -l"
+		if w.Run != "" {
+			opts = append(opts, env+shellQuote(w.Run)+"; exec "+env+shellQuote(shell))
+		} else {
+			opts = append(opts, def)
+		}
+		after = []string{";", "set-option", "-t", "=" + s, "default-command", def}
+	case w.Run != "":
+		shell, err := t.shell(ctx)
 		if err != nil {
 			return err
 		}
@@ -84,14 +103,35 @@ func (t Tmux) Launch(ctx context.Context, id, dir string, w Window) error {
 		if !noSession(err) {
 			return err
 		}
-		_, err := t.run(ctx, append([]string{"new-session", "-d", "-s", s, "-c", dir}, opts...)...)
+		args := append(append([]string{"new-session", "-d", "-s", s, "-c", dir}, opts...), after...)
+		_, err := t.run(ctx, args...)
 		if err == nil || !strings.Contains(err.Error(), "duplicate session") {
 			return err
 		}
 		// Another launch created the session meanwhile: add a window to it.
 	}
-	_, err := t.run(ctx, append([]string{"new-window", "-t", "=" + s + ":", "-c", dir}, opts...)...)
+	var args []string
+	if len(after) > 0 {
+		args = append(slices.Clone(after[1:]), ";") // set the option first, then the window
+	}
+	args = append(append(args, "new-window", "-t", "="+s+":", "-c", dir), opts...)
+	_, err := t.run(ctx, args...)
 	return err
+}
+
+// shell is the shell tmux runs; the broker's agent environment has no SHELL.
+func (t Tmux) shell(ctx context.Context) (string, error) {
+	return t.run(ctx, "start-server", ";", "show-options", "-gv", "default-shell")
+}
+
+// Restart ends workspace id's session and opens a new one with one shell
+// window, which reads the workspace's variables afresh.
+func (t Tmux) Restart(ctx context.Context, id, dir string) (bool, error) {
+	killed, err := t.Kill(ctx, id)
+	if err != nil {
+		return false, err
+	}
+	return killed, t.Launch(ctx, id, dir, Window{})
 }
 
 // Kill ends workspace id's session and reports whether one was running.

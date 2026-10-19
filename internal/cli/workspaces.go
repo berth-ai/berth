@@ -24,7 +24,7 @@ import (
 
 const workspacesUsage = "usage: berth workspaces clone --repo URL [--ref REF] --path P | probe --path P | " +
 	"status [--ws ID=PATH]... | candidates [--exclude PATH]... | remove --path P | " +
-	"launch --id ID --path P [--window NAME] [--run PROGRAM] | kill --id ID | release --id ID | report --id ID | " +
+	"launch --id ID --path P [--window NAME] [--run PROGRAM] | kill --id ID | restart --id ID --path P | release --id ID | report --id ID | " +
 	"instructions --action read|write|merge --id ID --file F [--base-sha256 H] | sync, each with --json"
 
 var windowName = regexp.MustCompile(`^([A-Za-z0-9][A-Za-z0-9._-]{0,63})?$`)
@@ -57,7 +57,7 @@ func runWorkspaces(ctx context.Context, a *app, args []string) error {
 	a.p.JSON = *jsonOut
 	root := cmp.Or(a.cfg.WorkspacesDir, "/workspaces")
 	g := workspace.Git{AllowFile: a.cfg.Getenv("BERTH_SKILLS_ALLOW_FILE") == "1"}
-	t := workspace.Tmux{Path: a.cfg.Tmux}
+	t := workspace.Tmux{Path: a.cfg.Tmux, EnvCmd: a.cfg.WsEnv}
 	switch args[0] {
 	case "clone":
 		res, err := g.Clone(ctx, root, workspace.CloneRequest{Repo: *repo, Ref: *ref, Path: *rel}, a.p.Stderr)
@@ -94,6 +94,17 @@ func runWorkspaces(ctx context.Context, a *app, args []string) error {
 		}
 		err := t.Launch(ctx, *id, dir, workspace.Window{Name: *window, Run: *program})
 		return a.workspaceResult(map[string]any{"session": workspace.SessionName(*id)}, err)
+	case "restart":
+		if !config.WorkspaceIDPattern.MatchString(*id) || config.CheckWorkspacePath(*rel) != "" {
+			return usageErr(errors.New(workspacesUsage))
+		}
+		dir := filepath.Join(root, filepath.FromSlash(*rel))
+		if fi, err := os.Stat(dir); err != nil || !fi.IsDir() {
+			return a.workspaceResult(nil, &workspace.Error{Code: "missing", Field: "path",
+				Message: "The workspace folder is missing; restore it or forget the workspace"})
+		}
+		killed, err := t.Restart(ctx, *id, dir)
+		return a.workspaceResult(map[string]any{"session": workspace.SessionName(*id), "killed": killed}, err)
 	case "kill":
 		if !config.WorkspaceIDPattern.MatchString(*id) {
 			return usageErr(errors.New(workspacesUsage))

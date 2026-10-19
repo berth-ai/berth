@@ -54,6 +54,7 @@ type Config struct {
 	ConfigDir     string
 	WorkspacesDir string // the projects' bind mount, /workspaces
 	Tmux          string // the tmux binary; empty means tmux on PATH
+	WsEnv         string // berth-ws-env; empty runs windows without workspace variables
 	KeysPath      string // agents.env, the API keys the wrappers load
 	MCPTimeout    time.Duration
 	Panel         *runner.Identity // the berth-panel user; set when running as root
@@ -106,6 +107,7 @@ func defaultConfig(getenv func(string) string, b Build, isRoot bool, lookup func
 		ConfigDir:     "/var/lib/berth",
 		WorkspacesDir: "/workspaces",
 		Tmux:          "tmux",
+		WsEnv:         "/usr/local/bin/berth-ws-env",
 		KeysPath:      "/var/lib/berth/secrets/agents.env",
 		PanelListen:   "0.0.0.0:7690",
 		LoginPath:     "/var/lib/berth/secrets/panel.json",

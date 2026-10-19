@@ -117,3 +117,59 @@ func TestShellQuote(t *testing.T) {
 		t.Errorf("shellQuote = %s", got)
 	}
 }
+
+const (
+	wsEnv     = "/usr/local/bin/berth-ws-env"
+	shellCmd  = `exec '/usr/local/bin/berth-ws-env' 'api' -- '/usr/bin/zsh' -l`
+	envClaude = `'/usr/local/bin/berth-ws-env' 'api' -- '/var/lib/berth/bin/claude'; exec '/usr/local/bin/berth-ws-env' 'api' -- '/usr/bin/zsh'`
+)
+
+func TestLaunchThroughEnv(t *testing.T) {
+	agent := Window{Name: "claude", Run: "/var/lib/berth/bin/claude"}
+	setDefault := "set-option -t =ws-api default-command " + shellCmd
+	for name, tc := range map[string]struct {
+		cases string
+		w     Window
+		want  []string
+	}{
+		"shell, new session": {noSessionYet + "\n" + shellIsZsh, Window{}, []string{
+			"start-server ; show-options -gv default-shell",
+			"has-session -t =ws-api",
+			"new-session -d -s ws-api -c /w/acme/api " + shellCmd + " ; " + setDefault,
+		}},
+		"agent, running session": {shellIsZsh, agent, []string{
+			"start-server ; show-options -gv default-shell",
+			"has-session -t =ws-api",
+			setDefault + " ; new-window -t =ws-api: -c /w/acme/api -n claude " + envClaude,
+		}},
+		"shell, running session": {shellIsZsh, Window{}, []string{
+			"start-server ; show-options -gv default-shell",
+			"has-session -t =ws-api",
+			setDefault + " ; new-window -t =ws-api: -c /w/acme/api " + shellCmd,
+		}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			tm, log := fakeTmux(t, tc.cases)
+			tm.EnvCmd = wsEnv
+			if err := tm.Launch(context.Background(), "api", "/w/acme/api", tc.w); err != nil {
+				t.Fatal(err)
+			}
+			if got := logLines(t, log); !slices.Equal(got, tc.want) {
+				t.Errorf("calls:\n%s\nwant:\n%s", strings.Join(got, "\n"), strings.Join(tc.want, "\n"))
+			}
+		})
+	}
+}
+
+func TestRestart(t *testing.T) {
+	tm, log := fakeTmux(t, shellIsZsh+"\n"+noSessionYet)
+	tm.EnvCmd = wsEnv
+	killed, err := tm.Restart(context.Background(), "api", "/w/acme/api")
+	if err != nil || !killed {
+		t.Fatalf("Restart = %v, %v", killed, err)
+	}
+	got := logLines(t, log)
+	if len(got) < 2 || got[0] != "kill-session -t =ws-api" || !strings.HasPrefix(got[len(got)-1], "new-session -d -s ws-api") {
+		t.Errorf("calls = %v", got)
+	}
+}
