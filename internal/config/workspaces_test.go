@@ -131,3 +131,20 @@ func TestNormalizeFillsWorkspaceEnv(t *testing.T) {
 		t.Error("nil workspaces must become an empty map")
 	}
 }
+
+func TestWorkspaceEnvRefusesNUL(t *testing.T) {
+	c := Defaults()
+	c.Workspaces = map[string]Workspace{"api": {Path: "acme/api", Env: map[string]WorkspaceEnv{
+		"OK":  {Value: "line one\nline two \"quoted\" $(x)"},
+		"BAD": {Value: "a\x00b"},
+	}}}
+	err := c.Validate()
+	var ve *ValidationError
+	if !errors.As(err, &ve) || len(ve.Fields) != 1 || ve.Fields[0].Field != "workspaces.api.env.BAD.value" {
+		t.Fatalf("Validate = %v", err)
+	}
+	if CheckEnvValue(strings.Repeat("x", 4<<10)) != "" || CheckEnvValue(strings.Repeat("x", 4<<10+1)) == "" ||
+		CheckEnvValue("\xff") == "" {
+		t.Error("CheckEnvValue limits")
+	}
+}

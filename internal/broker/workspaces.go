@@ -40,7 +40,7 @@ func (b *Broker) workspacesStale(ws map[string]config.Workspace) bool {
 		return false
 	}
 	pub, err := config.ReadWorkspacesFile(b.WorkspacesSettings)
-	return err != nil || !maps.Equal(pub, config.PublishWorkspaces(b.workspacesRoot(), ws))
+	return err != nil || !config.SamePublished(pub, config.PublishWorkspaces(b.workspacesRoot(), ws))
 }
 
 const (

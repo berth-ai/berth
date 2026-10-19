@@ -109,12 +109,26 @@ func validateEnv(v *validator, field string, env map[string]WorkspaceEnv) {
 		switch {
 		case e.Secret && e.Value != "":
 			v.add(f+".value", "must be empty for a secret; secrets are stored outside the config")
-		case len(e.Value) > maxEnvValue:
-			v.add(f+".value", "must be at most %d bytes", maxEnvValue)
-		case !utf8.ValidString(e.Value):
-			v.add(f+".value", "must be UTF-8 text")
+		case !e.Secret:
+			if msg := CheckEnvValue(e.Value); msg != "" {
+				v.add(f+".value", "%s", msg)
+			}
 		}
 	}
+}
+
+// CheckEnvValue returns why v cannot be a workspace variable's value, plain
+// or secret, or "".
+func CheckEnvValue(v string) string {
+	switch {
+	case len(v) > maxEnvValue:
+		return fmt.Sprintf("must be at most %d bytes", maxEnvValue)
+	case !utf8.ValidString(v):
+		return "must be UTF-8 text"
+	case strings.ContainsRune(v, 0):
+		return "must not contain a NUL character"
+	}
+	return ""
 }
 
 func checkEnvKey(k string) string {

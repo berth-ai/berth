@@ -40,3 +40,27 @@ func TestWorkspacesFileMissingAndNewer(t *testing.T) {
 		t.Errorf("newer = %v", err)
 	}
 }
+
+func TestPublishWorkspacesCarriesEnvAndShared(t *testing.T) {
+	pub := PublishWorkspaces("/ws", map[string]Workspace{"api": {Path: "acme/api",
+		Env:          map[string]WorkspaceEnv{"LOG": {Value: "debug"}, "KEY": {Secret: true}},
+		Instructions: Instructions{Shared: true}}})
+	want := PublishedWorkspace{Path: "/ws/acme/api", Env: map[string]string{"LOG": "debug"}, Shared: true}
+	if !SamePublished(pub, map[string]PublishedWorkspace{"api": want}) {
+		t.Fatalf("pub = %+v", pub)
+	}
+	p := filepath.Join(t.TempDir(), "workspaces.json")
+	if err := WriteWorkspacesFile(p, pub, -1, -1); err != nil {
+		t.Fatal(err)
+	}
+	back, err := ReadWorkspacesFile(p)
+	if err != nil || !SamePublished(back, pub) {
+		t.Fatalf("read back %+v, %v", back, err)
+	}
+	if raw, _ := os.ReadFile(p); strings.Contains(string(raw), "KEY") {
+		t.Errorf("a secret's name was published: %s", raw)
+	}
+	if SamePublished(pub, PublishWorkspaces("/ws", map[string]Workspace{"api": {Path: "acme/api"}})) {
+		t.Error("SamePublished ignores env and shared")
+	}
+}
