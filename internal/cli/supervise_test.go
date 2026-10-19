@@ -141,7 +141,7 @@ func TestSuperviseRunsReconcilesAndStops(t *testing.T) {
 		t.Errorf("boot ran %q", log)
 	}
 	deadline := time.Now().Add(5 * time.Second)
-	for got, _ := os.ReadFile(order); string(got) != "mcp\nskills\n"; got, _ = os.ReadFile(order) {
+	for got, _ := os.ReadFile(order); string(got) != "mcp\nskills\nworkspaces\n"; got, _ = os.ReadFile(order) {
 		if time.Now().After(deadline) {
 			t.Fatalf("boot ran convergers %q", got)
 		}

@@ -120,3 +120,13 @@ func TestWorkspacesUsage(t *testing.T) {
 		}
 	}
 }
+
+func TestWorkspacesSyncRuns(t *testing.T) {
+	cfg, store, _ := stateConfig(t)
+	if _, errOut, code := run(t, cfg, "workspaces", "sync"); code != 0 {
+		t.Fatalf("sync: exit %d, %s", code, errOut)
+	}
+	if ids, _ := store.IDs(); len(ids) != 0 {
+		t.Errorf("sync wrote state for nothing: %v", ids)
+	}
+}

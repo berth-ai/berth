@@ -13,8 +13,10 @@ import (
 	"strings"
 
 	"github.com/berth-ai/berth/internal/config"
+	"github.com/berth-ai/berth/internal/instructions"
 	"github.com/berth-ai/berth/internal/mcpsync"
 	"github.com/berth-ai/berth/internal/output"
+	"github.com/berth-ai/berth/internal/runner"
 	"github.com/berth-ai/berth/internal/skills"
 	"github.com/berth-ai/berth/internal/workspace"
 	"github.com/berth-ai/berth/internal/wsstate"
@@ -22,7 +24,8 @@ import (
 
 const workspacesUsage = "usage: berth workspaces clone --repo URL [--ref REF] --path P | probe --path P | " +
 	"status [--ws ID=PATH]... | candidates [--exclude PATH]... | remove --path P | " +
-	"launch --id ID --path P [--window NAME] [--run PROGRAM] | kill --id ID | release --id ID | report --id ID, each with --json"
+	"launch --id ID --path P [--window NAME] [--run PROGRAM] | kill --id ID | release --id ID | report --id ID | " +
+	"instructions --action read|write|merge --id ID --file F [--base-sha256 H] | sync, each with --json"
 
 var windowName = regexp.MustCompile(`^([A-Za-z0-9][A-Za-z0-9._-]{0,63})?$`)
 
@@ -41,6 +44,9 @@ func runWorkspaces(ctx context.Context, a *app, args []string) error {
 	id := fs.String("id", "", "workspace id")
 	window := fs.String("window", "", "window name")
 	program := fs.String("run", "", "absolute path of the program the window runs")
+	action := fs.String("action", "", "read, write or merge")
+	file := fs.String("file", "", "instruction file name")
+	base := fs.String("base-sha256", "", "sha256 of the file the content replaces; empty for a new file")
 	var dirs, exclude pathsFlag
 	fs.Var(&dirs, "ws", "ID=PATH of a workspace; repeatable")
 	fs.Var(&exclude, "exclude", "a workspace's path; repeatable")
@@ -94,6 +100,13 @@ func runWorkspaces(ctx context.Context, a *app, args []string) error {
 		}
 		killed, err := t.Kill(ctx, *id)
 		return a.workspaceResult(map[string]any{"killed": killed}, err)
+	case "sync":
+		return a.workspacesSync(ctx)
+	case "instructions":
+		if !config.WorkspaceIDPattern.MatchString(*id) || !instructions.ValidName(*file) {
+			return usageErr(errors.New(workspacesUsage))
+		}
+		return a.workspaceInstructions(ctx, *action, *id, *file, *base)
 	case "release", "report":
 		if !config.WorkspaceIDPattern.MatchString(*id) {
 			return usageErr(errors.New(workspacesUsage))
@@ -110,6 +123,7 @@ func runWorkspaces(ctx context.Context, a *app, args []string) error {
 		err := store.Release(*id, func(st *wsstate.State) {
 			kept = append(kept, skills.Syncer{Home: home, Log: a.p.Stderr}.Release(*id, &st.Skills)...)
 			kept = append(kept, mcpsync.Syncer{Home: home, Log: a.p.Stderr}.Release(&st.MCP)...)
+			kept = append(kept, instructions.Syncer{Home: home, Log: a.p.Stderr}.Release(&st.Instructions)...)
 		})
 		return a.workspaceResult(map[string]any{"kept": kept}, err)
 	}
@@ -147,5 +161,75 @@ func workspaceReport(store wsstate.Store, id string) (any, error) {
 		f.Original = ""
 		st.MCP.Files[k] = f
 	}
-	return map[string]any{"skills": st.Skills, "mcp": st.MCP}, nil
+	return map[string]any{"skills": st.Skills, "mcp": st.MCP, "instructions": st.Instructions}, nil
+}
+
+// setupWorkspaces converges shared instructions at boot; failures are
+// logged, never fatal.
+func (a *app) setupWorkspaces(ctx context.Context) {
+	if len(a.cfg.WorkspacesSync) == 0 {
+		return
+	}
+	cmd := runner.Cmd{Path: a.cfg.WorkspacesSync[0], Args: a.cfg.WorkspacesSync[1:], AsAgent: true, Timeout: instructions.SyncTimeout}
+	if err := a.cfg.Runner.Run(ctx, cmd); err != nil {
+		a.p.Logf("warning: workspaces setup failed: %v", err)
+	}
+}
+
+// workspacesSync is the instructions converger.
+func (a *app) workspacesSync(ctx context.Context) error {
+	home := a.cfg.Getenv("HOME")
+	if home == "" {
+		return output.Errorf(output.ExitFailure, "no_home", "workspaces", "HOME is not set")
+	}
+	set, err := a.agentSet(home)
+	if err != nil {
+		return output.Errorf(output.ExitFailure, "internal", "workspaces", "%v", err)
+	}
+	s := instructions.Syncer{Set: set, Layer: filepath.Join(a.cfg.ConfigDir, "bin"), Home: home,
+		Workspaces: filepath.Join(a.cfg.ConfigDir, "workspaces.json"), Log: a.p.Stderr}
+	if err := s.Run(ctx); err != nil {
+		return output.Errorf(output.ExitFailure, "instructions_failed", "workspaces", "%v", err)
+	}
+	return a.workspaceResult(map[string]any{"synced": true}, nil)
+}
+
+// workspaceInstructions reads, writes or merges one instruction file.
+func (a *app) workspaceInstructions(ctx context.Context, action, id, file, base string) error {
+	home := a.cfg.Getenv("HOME")
+	if home == "" {
+		return output.Errorf(output.ExitFailure, "no_home", "workspaces", "HOME is not set")
+	}
+	store := wsstate.Store{Home: home, Published: filepath.Join(a.cfg.ConfigDir, "workspaces.json")}
+	var (
+		res any
+		err error
+	)
+	switch action {
+	case "read":
+		res, err = instructions.Read(ctx, store, "", id, file)
+	case "write":
+		var raw []byte
+		if a.cfg.Stdin != nil {
+			raw, err = io.ReadAll(io.LimitReader(a.cfg.Stdin, instructions.MaxSize+1))
+		}
+		if err == nil {
+			var sum string
+			sum, err = instructions.Write(store, id, file, string(raw), base)
+			res = map[string]any{"file": file, "sha256": sum}
+		}
+	case "merge":
+		err = instructions.Merge(store, id, file)
+		res = map[string]any{"file": file, "merged": true}
+	default:
+		return usageErr(errors.New(workspacesUsage))
+	}
+	var ie *instructions.Error
+	switch {
+	case errors.As(err, &ie):
+		return output.Errorf(output.ExitFailure, ie.Code, "file", "%s", ie.Message)
+	case errors.Is(err, wsstate.ErrGone):
+		return output.Errorf(output.ExitFailure, "unknown_workspace", "id", "There is no workspace %s", id)
+	}
+	return a.workspaceResult(res, err)
 }

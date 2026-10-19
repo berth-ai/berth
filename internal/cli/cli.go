@@ -24,26 +24,28 @@ import (
 // Config holds every path and dependency the commands use. Tests build it
 // directly; the binary uses DefaultConfig.
 type Config struct {
-	AgentsDir   string
-	SeedDir     string
-	BuildInfo   string
-	MiseConfig  string
-	ProcRoot    string
-	MCPSetup    []string // argv of the MCP converger; empty skips it
-	SkillsSync  []string // argv of the skills converger; empty skips it
-	RegistryDir string   // the image's registry of addable agents
-	AgentsCmd   []string // argv prefix of berth agents, the added-agent converger; empty skips added agents
-	GitHub      locksource.GitHub
-	Keep        int
-	LockTimeout time.Duration
-	IsRoot      bool
-	Agent       *runner.Identity
-	AgentErr    error // set when running as root and agent does not exist
-	Runner      runner.Runner
-	Smoke       func(ctx context.Context, dir string, bins []string) error
-	Now         func() time.Time
-	Version     string
-	Commit      string
+	AgentsDir      string
+	SeedDir        string
+	BuildInfo      string
+	MiseConfig     string
+	ProcRoot       string
+	MCPSetup       []string  // argv of the MCP converger; empty skips it
+	SkillsSync     []string  // argv of the skills converger; empty skips it
+	WorkspacesSync []string  // argv of the instructions converger; empty skips it
+	Stdin          io.Reader // what hidden commands read input from; nil reads nothing
+	RegistryDir    string    // the image's registry of addable agents
+	AgentsCmd      []string  // argv prefix of berth agents, the added-agent converger; empty skips added agents
+	GitHub         locksource.GitHub
+	Keep           int
+	LockTimeout    time.Duration
+	IsRoot         bool
+	Agent          *runner.Identity
+	AgentErr       error // set when running as root and agent does not exist
+	Runner         runner.Runner
+	Smoke          func(ctx context.Context, dir string, bins []string) error
+	Now            func() time.Time
+	Version        string
+	Commit         string
 
 	// Services (berth supervise, berth panel, berth config, berth health).
 	BrokerSocket  string
@@ -80,21 +82,23 @@ func defaultConfig(getenv func(string) string, b Build, isRoot bool, lookup func
 		repo = v
 	}
 	cfg := Config{
-		AgentsDir:   "/opt/agents",
-		SeedDir:     "/usr/share/berth/agents",
-		BuildInfo:   "/usr/share/berth/build-info.json",
-		MiseConfig:  "/home/agent/.config/mise/config.toml",
-		ProcRoot:    "/proc",
-		MCPSetup:    []string{"/usr/local/bin/berth", "mcp", "sync"},
-		SkillsSync:  []string{"/usr/local/bin/berth", "skills", "sync"},
-		RegistryDir: registry.DefaultRoot,
-		AgentsCmd:   []string{"/usr/local/bin/berth", "agents"},
-		GitHub:      locksource.GitHub{Repo: repo, Token: getenv("GITHUB_TOKEN")},
-		LockTimeout: 30 * time.Second,
-		IsRoot:      isRoot,
-		Now:         time.Now,
-		Version:     b.Version,
-		Commit:      b.Commit,
+		AgentsDir:      "/opt/agents",
+		SeedDir:        "/usr/share/berth/agents",
+		BuildInfo:      "/usr/share/berth/build-info.json",
+		MiseConfig:     "/home/agent/.config/mise/config.toml",
+		ProcRoot:       "/proc",
+		MCPSetup:       []string{"/usr/local/bin/berth", "mcp", "sync"},
+		SkillsSync:     []string{"/usr/local/bin/berth", "skills", "sync"},
+		WorkspacesSync: []string{"/usr/local/bin/berth", "workspaces", "sync"},
+		Stdin:          os.Stdin,
+		RegistryDir:    registry.DefaultRoot,
+		AgentsCmd:      []string{"/usr/local/bin/berth", "agents"},
+		GitHub:         locksource.GitHub{Repo: repo, Token: getenv("GITHUB_TOKEN")},
+		LockTimeout:    30 * time.Second,
+		IsRoot:         isRoot,
+		Now:            time.Now,
+		Version:        b.Version,
+		Commit:         b.Commit,
 
 		BrokerSocket:  "/run/berth/broker.sock",
 		BerthPath:     "/usr/local/bin/berth",

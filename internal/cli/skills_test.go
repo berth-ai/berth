@@ -121,19 +121,22 @@ func TestSkillsUsage(t *testing.T) {
 	}
 }
 
-// convergers points MCPSetup and SkillsSync at scripts that append their
+// convergers points MCPSetup, SkillsSync and WorkspacesSync at scripts that append their
 // name to the returned file, so tests can check the order they ran in.
 func convergers(t *testing.T, cfg *Config) string {
 	t.Helper()
 	dir := t.TempDir()
 	order := filepath.Join(dir, "order")
-	for _, name := range []string{"mcp", "skills"} {
+	for _, name := range []string{"mcp", "skills", "workspaces"} {
 		script := filepath.Join(dir, name)
 		os.WriteFile(script, []byte("#!/bin/sh\necho "+name+" >> "+order+"\n"), 0o755)
-		if name == "mcp" {
+		switch name {
+		case "mcp":
 			cfg.MCPSetup = []string{script}
-		} else {
+		case "skills":
 			cfg.SkillsSync = []string{script}
+		default:
+			cfg.WorkspacesSync = []string{script}
 		}
 	}
 	return order

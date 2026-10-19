@@ -140,3 +140,70 @@ func TestSkillsVendorResolve(t *testing.T) {
 		}
 	}
 }
+
+func TestWorkspacesInstructionsCommands(t *testing.T) {
+	cfg, store, ws := stateConfig(t)
+	out, errOut, code := run(t, cfg, "workspaces", "instructions", "--action", "read", "--json", "--id", "api", "--file", "CLAUDE.md")
+	var f struct {
+		State, SHA256 string
+		Editable      bool
+	}
+	if err := json.Unmarshal([]byte(out), &f); err != nil || code != 0 || f.State != "missing" || !f.Editable {
+		t.Fatalf("read: exit %d, %s %s", code, out, errOut)
+	}
+	cfg.Stdin = strings.NewReader("# Rules\n")
+	out, errOut, code = run(t, cfg, "workspaces", "instructions", "--action", "write", "--json", "--id", "api",
+		"--file", "CLAUDE.md", "--base-sha256", "")
+	if code != 0 || !strings.Contains(out, `"sha256"`) {
+		t.Fatalf("write: exit %d, %s %s", code, out, errOut)
+	}
+	if raw, _ := os.ReadFile(filepath.Join(ws, "CLAUDE.md")); string(raw) != "# Rules\n" {
+		t.Errorf("CLAUDE.md = %q", raw)
+	}
+	cfg.Stdin = strings.NewReader("again\n")
+	out, _, code = run(t, cfg, "workspaces", "instructions", "--action", "write", "--json", "--id", "api",
+		"--file", "CLAUDE.md", "--base-sha256", "")
+	if code == 0 || !strings.Contains(out, `"changed_on_disk"`) {
+		t.Errorf("stale write: exit %d, %s", code, out)
+	}
+	out, _, code = run(t, cfg, "workspaces", "instructions", "--action", "merge", "--json", "--id", "api", "--file", "CLAUDE.md")
+	if code == 0 || !strings.Contains(out, `"not_shared"`) {
+		t.Errorf("merge while not shared: exit %d, %s", code, out)
+	}
+	out, _, code = run(t, cfg, "workspaces", "instructions", "--action", "read", "--json", "--id", "nope", "--file", "CLAUDE.md")
+	if code == 0 || !strings.Contains(out, `"unknown_workspace"`) {
+		t.Errorf("unknown workspace: exit %d, %s", code, out)
+	}
+	for _, bad := range [][]string{{"--action", "read", "--id", "api"}, {"--action", "nope", "--id", "api", "--file", "CLAUDE.md"}} {
+		if _, _, code := run(t, cfg, append([]string{"workspaces", "instructions", "--json"}, bad...)...); code != 2 {
+			t.Errorf("%v: exit %d, want usage", bad, code)
+		}
+	}
+	_ = store
+}
+
+func TestReleaseAndReportCoverInstructions(t *testing.T) {
+	cfg, store, ws := stateConfig(t)
+	os.WriteFile(filepath.Join(ws, "AGENTS.md"), []byte("a\n"), 0o644)
+	os.Symlink("AGENTS.md", filepath.Join(ws, "CLAUDE.md"))
+	store.Update("api", func(folder string, st *wsstate.State) error {
+		st.Instructions = wsstate.Instructions{Path: folder, Links: []string{"CLAUDE.md"}, Skipped: map[string]string{"GEMINI.md": "GEMINI.md has its own content"}}
+		return nil
+	})
+	out, _, code := run(t, cfg, "workspaces", "report", "--json", "--id", "api")
+	if code != 0 || !strings.Contains(out, `"instructions"`) || !strings.Contains(out, "GEMINI.md has its own content") {
+		t.Fatalf("report: exit %d, %s", code, out)
+	}
+	if _, _, code := run(t, cfg, "workspaces", "release", "--json", "--id", "api"); code != 0 {
+		t.Fatalf("release: exit %d", code)
+	}
+	if _, err := os.Lstat(filepath.Join(ws, "CLAUDE.md")); !os.IsNotExist(err) {
+		t.Errorf("CLAUDE.md link kept: %v", err)
+	}
+	if raw, _ := os.ReadFile(filepath.Join(ws, "AGENTS.md")); string(raw) != "a\n" {
+		t.Errorf("AGENTS.md = %q", raw)
+	}
+	if ids, _ := store.IDs(); len(ids) != 0 {
+		t.Errorf("state left: %v", ids)
+	}
+}
