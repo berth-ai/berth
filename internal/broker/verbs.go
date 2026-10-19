@@ -44,6 +44,7 @@ func (b *Broker) verbs() map[string]verbFunc {
 		"workspaces.status":      b.workspacesStatus,
 		"workspaces.candidates":  b.workspacesCandidates,
 		"workspaces.launch":      b.workspacesLaunch,
+		"workspaces.restart":     b.workspacesRestart,
 		"skills.sources.preview": b.skillsSourcesPreview,
 		"skills.sources.add":     b.skillsSourcesAdd,
 		"skills.sources.update":  b.skillsSourcesUpdate,

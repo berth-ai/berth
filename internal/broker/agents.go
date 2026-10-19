@@ -275,7 +275,8 @@ func (b *Broker) pruneWorkspaceSecrets(cfg config.Config) {
 // rebuilds the layer when the enabled set changed, re-registers MCP servers
 // when the set, the MCP settings or an MCP token changed, and re-links
 // skills when the set or the skills changed. A workspace added, forgotten
-// or moved runs both.
+// or moved runs both, and the instructions converger also runs then, when a
+// workspace's instructions change, and when the enabled set changes.
 func (b *Broker) refreshAgents(old, next config.Config, tokens bool) {
 	b.pruneWorkspaceSecrets(next)
 	if b.workspacesStale(next.Workspaces) {
@@ -293,6 +294,7 @@ func (b *Broker) refreshAgents(old, next config.Config, tokens bool) {
 	// A workspace added, forgotten or moved: both convergers place or
 	// release what Berth writes there.
 	moved := !maps.EqualFunc(old.Workspaces, next.Workspaces, func(a, b config.Workspace) bool { return a.Path == b.Path })
+	shared := !maps.EqualFunc(old.Workspaces, next.Workspaces, func(a, b config.Workspace) bool { return a.Instructions == b.Instructions })
 	settings := !sameMCP(old.MCP, next.MCP) || b.publishedStale(next.MCP)
 	syncSkills := disabled || moved
 	if !sameSkills(old.Skills, next.Skills) || b.skillsStale(next.Skills) {
@@ -320,6 +322,9 @@ func (b *Broker) refreshAgents(old, next config.Config, tokens bool) {
 	}
 	if syncSkills {
 		b.startSkillsSync()
+	}
+	if disabled || moved || shared {
+		b.startWorkspacesSync()
 	}
 	if b.Layer == nil || len(b.MCPSetup) == 0 || !disabled && !settings && !tokens && !moved {
 		return

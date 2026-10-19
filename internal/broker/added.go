@@ -123,6 +123,7 @@ func (b *Broker) afterAddedChange(ctx context.Context, out io.Writer) {
 		b.startMCPSetup(time.Duration(cfg.Agents.MCPTimeout) * time.Second)
 	}
 	b.startSkillsSync()
+	b.startWorkspacesSync()
 }
 
 // checkAdded refuses packages a change newly adds to agents.added that

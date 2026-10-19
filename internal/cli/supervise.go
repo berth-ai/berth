@@ -90,6 +90,7 @@ func runSupervise(ctx context.Context, a *app, args []string) error {
 	b.MCPSetup = a.cfg.MCPSetup
 	b.MCPSettings = filepath.Join(a.cfg.ConfigDir, "mcp.json")
 	b.SkillsSync = a.cfg.SkillsSync
+	b.WorkspacesSync = a.cfg.WorkspacesSync
 	b.SkillsSettings = filepath.Join(a.cfg.ConfigDir, "skills.json")
 	b.Registry = a.cfg.RegistryDir
 	b.AgentsSettings = filepath.Join(a.cfg.ConfigDir, "agents.json")

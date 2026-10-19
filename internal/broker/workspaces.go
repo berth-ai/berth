@@ -16,6 +16,7 @@ import (
 
 	"github.com/berth-ai/berth/internal/agentlayer"
 	"github.com/berth-ai/berth/internal/config"
+	"github.com/berth-ai/berth/internal/instructions"
 	"github.com/berth-ai/berth/internal/workspace"
 )
 
@@ -404,4 +405,55 @@ func (b *Broker) workspacesReport(ctx context.Context, body []byte) (int, any) {
 	}
 	delete(rep, "schema")
 	return http.StatusOK, map[string]any{"report": rep}
+}
+
+// workspacesSyncGroup runs the instructions converger.
+const workspacesSyncGroup = "workspaces-sync"
+
+// startWorkspacesSync runs the instructions converger as a job.
+func (b *Broker) startWorkspacesSync() {
+	if b.Layer == nil || len(b.WorkspacesSync) == 0 {
+		return
+	}
+	work := b.agentWork(b.WorkspacesSync[0], b.WorkspacesSync[1:], instructions.SyncTimeout)
+	if err := b.wsRuns.start(b.Jobs, "workspaces.sync", workspacesSyncGroup, work, "Workspaces changed during the run; running again."); err != nil {
+		b.logf("WARNING: workspaces sync not started: %v", err)
+	}
+}
+
+// workspacesRestart ends a workspace's session and opens a fresh one, whose
+// windows read the workspace's variables again.
+func (b *Broker) workspacesRestart(ctx context.Context, body []byte) (int, any) {
+	var in struct {
+		ID string `json:"id"`
+	}
+	if err := decode(body, &in); err != nil {
+		return badRequest(err)
+	}
+	if code, v, ok := b.normalMode(); !ok {
+		return code, v
+	}
+	cur, _, _ := b.snapshot()
+	w, ok := cur.Workspaces[in.ID]
+	if !ok {
+		return fail(http.StatusNotFound, "unknown_workspace", "No workspace named %s", in.ID)
+	}
+	args := []string{"workspaces", "restart", "--json", "--id", in.ID, "--path", w.Path}
+	stdout, stderr, code, err := b.agentRun(ctx, b.syncTimeout(), b.Home.Berth, args...)
+	var res struct {
+		Killed bool `json:"killed"`
+	}
+	switch {
+	case err != nil:
+		return fail(http.StatusInternalServerError, "restart_failed", "%v", err)
+	case code != 0:
+		fe := cliError([]byte(stdout), args)
+		if fe.Code == "missing" {
+			return fail(http.StatusConflict, "workspace_missing", "%s", fe.Message)
+		}
+		return fail(http.StatusInternalServerError, "restart_failed", "%s", cmp.Or(strings.TrimSpace(stderr), fe.Message))
+	case json.Unmarshal([]byte(stdout), &res) != nil:
+		return fail(http.StatusInternalServerError, "restart_failed", "berth workspaces restart printed no result")
+	}
+	return http.StatusOK, map[string]any{"session": workspace.SessionName(in.ID), "killed": res.Killed}
 }

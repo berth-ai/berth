@@ -80,6 +80,8 @@ type Broker struct {
 	// SkillsSettings is where the skills section is published for the
 	// converger, /var/lib/berth/skills.json; empty skips it.
 	SkillsSettings string
+	// WorkspacesSync is the instructions converger's argv; empty skips it.
+	WorkspacesSync []string
 	// Registry is the image's registry of addable agents,
 	// /usr/share/berth/registry; empty means none.
 	Registry string
@@ -129,6 +131,7 @@ type Broker struct {
 
 	mcpRuns    serialJob // mcp.setup
 	skillsRuns serialJob // skills.sync
+	wsRuns     serialJob // workspaces.sync
 	regOnce    sync.Once
 	reg        []registry.Entry
 	addedMu    sync.Mutex

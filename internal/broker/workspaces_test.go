@@ -78,6 +78,12 @@ launch)
     exit 1
   fi
   printf '{"session":"ws-api","schema":1}' ;;
+restart)
+  if [ -n "$FAKE_WS_MISSING" ]; then
+    printf '{"error":{"code":"missing","step":"path","message":"The workspace folder is missing"},"schema":1}'
+    exit 1
+  fi
+  printf '{"session":"ws-api","killed":true,"schema":1}' ;;
 release)
   if [ -n "$FAKE_WS_KEPT" ]; then
     printf '{"kept":["docx in api has local edits"],"schema":1}'
@@ -434,5 +440,65 @@ func TestWorkspaceReport(t *testing.T) {
 	}
 	if code, out := tb.verb(t, "workspaces.report", `{"id":"nope"}`); code != 404 || errCode(out) != "unknown_workspace" {
 		t.Errorf("unknown = %d %v", code, out)
+	}
+}
+
+// withWorkspacesSync gives tb a fake instructions converger that logs its runs.
+func withWorkspacesSync(t *testing.T, tb *testBroker) string {
+	t.Helper()
+	log := filepath.Join(tb.dir, "wssync.log")
+	p := filepath.Join(tb.dir, "wssync")
+	os.WriteFile(p, []byte("#!/bin/sh\necho run >> \""+log+"\"\n"), 0o755)
+	tb.b.WorkspacesSync = []string{p}
+	return log
+}
+
+func TestWorkspacesSyncTriggers(t *testing.T) {
+	tb := newTestBroker(t)
+	withAgents(t, tb)
+	log := withWorkspacesSync(t, tb)
+	runs := func() int { tb.waitIdle(t); return len(calls(log)) }
+	apply := func(patch string) {
+		t.Helper()
+		cur, _, _ := tb.b.snapshot()
+		if code, out := tb.verb(t, "config.apply", fmt.Sprintf(`{"base_revision":%d,"patch":%s}`, cur.Revision, patch)); code != 200 {
+			t.Fatalf("apply %s = %d %v", patch, code, out)
+		}
+	}
+	apply(`{"workspaces":{"api":{"path":"acme/api"}}}`)
+	if n := runs(); n != 1 {
+		t.Fatalf("add: %d runs", n)
+	}
+	apply(`{"workspaces":{"api":{"instructions":{"shared":true}}}}`)
+	if n := runs(); n != 2 {
+		t.Fatalf("shared: %d runs", n)
+	}
+	apply(`{"workspaces":{"api":{"env":{"LOG":{"value":"x"}}}}}`)
+	if n := runs(); n != 2 {
+		t.Errorf("an env change ran the converger: %d runs", n)
+	}
+	apply(`{"agents":{"disabled":["agent-a"]}}`)
+	if n := runs(); n != 3 {
+		t.Errorf("disabling an agent: %d runs", n)
+	}
+}
+
+func TestWorkspaceRestart(t *testing.T) {
+	tb := newTestBroker(t)
+	log := withWorkspaces(t, tb)
+	addWorkspace(t, tb, "api", "acme/api")
+	code, out := tb.verb(t, "workspaces.restart", `{"id":"api"}`)
+	if code != 200 || out["session"] != "ws-api" {
+		t.Fatalf("restart = %d %v", code, out)
+	}
+	if got := calls(log); !slices.Contains(got, "workspaces restart --json --id api --path acme/api") {
+		t.Errorf("calls = %v", got)
+	}
+	if code, _ := tb.verb(t, "workspaces.restart", `{"id":"nope"}`); code != 404 {
+		t.Errorf("unknown = %d", code)
+	}
+	t.Setenv("FAKE_WS_MISSING", "1")
+	if code, out := tb.verb(t, "workspaces.restart", `{"id":"api"}`); code != 409 || jsonOf(out) == "" {
+		t.Errorf("missing = %d %v", code, out)
 	}
 }
