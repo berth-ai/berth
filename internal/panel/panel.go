@@ -40,6 +40,7 @@ var browserVerbs = map[string]bool{
 	"config.upgrade":  true,
 	"agents.registry": true, "agents.add": true, "agents.remove": true, "agents.rollback": true,
 	"workspaces.add": true, "workspaces.forget": true, "workspaces.status": true, "workspaces.candidates": true, "workspaces.launch": true, "workspaces.restart": true,
+	"workspaces.instructions.read": true, "workspaces.instructions.write": true, "workspaces.instructions.merge": true,
 	"workspaces.report": true, "skills.vendor.resolve": true,
 	"login.status": true, "login.start": true, "login.input": true, "login.cancel": true, "login.logout": true,
 }
@@ -217,7 +218,7 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 		User     string `json:"user"`
 		Password string `json:"password"`
 	}
-	body, ok := s.readPost(w, r)
+	body, ok := s.readPost(w, r, maxBodyBytes)
 	if !ok {
 		return
 	}
@@ -256,7 +257,7 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
-	if _, ok := s.readPost(w, r); !ok {
+	if _, ok := s.readPost(w, r, maxBodyBytes); !ok {
 		return
 	}
 	s.sessions.delete(r)
@@ -265,7 +266,7 @@ func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleSetup(w http.ResponseWriter, r *http.Request) {
-	body, ok := s.readPost(w, r)
+	body, ok := s.readPost(w, r, maxBodyBytes)
 	if !ok {
 		return
 	}
@@ -308,12 +309,16 @@ func (s *Server) handleJob(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleVerb(w http.ResponseWriter, r *http.Request) {
 	verb := r.PathValue("verb")
-	body, ok := s.readPost(w, r)
-	if !ok {
+	if msg := csrfProblem(r); msg != "" {
+		writeError(w, http.StatusForbidden, "forbidden", msg)
 		return
 	}
 	if !browserVerbs[verb] {
 		writeError(w, http.StatusNotFound, "unknown_verb", "unknown verb")
+		return
+	}
+	body, ok := s.readPost(w, r, bodyLimit(verb))
+	if !ok {
 		return
 	}
 	code, out, err := s.send(r.Context(), http.MethodPost, "/verbs/"+verb, body)
@@ -332,18 +337,27 @@ func (s *Server) handleVerb(w http.ResponseWriter, r *http.Request) {
 	writeRaw(w, code, out)
 }
 
-// readPost applies the CSRF rules and reads a bounded body.
-func (s *Server) readPost(w http.ResponseWriter, r *http.Request) ([]byte, bool) {
+// bodyLimit is the largest request body verb accepts: an instruction file
+// is up to 256 KiB, which JSON escaping can grow several times.
+func bodyLimit(verb string) int64 {
+	if verb == "workspaces.instructions.write" {
+		return 2 << 20
+	}
+	return maxBodyBytes
+}
+
+// readPost applies the CSRF rules and reads a body of at most limit bytes.
+func (s *Server) readPost(w http.ResponseWriter, r *http.Request, limit int64) ([]byte, bool) {
 	if msg := csrfProblem(r); msg != "" {
 		writeError(w, http.StatusForbidden, "forbidden", msg)
 		return nil, false
 	}
-	body, err := io.ReadAll(io.LimitReader(r.Body, maxBodyBytes+1))
+	body, err := io.ReadAll(io.LimitReader(r.Body, limit+1))
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "invalid_request", err.Error())
 		return nil, false
 	}
-	if len(body) > maxBodyBytes {
+	if int64(len(body)) > limit {
 		writeError(w, http.StatusRequestEntityTooLarge, "too_large", "request too large")
 		return nil, false
 	}

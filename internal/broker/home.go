@@ -33,11 +33,16 @@ var errTimeout = errors.New("timed out")
 // agentRun runs path as agent and captures its output, for quick verbs that
 // answer synchronously.
 func (b *Broker) agentRun(ctx context.Context, timeout time.Duration, path string, args ...string) (string, string, int, error) {
+	return b.agentRunInput(ctx, timeout, nil, path, args...)
+}
+
+// agentRunInput is agentRun with stdin; nil reads the null device.
+func (b *Broker) agentRunInput(ctx context.Context, timeout time.Duration, stdin io.Reader, path string, args ...string) (string, string, int, error) {
 	var stdout, stderr bytes.Buffer
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	r := runner.Exec{Agent: b.Agent, Stdout: &stdout, Stderr: &stderr}
-	err := r.Run(ctx, runner.Cmd{Path: path, Args: args, AsAgent: true})
+	err := r.Run(ctx, runner.Cmd{Path: path, Args: args, AsAgent: true, Stdin: stdin})
 	if errors.Is(ctx.Err(), context.DeadlineExceeded) {
 		return stdout.String(), stderr.String(), -1, errTimeout
 	}

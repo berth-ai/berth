@@ -567,3 +567,22 @@ func TestSetupSignsOutOldSessions(t *testing.T) {
 		t.Errorf("session from before the reset = %d", resp.StatusCode)
 	}
 }
+
+func TestInstructionsWriteBodyLimit(t *testing.T) {
+	e := newEnv(t, "normal")
+	c := e.client()
+	e.login(c)
+	big := `{"content":"` + strings.Repeat("x", 100<<10) + `"}`
+	before := e.fb.count()
+	resp, body := e.do(c, "POST", "/api/verbs/workspaces.instructions.write", big, nil)
+	if got, _ := e.fb.last(); got != "POST /verbs/workspaces.instructions.write" || e.fb.count() == before {
+		t.Errorf("write: %d %s, broker saw %q", resp.StatusCode, body, got)
+	}
+	resp, body = e.do(c, "POST", "/api/verbs/config.apply", big, nil)
+	if resp.StatusCode != http.StatusRequestEntityTooLarge || !strings.Contains(body, "too_large") {
+		t.Errorf("config.apply: %d %s", resp.StatusCode, body)
+	}
+	if bodyLimit("workspaces.instructions.write") != 2<<20 || bodyLimit("config.apply") != maxBodyBytes {
+		t.Error("limits")
+	}
+}

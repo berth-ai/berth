@@ -28,6 +28,15 @@ import (
 
 const maxBodyBytes = 64 << 10
 
+// bodyLimit is the largest request body verb accepts: an instruction file
+// is up to 256 KiB, which JSON escaping can grow several times.
+func bodyLimit(verb string) int64 {
+	if verb == "workspaces.instructions.write" {
+		return 2 << 20
+	}
+	return maxBodyBytes
+}
+
 // rootOnlyVerbs may be called only by root (berth config inside the
 // container), never by the panel.
 var rootOnlyVerbs = map[string]bool{"auth.reset": true}
@@ -319,12 +328,13 @@ func (b *Broker) handleVerb(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	body, err := io.ReadAll(io.LimitReader(r.Body, maxBodyBytes+1))
+	limit := bodyLimit(name)
+	body, err := io.ReadAll(io.LimitReader(r.Body, limit+1))
 	if err != nil {
 		writeJSON(w, http.StatusBadRequest, errorJSON("invalid_request", err.Error()))
 		return
 	}
-	if len(body) > maxBodyBytes {
+	if int64(len(body)) > limit {
 		writeJSON(w, http.StatusRequestEntityTooLarge, errorJSON("too_large", "the request is too large"))
 		return
 	}
