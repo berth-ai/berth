@@ -638,3 +638,66 @@ test("skills and MCP servers are attached to a workspace", async ({ page }) => {
   await expect(page).toHaveURL(/#\/skills$/);
   expect(problems).toEqual([]);
 });
+
+test("a workspace's instructions are edited and shared, and its env is set", async ({ page }) => {
+  const problems = await watch(page);
+  await signIn(page);
+  await page.goto(`${NORMAL}/#/workspaces`);
+  await page.getByRole("button", { name: "Add workspace" }).first().click();
+  const add = page.getByRole("dialog", { name: "Add a workspace" });
+  await add.getByLabel("Repository").fill("acme/api");
+  await add.getByRole("button", { name: "Clone", exact: true }).click();
+  await expect(h1(page, "acme-api")).toBeVisible();
+
+  // CLAUDE.md is written, then shared: it has its own content, so it is merged.
+  await page.goto(`${NORMAL}/#/workspaces/acme-api?tab=instructions`);
+  await page.getByLabel("CLAUDE.md", { exact: true }).fill("# Claude rules\n");
+  await page.getByRole("button", { name: "Save CLAUDE.md" }).click();
+  await expect(page.getByText("CLAUDE.md saved.")).toBeVisible();
+  await page.getByRole("switch", { name: "Agents in acme-api share AGENTS.md" }).click();
+  await expect(page.getByText(/CLAUDE.md has its own content/)).toBeVisible();
+  await page.getByRole("button", { name: "Append to AGENTS.md and replace" }).click();
+  await page.getByRole("alertdialog").getByRole("button", { name: "Append and replace" }).click();
+  await expect(page.getByText("CLAUDE.md now shares AGENTS.md.")).toBeVisible();
+  await expect(page.getByText("Shares AGENTS.md", { exact: true })).toBeVisible();
+  await expect(page.getByLabel("AGENTS.md", { exact: true })).toHaveValue("# Claude rules\n");
+
+  // A save over a file changed on disk keeps the draft.
+  await page.getByLabel("AGENTS.md", { exact: true }).fill("<<drift>>");
+  await page.getByRole("button", { name: "Save AGENTS.md" }).click();
+  await expect(page.getByText(/changed on disk since you opened it/)).toBeVisible();
+  await expect(page.getByLabel("AGENTS.md", { exact: true })).toHaveValue("<<drift>>");
+  await page.getByRole("button", { name: "Discard my edits" }).click();
+  await expect(page.getByLabel("AGENTS.md", { exact: true })).toHaveValue("# Claude rules\n");
+
+  // Env: a plain variable and a secret; the secret is replaced, cleared and removed.
+  await page.goto(`${NORMAL}/#/workspaces/acme-api?tab=env`);
+  await page.getByRole("button", { name: "Add variable" }).click();
+  let dialog = page.getByRole("dialog", { name: "Add a variable to acme-api" });
+  await dialog.getByLabel("Name").fill("log_level");
+  await dialog.getByLabel("Value").fill("debug");
+  await dialog.getByRole("button", { name: "Add variable" }).click();
+  await expect(
+    page.getByRole("row").filter({ hasText: "LOG_LEVEL" }).getByText("debug"),
+  ).toBeVisible();
+  await page.getByRole("button", { name: "Add variable" }).click();
+  dialog = page.getByRole("dialog", { name: "Add a variable to acme-api" });
+  await dialog.getByLabel("Name").fill("STRIPE_KEY");
+  await dialog.getByRole("checkbox", { name: "Secret" }).click();
+  await dialog.getByLabel("Value").fill("sk_test_123");
+  await dialog.getByRole("button", { name: "Add variable" }).click();
+  const secret = page.getByRole("row").filter({ hasText: "STRIPE_KEY" });
+  await expect(secret.getByText("Set", { exact: true })).toBeVisible();
+  await expect(page.getByText("sk_test_123")).toHaveCount(0);
+  await secret.getByRole("button", { name: "Clear STRIPE_KEY" }).click();
+  await page.getByRole("alertdialog").getByRole("button", { name: "Clear" }).click();
+  await expect(secret.getByText(/Not set/)).toBeVisible();
+  await secret.getByRole("button", { name: "Remove STRIPE_KEY" }).click();
+  await page.getByRole("alertdialog").getByRole("button", { name: "Remove" }).click();
+  await expect(page.getByRole("row").filter({ hasText: "STRIPE_KEY" })).toHaveCount(0);
+
+  await page.getByRole("button", { name: "Restart session" }).click();
+  await page.getByRole("alertdialog").getByRole("button", { name: "Restart session" }).click();
+  await expect(page.getByText("ws-acme-api restarted.")).toBeVisible();
+  expect(problems).toEqual([]);
+});
