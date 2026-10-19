@@ -62,6 +62,7 @@ type Package struct {
 	SkillsProject string   `json:"skills_project,omitempty"` // an agent's skills folder in a workspace
 	MCPProject    string   `json:"mcp_project,omitempty"`    // an agent's MCP file in a workspace
 	MCPTrust      bool     `json:"mcp_trust,omitempty"`      // the agent reads MCPProject only in folders it trusts
+	Instructions  string   `json:"instructions,omitempty"`   // an agent's instruction file in a workspace
 	Icon          string   `json:"icon,omitempty"`           // a panel icon slug from the lock
 	Previous      string   `json:"previous,omitempty"`       // an added agent's rollback version
 	Error         string   `json:"error,omitempty"`          // why an added agent is missing or out of date
@@ -127,6 +128,7 @@ func (b Builder) rows(disabled, added []string) ([]Package, agentset.Set, error)
 		if t := set.Descriptors.Agents[name].MCP; t != nil && t.Project != nil {
 			pkg.MCPProject, pkg.MCPTrust = t.Project.File, t.Project.Trust
 		}
+		pkg.Instructions = set.Descriptors.Agents[name].Instructions
 		for _, k := range p.Meta.Keys {
 			pkg.Keys = append(pkg.Keys, Key{Name: k, Set: keys[k] != ""})
 		}

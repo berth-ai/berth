@@ -26,6 +26,7 @@
                  "project": { "file": ".mcp.json", "key": "mcpServers" } },
         "skills": { "dir": "~/.claude/skills", "project": ".claude/skills" },
         "icon": "claude",
+        "instructions": "CLAUDE.md",
         "login": { "methods": [
           { "id": "claude", "label": "Claude account", "flow": "paste", "prompt": "Paste code here",
             "args": ["auth", "login", "--claudeai"],
@@ -38,6 +39,7 @@
                  "project": { "file": ".gemini/settings.json", "key": "mcpServers" } },
         "skills": { "dir": "~/.gemini/skills", "project": ".gemini/skills", "project_also": [".agents/skills"] },
         "icon": "googlegemini",
+        "instructions": "GEMINI.md",
         "login": { "methods": [
           { "id": "google", "label": "Google account", "flow": "paste", "pty": true,
             "prompt": "Enter the authorization code",
@@ -53,6 +55,7 @@
                  "project": { "file": ".codex/config.toml", "trust": true } },
         "skills": { "dir": "~/.codex/skills", "project": ".agents/skills" },
         "icon": "codex",
+        "instructions": "AGENTS.md",
         "login": { "methods": [
           { "id": "chatgpt", "label": "ChatGPT", "flow": "device",
             "args": ["login", "--device-auth"],
@@ -66,6 +69,7 @@
         "skills": { "dir": "$XDG_CONFIG_HOME/opencode/skills", "also": ["~/.claude/skills"],
                     "project": ".opencode/skills", "project_also": [".claude/skills", ".agents/skills"] },
         "icon": "opencode",
+        "instructions": "AGENTS.md",
         "login": { "methods": [
           { "id": "chatgpt", "label": "ChatGPT", "flow": "device",
             "args": ["auth", "login", "-p", "openai", "-m", "ChatGPT Pro/Plus (headless)"],

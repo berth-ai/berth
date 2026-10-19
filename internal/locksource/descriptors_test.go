@@ -3,6 +3,7 @@ package locksource
 import (
 	"errors"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -391,6 +392,33 @@ func TestParseRejectsBadProjectDescriptors(t *testing.T) {
 		_, err := ParseDescriptors([]byte(`{"berthAgents":`+block+`}`), descMeta)
 		if !errors.Is(err, ErrInvalid) {
 			t.Errorf("%s: err = %v", name, err)
+		}
+	}
+}
+
+func TestInstructionsDescriptor(t *testing.T) {
+	meta := map[string]Meta{"a": {Kind: KindAgent, Name: "A"}, "b": {Kind: KindAgent, Name: "B"}, "c": {Kind: KindAgent, Name: "C"}}
+	parse := func(instr string) (Descriptors, error) {
+		raw := `{"berthAgents":{"schema":1,"agents":{"a":{"instructions":` + strconv.Quote(instr) + `},` +
+			`"b":{"instructions":"AGENTS.md"},"c":{}}}}`
+		return ParseDescriptors([]byte(raw), meta)
+	}
+	d, err := parse("CLAUDE.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := d.InstructionFiles([]string{"a", "b", "c"}); !slices.Equal(got, []string{"AGENTS.md", "CLAUDE.md"}) {
+		t.Errorf("InstructionFiles = %v", got)
+	}
+	if got := d.InstructionFiles([]string{"b", "b"}); !slices.Equal(got, []string{"AGENTS.md"}) {
+		t.Errorf("InstructionFiles(b) = %v", got)
+	}
+	if got := d.InstructionFiles(nil); len(got) != 0 {
+		t.Errorf("InstructionFiles(nil) = %v", got)
+	}
+	for _, bad := range []string{"docs/CLAUDE.md", "../CLAUDE.md", ".CLAUDE.md", "CLAUDE.txt", "CLAUDE", "a b.md", `x\y.md`, "/CLAUDE.md"} {
+		if _, err := parse(bad); err == nil || !strings.Contains(err.Error(), "instructions") {
+			t.Errorf("%q: err = %v", bad, err)
 		}
 	}
 }

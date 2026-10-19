@@ -36,7 +36,7 @@ func fakeSet(t *testing.T) (Builder, string) {
 				"skills": map[string]any{"dir": "~/.x/skills", "project": ".x/skills"},
 				"mcp": map[string]any{"file": "~/.x/config.toml", "style": "codex-toml",
 					"project": map[string]any{"file": ".x/config.toml", "trust": true}},
-				"icon": "claude"}},
+				"icon": "claude", "instructions": "CLAUDE.md"}},
 		},
 	}
 	raw, _ := json.Marshal(pkg)
@@ -86,6 +86,9 @@ func TestPackages(t *testing.T) {
 	}
 	if keys, _ := b.KeyNames(nil); !slices.Equal(keys, []string{"A_KEY"}) {
 		t.Errorf("keys = %v", keys)
+	}
+	if pkgs[0].Instructions != "CLAUDE.md" {
+		t.Errorf("instructions = %q", pkgs[0].Instructions)
 	}
 	if pkgs[0].Icon != "claude" || pkgs[1].Icon != "upstash" {
 		t.Errorf("icons = %q, %q", pkgs[0].Icon, pkgs[1].Icon)

@@ -40,10 +40,11 @@ const (
 
 // AgentDescriptor describes one agent CLI.
 type AgentDescriptor struct {
-	MCP    *MCPTarget    `json:"mcp"`
-	Skills *SkillsTarget `json:"skills"`
-	Login  *LoginTarget  `json:"login"`
-	Icon   string        `json:"icon"` // a panel icon slug; empty means a monogram
+	MCP          *MCPTarget    `json:"mcp"`
+	Skills       *SkillsTarget `json:"skills"`
+	Login        *LoginTarget  `json:"login"`
+	Icon         string        `json:"icon"`         // a panel icon slug; empty means a monogram
+	Instructions string        `json:"instructions"` // its instruction file at a workspace's root; empty means none
 }
 
 // LoginTarget lists the ways an agent CLI signs in to its vendor account.
@@ -140,10 +141,11 @@ var (
 	jsonKeyPattern  = regexp.MustCompile(`^[A-Za-z][A-Za-z0-9_]{0,63}$`)
 	binNamePattern  = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$`)
 	// LoginIDPattern is the shape of a login method id.
-	LoginIDPattern = regexp.MustCompile(`^[a-z0-9-]{1,32}$`)
-	envNamePattern = regexp.MustCompile(`^[A-Z_][A-Z0-9_]{0,63}$`)
-	iconPattern    = regexp.MustCompile(`^[a-z0-9-]{1,32}$`)
-	fileKeyPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$`)
+	LoginIDPattern      = regexp.MustCompile(`^[a-z0-9-]{1,32}$`)
+	envNamePattern      = regexp.MustCompile(`^[A-Z_][A-Z0-9_]{0,63}$`)
+	iconPattern         = regexp.MustCompile(`^[a-z0-9-]{1,32}$`)
+	fileKeyPattern      = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$`)
+	instructionsPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,63}\.md$`)
 )
 
 // ValidBinName reports whether s may name a bin, and so a wrapper file.
@@ -207,6 +209,9 @@ func ParseDescriptors(pkg []byte, meta map[string]Meta) (Descriptors, error) {
 		}
 		if a.Icon != "" && !iconPattern.MatchString(a.Icon) {
 			return out, invalid("package.json berthAgents block: %s icon %q must match %s", name, a.Icon, iconPattern)
+		}
+		if a.Instructions != "" && !instructionsPattern.MatchString(a.Instructions) {
+			return out, invalid("package.json berthAgents block: %s instructions %q must be a .md file name at the workspace root", name, a.Instructions)
 		}
 		out.Agents[name] = a
 	}
@@ -340,6 +345,18 @@ func (d Descriptors) SkillsVia(dep string) []string {
 		}
 	}
 	return out
+}
+
+// InstructionFiles lists, sorted and once each, the instruction files of
+// the agents deps.
+func (d Descriptors) InstructionFiles(deps []string) []string {
+	set := map[string]bool{}
+	for _, dep := range deps {
+		if f := d.Agents[dep].Instructions; f != "" {
+			set[f] = true
+		}
+	}
+	return slices.Sorted(maps.Keys(set))
 }
 
 func printable(s string, maxLen int) bool {
