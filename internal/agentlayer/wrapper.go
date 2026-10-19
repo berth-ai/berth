@@ -7,8 +7,10 @@ import (
 
 // wrapperScript returns a POSIX sh wrapper that sets each of keys from
 // keysPath (unless the environment already has it) and execs target. With
-// tokens, an agent's wrapper, it also exports every MCP_*_TOKEN line, so
-// MCP entries in workspace files can reference bearer tokens by name.
+// tokens, an agent's wrapper, it also exports every MCP_*_TOKEN line not
+// already set, so MCP entries in workspace files can reference bearer tokens
+// by name and a workspace's env can shadow one. The eval reads a name the
+// case before it has limited to [A-Z0-9_].
 // Values are taken with parameter expansion, never evaluated, so any byte
 // that ValidKeyValue allows passes through unchanged.
 func wrapperScript(target, keysPath string, keys []string, tokens bool) string {
@@ -23,11 +25,13 @@ func wrapperScript(target, keysPath string, keys []string, tokens bool) string {
 		}
 		if tokens {
 			b.WriteString("      *[!A-Z0-9_]*) ;;\n")
-			b.WriteString("      MCP_?*_TOKEN) export \"${berth_line%%=*}=${berth_line#*=}\" ;;\n")
+			b.WriteString("      MCP_?*_TOKEN) berth_name=${berth_line%%=*}\n")
+			b.WriteString("        eval \"berth_has=\\${$berth_name+set}\"\n")
+			b.WriteString("        [ -n \"$berth_has\" ] || export \"$berth_name=${berth_line#*=}\" ;;\n")
 		}
 		b.WriteString("    esac\n")
 		fmt.Fprintf(&b, "  done <%s\n", keysPath)
-		b.WriteString("  unset berth_line\nfi\n")
+		b.WriteString("  unset berth_line berth_name berth_has\nfi\n")
 	}
 	fmt.Fprintf(&b, "exec %s \"$@\"\n", target)
 	return b.String()

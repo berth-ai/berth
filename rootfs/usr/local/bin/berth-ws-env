@@ -1,0 +1,49 @@
+#!/usr/bin/env bash
+# berth-ws-env ID -- COMMAND [ARG]...: runs COMMAND with workspace ID's
+# variables on top of the environment: the plain values workspaces.json
+# publishes, then the workspace's secrets. Values arrive through a pipe and
+# are exported, never evaluated, and never reach an argv. When either file
+# cannot be read, COMMAND runs anyway, so a terminal always opens.
+set -uo pipefail
+
+file=${BERTH_WORKSPACES_FILE:-/var/lib/berth/workspaces.json}
+secrets=${BERTH_WS_SECRETS_DIR:-/var/lib/berth/secrets/workspaces}
+
+if (($# < 3)) || [[ ! $1 =~ ^[a-z0-9][a-z0-9-]{0,63}$ ]] || [[ $2 != -- ]]; then
+  echo "berth-ws-env: usage: berth-ws-env ID -- COMMAND [ARG]..." >&2
+  exit 2
+fi
+id=$1
+shift 2
+
+# reserved NAME: names the terminal and Berth own; config refuses them too.
+reserved() {
+  case $1 in
+  PATH | HOME | USER | SHELL | TERM | TMUX* | LD_* | BERTH_* | GIT_* | SSH_*) return 0 ;;
+  esac
+  return 1
+}
+
+# load FILE FILTER exports each name and value FILTER prints, NUL-separated.
+load() {
+  local key value
+  while IFS= read -r -d '' key && IFS= read -r -d '' value; do
+    if [[ ! $key =~ ^[A-Z_][A-Z0-9_]{0,127}$ ]] || reserved "$key"; then
+      echo "berth-ws-env: ignoring $key" >&2
+      continue
+    fi
+    export "$key=$value"
+  done < <(jq --raw-output0 --arg id "$id" "$2" "$1")
+}
+
+# shellcheck disable=SC2016 # $id is a jq variable, not a shell one
+if jq -e --arg id "$id" '.workspaces[$id]' "$file" >/dev/null 2>&1; then
+  # shellcheck disable=SC2016
+  load "$file" '.workspaces[$id].env // {} | to_entries[] | .key, .value'
+else
+  echo "berth-ws-env: workspace $id has no settings in $file; starting without its variables." >&2
+fi
+if [[ -r $secrets/$id.json ]]; then
+  load "$secrets/$id.json" '.env // {} | to_entries[] | .key, .value'
+fi
+exec "$@"

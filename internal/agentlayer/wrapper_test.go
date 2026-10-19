@@ -79,3 +79,19 @@ func TestAgentWrapperExportsMCPTokens(t *testing.T) {
 		t.Error("a server wrapper exports MCP tokens")
 	}
 }
+
+func TestAgentWrapperKeepsASetToken(t *testing.T) {
+	dir := t.TempDir()
+	target := filepath.Join(dir, "target")
+	os.WriteFile(target, []byte("#!/bin/sh\nprintf '%s|%s' \"$MCP_C7_TOKEN\" \"$MCP_GH_TOKEN\"\n"), 0o755)
+	keys := filepath.Join(dir, "agents.env")
+	os.WriteFile(keys, []byte("MCP_C7_TOKEN=from-berth\nMCP_GH_TOKEN=gh\n"), 0o640)
+	w := filepath.Join(dir, "w")
+	os.WriteFile(w, []byte(wrapperScript(target, keys, nil, true)), 0o755)
+	cmd := exec.Command(w)
+	cmd.Env = []string{"PATH=/usr/bin:/bin", "MCP_C7_TOKEN=from-workspace"}
+	out, err := cmd.CombinedOutput()
+	if err != nil || string(out) != "from-workspace|gh" {
+		t.Errorf("%v %q", err, out)
+	}
+}
