@@ -1,10 +1,10 @@
 // Package wsstate records what Berth wrote into each workspace, so each
 // converger changes only its own entries, and forgetting a workspace
 // removes them all. One file per workspace,
-// ~/.local/state/berth/workspaces/<id>.json, holds a section per converger.
-// A lock beside it serializes berth skills sync, berth mcp sync and the
-// forget job, and every change re-renders the workspace's exclude block
-// from both sections.
+// ~/.local/state/berth/workspaces/<id>.json, holds a section per converger:
+// skills, MCP and instructions. A lock beside it serializes berth skills
+// sync, berth mcp sync, berth workspaces sync and the forget job, and every
+// change re-renders the workspace's exclude block from all three sections.
 package wsstate
 
 import (
@@ -32,9 +32,24 @@ var ErrGone = errors.New("the workspace is no longer in workspaces.json")
 
 // State is everything Berth wrote into one workspace.
 type State struct {
-	Schema int    `json:"schema"`
-	Skills Skills `json:"skills"`
-	MCP    MCP    `json:"mcp"`
+	Schema       int          `json:"schema"`
+	Skills       Skills       `json:"skills"`
+	MCP          MCP          `json:"mcp"`
+	Instructions Instructions `json:"instructions"`
+}
+
+// Instructions is the instructions converger's section: the files Berth
+// made links to AGENTS.md, at the workspace's root.
+type Instructions struct {
+	Path    string            `json:"path"`
+	Links   []string          `json:"links"`             // file names, sorted
+	Skipped map[string]string `json:"skipped,omitempty"` // file name → why Berth left it alone
+	Error   string            `json:"error,omitempty"`
+}
+
+// Empty reports whether the section records nothing.
+func (in Instructions) Empty() bool {
+	return len(in.Links) == 0 && len(in.Skipped) == 0 && in.Error == ""
 }
 
 // Skills is the skills converger's section.
@@ -111,13 +126,18 @@ func (st State) Exclude(folder string) []string {
 			}
 		}
 	}
+	if st.Instructions.Path == folder {
+		for _, l := range st.Instructions.Links {
+			out = append(out, "/"+l)
+		}
+	}
 	slices.Sort(out)
 	return slices.Compact(out)
 }
 
 func (st State) folders() []string {
 	var out []string
-	for _, p := range []string{st.Skills.Path, st.MCP.Path} {
+	for _, p := range []string{st.Skills.Path, st.MCP.Path, st.Instructions.Path} {
 		if p != "" && !slices.Contains(out, p) {
 			out = append(out, p)
 		}
@@ -138,6 +158,9 @@ func (st *State) fill() {
 	}
 	if st.MCP.Dirs == nil {
 		st.MCP.Dirs = []string{}
+	}
+	if st.Instructions.Links == nil {
+		st.Instructions.Links = []string{}
 	}
 }
 
@@ -268,7 +291,7 @@ func (s Store) finish(id string, st State, folders []string) error {
 			errs = append(errs, fmt.Errorf("exclude block in %s: %w", f, err))
 		}
 	}
-	if st.Skills.Empty() && st.MCP.Empty() {
+	if st.Skills.Empty() && st.MCP.Empty() && st.Instructions.Empty() {
 		if err := os.Remove(s.file(id)); err != nil && !errors.Is(err, fs.ErrNotExist) {
 			errs = append(errs, err)
 		}

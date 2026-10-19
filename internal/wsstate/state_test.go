@@ -161,3 +161,38 @@ func TestSectionsInOtherFolders(t *testing.T) {
 		t.Error("Empty")
 	}
 }
+
+func TestInstructionsSection(t *testing.T) {
+	ws := gitRepo(t)
+	s := newStore(t, ws)
+	err := s.Update("api", func(folder string, st *State) error {
+		st.Instructions.Path = folder
+		st.Instructions.Links = []string{"CLAUDE.md", "GEMINI.md"}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, _ := os.ReadFile(filepath.Join(ws, ".git", "info", "exclude"))
+	if !strings.Contains(string(raw), BlockStart+"\n/CLAUDE.md\n/GEMINI.md\n"+BlockEnd) {
+		t.Errorf("exclude = %q", raw)
+	}
+	st, _ := s.Load("api")
+	if !slices.Equal(st.Instructions.Links, []string{"CLAUDE.md", "GEMINI.md"}) {
+		t.Errorf("loaded = %+v", st.Instructions)
+	}
+	// Another converger's update keeps the section and its lines.
+	s.Update("api", func(_ string, st *State) error { st.MCP.Path = ws; return nil })
+	if raw, _ := os.ReadFile(filepath.Join(ws, ".git", "info", "exclude")); !strings.Contains(string(raw), "/CLAUDE.md") {
+		t.Errorf("an MCP update dropped the line: %q", raw)
+	}
+	if err := s.Release("api", func(st *State) { st.Instructions = Instructions{} }); err != nil {
+		t.Fatal(err)
+	}
+	if ids, _ := s.IDs(); len(ids) != 0 {
+		t.Errorf("state left: %v", ids)
+	}
+	if raw, _ := os.ReadFile(filepath.Join(ws, ".git", "info", "exclude")); strings.Contains(string(raw), BlockStart) {
+		t.Errorf("block left: %q", raw)
+	}
+}
