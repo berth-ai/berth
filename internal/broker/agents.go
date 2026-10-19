@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os/exec"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/berth-ai/berth/internal/agentlayer"
@@ -69,6 +70,23 @@ func (b *Broker) checkSecrets(secrets map[string]*string, cur, next config.Confi
 	}
 	for _, name := range slices.Sorted(maps.Keys(secrets)) {
 		field := "secrets." + name
+		if id, key, ok := config.ParseWorkspaceSecretName(name); ok || strings.HasPrefix(name, config.WorkspaceSecretPrefix) {
+			e, has := next.Workspaces[id].Env[key]
+			switch v := secrets[name]; {
+			case !ok || b.WorkspaceSecrets == "":
+				fields = append(fields, config.FieldError{Field: field, Message: "is not a workspace variable Berth can store"})
+			case v == nil || *v == "":
+				// Clearing is always allowed, also for a variable the same
+				// patch removes; the prune drops whatever is left.
+			case !has || !e.Secret:
+				fields = append(fields, config.FieldError{Field: field, Message: "is not a secret variable of workspace " + id})
+			default:
+				if msg := config.CheckEnvValue(*v); msg != "" {
+					fields = append(fields, config.FieldError{Field: field, Message: msg})
+				}
+			}
+			continue
+		}
 		_, isToken := tokens[name]
 		switch v := secrets[name]; {
 		case !slices.Contains(known, name) && !isToken:
@@ -138,32 +156,117 @@ func (b *Broker) publishedStale(m config.MCP) bool {
 	return err != nil || !sameMCP(pub, m)
 }
 
-// writeSecrets applies a validated secrets change to agents.env.
+// writeSecrets applies a validated secrets change: workspace variables to
+// their workspace's file, everything else to agents.env.
 func (b *Broker) writeSecrets(secrets map[string]*string) error {
+	agents := map[string]*string{}
+	byWS := map[string]map[string]*string{}
+	for name, v := range secrets {
+		if id, key, ok := config.ParseWorkspaceSecretName(name); ok {
+			if byWS[id] == nil {
+				byWS[id] = map[string]*string{}
+			}
+			byWS[id][key] = v
+			continue
+		}
+		agents[name] = v
+	}
+	for _, id := range slices.Sorted(maps.Keys(byWS)) {
+		if err := b.writeWorkspaceSecrets(id, byWS[id]); err != nil {
+			return err
+		}
+	}
+	if len(agents) == 0 {
+		return nil
+	}
 	keys, err := agentlayer.ReadKeys(b.Layer.KeysPath)
 	if err != nil {
 		return err
 	}
-	for name, v := range secrets {
+	for name, v := range agents {
 		if v == nil || *v == "" {
 			delete(keys, name)
 		} else {
 			keys[name] = *v
 		}
 	}
-	gid := -1
-	if b.Agent != nil {
-		gid = int(b.Agent.GID)
-	}
-	uid := -1
-	if gid != -1 {
-		uid = 0
-	}
+	uid, gid := b.agentOwner()
 	if err := agentlayer.WriteKeys(b.Layer.KeysPath, keys, uid, gid); err != nil {
 		return err
 	}
-	b.logf("API keys changed: %v", slices.Sorted(maps.Keys(secrets)))
+	b.logf("API keys changed: %v", slices.Sorted(maps.Keys(agents)))
 	return nil
+}
+
+// agentOwner is root:agent, the owner of files only the agent group reads;
+// -1, -1 keeps the owner when there is no agent user.
+func (b *Broker) agentOwner() (int, int) {
+	if b.Agent == nil {
+		return -1, -1
+	}
+	return 0, int(b.Agent.GID)
+}
+
+func onlyWorkspaceSecrets(secrets map[string]*string) bool {
+	for name := range secrets {
+		if _, _, ok := config.ParseWorkspaceSecretName(name); !ok {
+			return false
+		}
+	}
+	return true
+}
+
+func (b *Broker) writeWorkspaceSecrets(id string, change map[string]*string) error {
+	env, err := config.ReadWorkspaceSecrets(b.WorkspaceSecrets, id)
+	if err != nil {
+		return err
+	}
+	for k, v := range change {
+		if v == nil || *v == "" {
+			delete(env, k)
+		} else {
+			env[k] = *v
+		}
+	}
+	uid, gid := b.agentOwner()
+	if err := config.WriteWorkspaceSecrets(b.WorkspaceSecrets, id, env, uid, gid); err != nil {
+		return err
+	}
+	b.logf("workspace %s secrets changed: %v", id, slices.Sorted(maps.Keys(change)))
+	return nil
+}
+
+// pruneWorkspaceSecrets drops the secrets cfg no longer has: a forgotten
+// workspace's file, and variables removed or made plain.
+func (b *Broker) pruneWorkspaceSecrets(cfg config.Config) {
+	if b.WorkspaceSecrets == "" {
+		return
+	}
+	ids, err := config.WorkspaceSecretIDs(b.WorkspaceSecrets)
+	if err != nil {
+		b.logf("WARNING: workspace secrets: %v", err)
+		return
+	}
+	for _, id := range ids {
+		env, err := config.ReadWorkspaceSecrets(b.WorkspaceSecrets, id)
+		if err != nil {
+			b.logf("WARNING: workspace secrets: %v", err)
+			continue
+		}
+		keep := map[string]string{}
+		for k, v := range env {
+			if e, ok := cfg.Workspaces[id].Env[k]; ok && e.Secret {
+				keep[k] = v
+			}
+		}
+		if len(keep) == len(env) {
+			continue
+		}
+		uid, gid := b.agentOwner()
+		if err := config.WriteWorkspaceSecrets(b.WorkspaceSecrets, id, keep, uid, gid); err != nil {
+			b.logf("WARNING: workspace secrets: %v", err)
+		}
+	}
 }
 
 // refreshAgents publishes the agents, MCP and skills settings that changed.
@@ -174,6 +277,7 @@ func (b *Broker) writeSecrets(secrets map[string]*string) error {
 // skills when the set or the skills changed. A workspace added, forgotten
 // or moved runs both.
 func (b *Broker) refreshAgents(old, next config.Config, tokens bool) {
+	b.pruneWorkspaceSecrets(next)
 	if b.workspacesStale(next.Workspaces) {
 		if err := b.writeWorkspacesSettings(next.Workspaces); err != nil {
 			b.logf("WARNING: workspace settings: %v", err)
@@ -234,6 +338,16 @@ func (b *Broker) startMCPSetup(timeout time.Duration) {
 // secretStates reports which known keys and MCP tokens have a value.
 func (b *Broker) secretStates(cfg config.Config) map[string]map[string]bool {
 	out := map[string]map[string]bool{}
+	if b.WorkspaceSecrets != "" {
+		for id, w := range cfg.Workspaces {
+			env, _ := config.ReadWorkspaceSecrets(b.WorkspaceSecrets, id)
+			for k, e := range w.Env {
+				if e.Secret {
+					out[config.WorkspaceSecretName(id, k)] = map[string]bool{"set": env[k] != ""}
+				}
+			}
+		}
+	}
 	if b.Layer == nil {
 		return out
 	}

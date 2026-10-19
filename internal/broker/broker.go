@@ -96,6 +96,9 @@ type Broker struct {
 	// berth-term and the agent side, /var/lib/berth/workspaces.json; empty
 	// skips it.
 	WorkspacesSettings string
+	// WorkspaceSecrets holds each workspace's secret variables,
+	// /var/lib/berth/secrets/workspaces; empty refuses them.
+	WorkspaceSecrets string
 	// Fetch reads the agent lock on a ref for update.check.
 	Fetch func(ctx context.Context, ref string) (*locksource.Lock, error)
 	// Home holds the programs home-side verbs run as agent.
@@ -186,6 +189,7 @@ func (b *Broker) Load() config.Config {
 		if werr := b.writeWorkspacesSettings(cfg.Workspaces); werr != nil {
 			b.logf("WARNING: workspace settings: %v", werr)
 		}
+		b.pruneWorkspaceSecrets(cfg)
 	}
 	return b.cfg
 }

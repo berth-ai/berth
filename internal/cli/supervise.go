@@ -96,6 +96,7 @@ func runSupervise(ctx context.Context, a *app, args []string) error {
 	b.AgentsCmd = a.cfg.AgentsCmd
 	b.WorkspacesRoot = a.cfg.WorkspacesDir
 	b.WorkspacesSettings = filepath.Join(a.cfg.ConfigDir, "workspaces.json")
+	b.WorkspaceSecrets = a.workspaceSecretsDir()
 	b.Home = broker.DefaultHome(a.cfg.BerthPath)
 	b.BaseTools = "/usr/share/berth/mise.toml"
 	b.PresetsDir = "/usr/share/berth/presets"
@@ -176,9 +177,33 @@ func (a *app) fixKeysOwner() {
 	if a.cfg.Agent == nil {
 		return
 	}
-	if err := fixOwner(a.cfg.KeysPath, int(a.cfg.Agent.GID)); err != nil {
+	gid := int(a.cfg.Agent.GID)
+	if err := fixOwner(a.cfg.KeysPath, gid); err != nil {
 		a.p.Logf("WARNING: cannot re-own %s: %v", a.cfg.KeysPath, err)
 	}
+	// Workspace secrets: root:agent, a folder agent may open files in but
+	// not list.
+	dir := a.workspaceSecretsDir()
+	if _, err := os.Stat(dir); err != nil {
+		return
+	}
+	if err := fixOwner(dir, gid); err != nil {
+		a.p.Logf("WARNING: cannot re-own %s: %v", dir, err)
+	}
+	if err := os.Chmod(dir, 0o711); err != nil {
+		a.p.Logf("WARNING: cannot set the mode of %s: %v", dir, err)
+	}
+	files, _ := filepath.Glob(filepath.Join(dir, "*.json"))
+	for _, f := range files {
+		if err := fixOwner(f, gid); err != nil {
+			a.p.Logf("WARNING: cannot re-own %s: %v", f, err)
+		}
+	}
+}
+
+// workspaceSecretsDir holds each workspace's secret variables, beside agents.env.
+func (a *app) workspaceSecretsDir() string {
+	return filepath.Join(filepath.Dir(a.cfg.KeysPath), "workspaces")
 }
 
 // agentsReport is the agent store part of the broker's status. It reads no

@@ -232,7 +232,7 @@ func (b *Broker) configApply(_ context.Context, body []byte) (int, any) {
 		return badRequest(errors.New("send a patch, secrets, or both"))
 	case hasPatch && in.BaseRevision == nil:
 		return badRequest(errors.New("base_revision is required with a patch"))
-	case len(in.Secrets) > 0 && b.Layer == nil:
+	case len(in.Secrets) > 0 && b.Layer == nil && !onlyWorkspaceSecrets(in.Secrets):
 		return badRequest(errors.New("this broker manages no agent keys"))
 	}
 	b.change.Lock()

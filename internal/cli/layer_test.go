@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/berth-ai/berth/internal/agentlayer"
+	"github.com/berth-ai/berth/internal/config"
 	"github.com/berth-ai/berth/internal/runner"
 )
 
@@ -46,13 +47,17 @@ func TestLayerHonoursDisabled(t *testing.T) {
 func TestBootFixesKeysGroup(t *testing.T) {
 	cfg := layerConfig(t)
 	agentlayer.WriteKeys(cfg.KeysPath, map[string]string{"A_KEY": "x"}, -1, -1)
-	got := -2
-	fixOwner = func(path string, gid int) error { got = gid; return nil }
+	secrets := filepath.Join(filepath.Dir(cfg.KeysPath), "workspaces")
+	config.WriteWorkspaceSecrets(secrets, "api", map[string]string{"KEY": "v"}, -1, -1)
+	owned := map[string]int{}
+	fixOwner = func(path string, gid int) error { owned[path] = gid; return nil }
 	t.Cleanup(func() { fixOwner = agentlayer.FixOwner })
 	cfg.Agent = &runner.Identity{UID: 1000, GID: 4242}
 	a := &app{cfg: cfg}
 	a.fixKeysOwner()
-	if got != 4242 {
-		t.Errorf("FixOwner gid = %d", got)
+	for _, p := range []string{cfg.KeysPath, secrets, filepath.Join(secrets, "api.json")} {
+		if owned[p] != 4242 {
+			t.Errorf("FixOwner(%s) gid = %d", p, owned[p])
+		}
 	}
 }
