@@ -457,7 +457,23 @@ func TestWorkspacesSyncTriggers(t *testing.T) {
 	tb := newTestBroker(t)
 	withAgents(t, tb)
 	log := withWorkspacesSync(t, tb)
-	runs := func() int { tb.waitIdle(t); return len(calls(log)) }
+	// A change starts several convergers; wait for all of them, not only
+	// the newest job.
+	runs := func() int {
+		t.Helper()
+		deadline := time.Now().Add(5 * time.Second)
+		for busy := true; busy; {
+			if time.Now().After(deadline) {
+				t.Fatal("jobs did not finish")
+			}
+			busy = false
+			for _, j := range tb.b.Jobs.List() {
+				busy = busy || j.State == StateRunning
+			}
+			time.Sleep(5 * time.Millisecond)
+		}
+		return len(calls(log))
+	}
 	apply := func(patch string) {
 		t.Helper()
 		cur, _, _ := tb.b.snapshot()
