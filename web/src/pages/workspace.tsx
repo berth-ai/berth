@@ -31,6 +31,7 @@ import { useTitle } from "@/lib/use-title";
 import { FrontendOff, keepRightClick } from "./frontend";
 import { repoLabel } from "./skills-logic";
 import { SessionBadge } from "./workspaces";
+import { WorkspaceInstructions } from "./workspace-instructions";
 import { WorkspaceMcp } from "./workspace-mcp";
 import { WorkspaceSkills } from "./workspace-skills";
 import {
@@ -124,12 +125,14 @@ export function WorkspacePage({
         label="Workspace view"
         value={tab}
         onChange={onTab}
-        className="w-full max-w-[32rem]"
+        className="w-full max-w-[44rem]"
         options={[
           { value: "overview", label: "Overview" },
           { value: "terminal", label: "Terminal" },
           { value: "skills", label: "Skills" },
           { value: "mcp", label: "MCP" },
+          { value: "instructions", label: "Instructions" },
+          { value: "env", label: "Env" },
         ]}
       />
       {tab === "terminal" ? (
@@ -138,6 +141,8 @@ export function WorkspacePage({
         <WorkspaceSkills id={id} />
       ) : tab === "mcp" ? (
         <WorkspaceMcp id={id} />
+      ) : tab === "instructions" ? (
+        <WorkspaceInstructions id={id} />
       ) : (
         <Overview
           id={id}
