@@ -2,6 +2,8 @@ package main
 
 import (
 	"cmp"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"maps"
@@ -56,9 +58,11 @@ type fake struct {
 	jobs        []*job
 	started     time.Time
 	step        time.Duration
-	signedIn    map[string]bool     // pkg + " " + method
-	sessions    map[string][]string // workspace id → window names
-	overwritten map[string]bool     // "<ws>/<source>/<name>" after Overwrite
+	signedIn    map[string]bool              // pkg + " " + method
+	sessions    map[string][]string          // workspace id → window names
+	overwritten map[string]bool              // "<ws>/<source>/<name>" after Overwrite
+	files       map[string]map[string]string // workspace id → instruction file → content
+	links       map[string]map[string]bool   // workspace id → files Berth linked to AGENTS.md
 }
 
 func newFake(mode string) *fake {
@@ -66,6 +70,8 @@ func newFake(mode string) *fake {
 		signedIn:    map[string]bool{},
 		sessions:    map[string][]string{},
 		overwritten: map[string]bool{},
+		files:       map[string]map[string]string{},
+		links:       map[string]map[string]bool{},
 		mode:        mode, user: devUser, started: time.Now().UTC(), step: 400 * time.Millisecond,
 		cfg:    defaultConfig(1),
 		keys:   map[string]bool{"EXAMPLE_API_KEY": false, "COPILOT_GITHUB_TOKEN": false},
@@ -294,6 +300,16 @@ func (f *fake) verb(name string, in map[string]any) (int, any) {
 		return http.StatusOK, map[string]any{"candidates": f.candidates()}
 	case "workspaces.launch":
 		return f.launch(in)
+	case "workspaces.instructions.read", "workspaces.instructions.write", "workspaces.instructions.merge":
+		return f.instructions(name, in)
+	case "workspaces.restart":
+		id := str(in["id"])
+		if f.workspacePath(id) == "" {
+			return http.StatusNotFound, apiError("unknown_workspace", "No workspace named "+id)
+		}
+		killed := len(f.sessions[id]) > 0
+		f.sessions[id] = []string{"zsh"}
+		return http.StatusOK, map[string]any{"session": "ws-" + id, "killed": killed}
 	case "workspaces.report":
 		id := str(in["id"])
 		if f.workspacePath(id) == "" {
@@ -343,6 +359,15 @@ func (f *fake) apply(in map[string]any) (int, any) {
 	}
 	if secrets, ok := in["secrets"].(map[string]any); ok {
 		for k, v := range secrets {
+			if wid, key, ok := strings.Cut(strings.TrimPrefix(k, "workspaces."), "."); strings.HasPrefix(k, "workspaces.") && ok {
+				w, _ := next["workspaces"].(map[string]any)[wid].(map[string]any)
+				e, _ := w["env"].(map[string]any)[key].(map[string]any)
+				if v != nil && v != "" && e["secret"] != true {
+					return http.StatusBadRequest, fieldError("invalid_config", "secrets."+k, "is not a secret variable of workspace "+wid)
+				}
+				f.keys[k] = v != nil && v != ""
+				continue
+			}
 			if _, known := f.keys[k]; !known && !isMCPToken(k) {
 				return http.StatusBadRequest, fieldError("invalid_config", "secrets."+k, "no installed package reads this key")
 			}
@@ -365,6 +390,15 @@ func (f *fake) apply(in map[string]any) (int, any) {
 			delete(f.keys, k)
 		}
 	}
+	// Like the broker, drop the secrets of variables that are no longer secret.
+	for k := range f.keys {
+		if wid, key, ok := strings.Cut(strings.TrimPrefix(k, "workspaces."), "."); strings.HasPrefix(k, "workspaces.") && ok {
+			w, _ := next["workspaces"].(map[string]any)[wid].(map[string]any)
+			if e, _ := w["env"].(map[string]any)[key].(map[string]any); e["secret"] != true {
+				delete(f.keys, k)
+			}
+		}
+	}
 	syncSkills := !reflect.DeepEqual(f.cfg["skills"], next["skills"])
 	code, out := f.replace(next)
 	if syncSkills {
@@ -383,6 +417,16 @@ func (f *fake) secrets() map[string]any {
 	out := map[string]any{}
 	for k, set := range f.keys {
 		out[k] = map[string]bool{"set": set}
+	}
+	wss, _ := f.cfg["workspaces"].(map[string]any)
+	for id, w := range wss {
+		env, _ := w.(map[string]any)["env"].(map[string]any)
+		for key, e := range env {
+			if e, _ := e.(map[string]any); e["secret"] == true {
+				name := "workspaces." + id + "." + key
+				out[name] = map[string]bool{"set": f.keys[name]}
+			}
+		}
 	}
 	return out
 }
@@ -449,10 +493,10 @@ func (f *fake) packages() []map[string]any {
 		off[p.(string)] = true
 	}
 	pkgs := []map[string]any{
-		{"package": "@example/agent-cli", "name": "Example Agent", "kind": "agent", "version": "2.1.0", "origin": "locked", "enabled": !off["@example/agent-cli"], "icon": "claude",
+		{"package": "@example/agent-cli", "name": "Example Agent", "kind": "agent", "version": "2.1.0", "origin": "locked", "enabled": !off["@example/agent-cli"], "icon": "claude", "instructions": "CLAUDE.md",
 			"bins": []string{"example"}, "keys": []map[string]any{{"name": "EXAMPLE_API_KEY", "set": f.keys["EXAMPLE_API_KEY"]}},
 			"skills_dir": "~/.example/skills", "skills_project": ".example/skills", "mcp_project": ".mcp.json"},
-		{"package": "@example/other-cli", "name": "Other Agent", "kind": "agent", "version": "1.4.0", "origin": "locked", "enabled": !off["@example/other-cli"],
+		{"package": "@example/other-cli", "name": "Other Agent", "kind": "agent", "version": "1.4.0", "origin": "locked", "enabled": !off["@example/other-cli"], "instructions": "AGENTS.md",
 			"bins": []string{"other"}, "keys": []map[string]any{},
 			"skills_dir": "~/.other/skills", "skills_via": []string{"@example/agent-cli"},
 			"skills_project": ".agents/skills", "mcp_project": ".other/config.toml", "mcp_trust": true},
@@ -597,6 +641,13 @@ func (f *fake) run(j *job, in map[string]any) {
 		forgetRefs(next, id)
 		f.replace(next)
 		delete(f.sessions, id)
+		delete(f.files, id)
+		delete(f.links, id)
+		for k := range f.keys {
+			if strings.HasPrefix(k, "workspaces."+id+".") {
+				delete(f.keys, k)
+			}
+		}
 		j.Result, _ = json.Marshal(map[string]any{"id": id, "path": path, "deleted": in["delete"] == true, "left": []string{}, "kept": []string{}})
 	case "skills.vendor.resolve":
 		ws, src, name := str(in["workspace"]), str(in["source"]), str(in["name"])
@@ -1204,7 +1255,120 @@ func (f *fake) report(id string) map[string]any {
 		files[".other/config.toml"] = map[string]any{"style": "codex-toml", "ids": ids, "created": true}
 	}
 	return map[string]any{
-		"skills": map[string]any{"path": folder, "entries": entries, "dirs": []string{}},
-		"mcp":    map[string]any{"path": folder, "files": files, "dirs": []string{}, "trust": len(ids) > 0},
+		"skills":       map[string]any{"path": folder, "entries": entries, "dirs": []string{}},
+		"mcp":          map[string]any{"path": folder, "files": files, "dirs": []string{}, "trust": len(ids) > 0},
+		"instructions": f.instructionsReport(id),
 	}
+}
+
+func fakeSum(s string) string { h := sha256.Sum256([]byte(s)); return hex.EncodeToString(h[:]) }
+
+// instructionFiles are the files workspace id may edit, as the broker allows them.
+func (f *fake) instructionFiles(id string) []string {
+	var out []string
+	for _, p := range f.packages() {
+		if s := str(p["instructions"]); s != "" && p["kind"] == "agent" {
+			out = append(out, s)
+		}
+	}
+	if f.shared(id) {
+		out = append(out, "AGENTS.md")
+	}
+	slices.Sort(out)
+	return slices.Compact(out)
+}
+
+func (f *fake) shared(id string) bool {
+	w, _ := f.cfg["workspaces"].(map[string]any)[id].(map[string]any)
+	in, _ := w["instructions"].(map[string]any)
+	return in["shared"] == true
+}
+
+// instructions answers the three instruction verbs.
+func (f *fake) instructions(verb string, in map[string]any) (int, any) {
+	id, name := str(in["id"]), str(in["file"])
+	switch {
+	case f.workspacePath(id) == "":
+		return http.StatusNotFound, apiError("unknown_workspace", "No workspace named "+id)
+	case !slices.Contains(f.instructionFiles(id), name):
+		return http.StatusBadRequest, apiError("not_allowed", name+" is not an instruction file of this workspace's agents")
+	}
+	if f.files[id] == nil {
+		f.files[id], f.links[id] = map[string]string{}, map[string]bool{}
+	}
+	content, exists := f.files[id][name]
+	switch verb {
+	case "workspaces.instructions.read":
+		file := map[string]any{"file": name, "state": "missing", "content": "", "sha256": "", "size": 0, "editable": true,
+			"tracked": false}
+		switch {
+		case f.links[id][name]:
+			file = map[string]any{"file": name, "state": "symlink", "target": "AGENTS.md", "owned": true, "content": "",
+				"sha256": "", "size": 0, "editable": false, "reason": name + " is a link to AGENTS.md; edit that file instead", "tracked": false}
+		case exists:
+			file["state"], file["content"], file["sha256"], file["size"] = "file", content, fakeSum(content), len(content)
+			file["tracked"] = str(f.cfg["workspaces"].(map[string]any)[id].(map[string]any)["repo"]) != ""
+		}
+		return http.StatusOK, map[string]any{"file": file}
+	case "workspaces.instructions.write":
+		text := str(in["content"])
+		cur := ""
+		if exists {
+			cur = fakeSum(content)
+		}
+		switch {
+		case f.links[id][name]:
+			return http.StatusConflict, apiError("is_symlink", name+" is a link to AGENTS.md; edit that file instead")
+		case cur != str(in["base_sha256"]) || strings.Contains(text, "<<drift>>"):
+			return http.StatusConflict, apiError("changed_on_disk", name+" changed on disk since you opened it")
+		case len(text) > 256<<10:
+			return http.StatusBadRequest, apiError("too_large", name+" would be larger than 256 KiB")
+		}
+		f.files[id][name] = text
+		return http.StatusOK, map[string]any{"file": name, "sha256": fakeSum(text)}
+	default: // merge
+		switch {
+		case !f.shared(id):
+			return http.StatusConflict, apiError("not_shared", "Turn on shared instructions first")
+		case !exists || name == "AGENTS.md":
+			return http.StatusConflict, apiError("not_a_file", name+" is not a file with its own content")
+		}
+		head := f.files[id]["AGENTS.md"]
+		if head != "" {
+			head = strings.TrimRight(head, "\n") + "\n\n"
+		}
+		f.files[id]["AGENTS.md"] = head + content
+		delete(f.files[id], name)
+		f.links[id][name] = true
+		return http.StatusOK, map[string]any{"file": name, "merged": true}
+	}
+}
+
+// instructionsReport is the converger's section for workspace id.
+func (f *fake) instructionsReport(id string) map[string]any {
+	links, skipped := []string{}, map[string]string{}
+	if f.links[id] == nil {
+		f.links[id] = map[string]bool{}
+	}
+	if f.shared(id) {
+		for _, name := range f.instructionFiles(id) {
+			_, own := f.files[id][name]
+			switch {
+			case name == "AGENTS.md" || f.links[id][name]:
+				if f.links[id][name] {
+					links = append(links, name)
+				}
+			case own:
+				skipped[name] = name + " has its own content"
+			case f.files[id]["AGENTS.md"] == "":
+				skipped[name] = "AGENTS.md is missing; write it or merge a file into it"
+			default:
+				f.links[id][name] = true
+				links = append(links, name)
+			}
+		}
+	} else {
+		f.links[id] = map[string]bool{}
+	}
+	return map[string]any{"path": "/workspaces/" + f.workspacePath(id), "links": links, "skipped": skipped}
 }

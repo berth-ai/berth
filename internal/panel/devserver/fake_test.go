@@ -489,3 +489,33 @@ func TestFakeWorkspaceAttachments(t *testing.T) {
 		t.Errorf("forget kept references: %v %v", a, f.cfg["mcp"])
 	}
 }
+
+func TestFakeInstructionsAndEnv(t *testing.T) {
+	f := newFake("normal")
+	f.verb("config.apply", map[string]any{"base_revision": 1.0, "patch": map[string]any{"workspaces": map[string]any{
+		"api": map[string]any{"path": "acme/api", "repo": "", "env": map[string]any{"KEY": map[string]any{"value": "", "secret": true}}}}}})
+	code, out := f.verb("workspaces.instructions.read", map[string]any{"id": "api", "file": "CLAUDE.md"})
+	if code != 200 || out.(map[string]any)["file"].(map[string]any)["state"] != "missing" {
+		t.Fatalf("read = %d %v", code, out)
+	}
+	code, out = f.verb("workspaces.instructions.write", map[string]any{"id": "api", "file": "CLAUDE.md", "content": "c", "base_sha256": ""})
+	if code != 200 {
+		t.Fatalf("write = %d %v", code, out)
+	}
+	if code, _ := f.verb("workspaces.instructions.write", map[string]any{"id": "api", "file": "CLAUDE.md", "content": "x", "base_sha256": ""}); code != 409 {
+		t.Errorf("stale write = %d", code)
+	}
+	if code, _ := f.verb("workspaces.instructions.read", map[string]any{"id": "api", "file": "README.md"}); code != 400 {
+		t.Errorf("README.md = %d", code)
+	}
+	if code, out := f.verb("config.apply", map[string]any{"secrets": map[string]any{"workspaces.api.KEY": "v"}}); code != 200 {
+		t.Fatalf("secret = %d %v", code, out)
+	}
+	_, out = f.verb("config.get", map[string]any{})
+	if s := out.(map[string]any)["secrets"].(map[string]any)["workspaces.api.KEY"]; s.(map[string]bool)["set"] != true {
+		t.Errorf("secrets = %v", s)
+	}
+	if code, _ := f.verb("workspaces.restart", map[string]any{"id": "api"}); code != 200 {
+		t.Errorf("restart = %d", code)
+	}
+}
