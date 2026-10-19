@@ -5,6 +5,7 @@ import type {
   Candidate,
   ConfigView,
   ForgeStatus,
+  InstructionFile,
   Job,
   LoginStatus,
   RegistryAgent,
@@ -30,6 +31,7 @@ export const keys = {
   agentRegistry: ["agent-registry"],
   versions: (tool: string) => ["versions", tool],
   workspaceReport: (id: string) => ["workspace-report", id],
+  instructions: (id: string, file: string) => ["instructions", id, file],
   workspaceStatus: ["workspace-status"],
   candidates: ["workspace-candidates"],
 } as const;
@@ -167,4 +169,17 @@ export function useWorkspaceReport(id: string) {
 /** refreshWorkspaceReport reloads a workspace's report now. */
 export function refreshWorkspaceReport(id: string): Promise<void> {
   return queryClient.invalidateQueries({ queryKey: keys.workspaceReport(id) });
+}
+
+export function readInstructionFile(id: string, file: string) {
+  return verb<{ file: InstructionFile }>("workspaces.instructions.read", { id, file }).then(
+    (r) => r.file,
+  );
+}
+
+export function useInstructionFile(id: string, file: string) {
+  return useQuery({
+    queryKey: keys.instructions(id, file),
+    queryFn: () => readInstructionFile(id, file),
+  });
 }

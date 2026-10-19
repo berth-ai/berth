@@ -82,7 +82,14 @@ export function gitSummary(st: WorkspaceState | undefined): string {
   return st.dirty > 0 ? `${where} · ${count(st.dirty, "change", "changes")}` : where;
 }
 
-export const WORKSPACE_TABS = ["overview", "terminal", "skills", "mcp"] as const;
+export const WORKSPACE_TABS = [
+  "overview",
+  "terminal",
+  "skills",
+  "mcp",
+  "instructions",
+  "env",
+] as const;
 export type WorkspaceTab = (typeof WORKSPACE_TABS)[number];
 export const parseWorkspaceTab = (v: unknown): WorkspaceTab =>
   WORKSPACE_TABS.find((t) => t === v) ?? "overview";

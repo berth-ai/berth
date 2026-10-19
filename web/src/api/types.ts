@@ -66,6 +66,8 @@ export interface AgentPackage {
   skills_project?: string;
   mcp_project?: string;
   mcp_trust?: boolean;
+  /** instructions is the agent's instruction file at a workspace's root. */
+  instructions?: string;
   icon?: string;
   // An older broker omits these.
   origin?: "locked" | "added";
@@ -186,6 +188,27 @@ export interface WorkspaceReport {
     skipped?: Record<string, string> | null;
     error?: string;
   };
+  instructions?: {
+    path?: string;
+    links?: string[] | null;
+    skipped?: Record<string, string> | null;
+    error?: string;
+  };
+}
+
+/** InstructionFile is one instruction file as workspaces.instructions.read reports it. */
+export interface InstructionFile {
+  file: string;
+  state: "file" | "missing" | "symlink" | "other";
+  target?: string;
+  /** owned: Berth made the link, because the workspace shares AGENTS.md. */
+  owned?: boolean;
+  content: string;
+  sha256: string;
+  size: number;
+  editable: boolean;
+  reason?: string;
+  tracked: boolean;
 }
 
 export interface WorkspaceEnvVar {
