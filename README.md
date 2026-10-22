@@ -87,7 +87,7 @@ and a marked block in `~/.codex/config.toml`) and only changes the entries
 it wrote: servers you add yourself stay as they are.
 
 Skills come from any git repository over HTTPS (private ones through your
-`gh` or `glab` sign-in) or from a short catalog on the panel's Skills page.
+`gh`, `glab` or `tea` sign-in) or from a short catalog on the panel's Skills page.
 Berth pins each one to a commit, keeps one copy in
 `~/.local/share/berth/skills`, and links it into the skills directory of
 every agent you pick (`~/.claude/skills`, `~/.codex/skills`,
@@ -117,7 +117,7 @@ agent prefers keys (Claude Code does).
 docker compose pull && docker compose up -d
 ```
 
-Your home (agent logins, `gh`/`glab` auth, dotfiles, your own tools) and the
+Your home (agent logins, `gh`/`glab`/`tea` auth, dotfiles, your own tools) and the
 agent store and Berth's settings live in the `berth-home`, `berth-agents` and
 `berth-config` volumes and survive recreation. Never run
 `docker compose down -v` to upgrade: it deletes all three volumes.
@@ -125,7 +125,11 @@ agent store and Berth's settings live in the `berth-home`, `berth-agents` and
 ## Tools and shell
 
 - The pinned toolchain lives in `/opt/mise`: Node, Neovim, gh, glab, uv,
-  ripgrep, fd, fzf, lazygit, starship, chezmoi, atuin and more.
+  ripgrep, fd, fzf, lazygit, starship, chezmoi, atuin and more. The Gitea
+  and Forgejo CLI, `tea`, is in `/usr/local/bin`.
+- The panel's Accounts page signs `gh` and `glab` in with a one-time code
+  and `tea` in with an access token, to any number of Gitea or Forgejo
+  servers. Each one also signs git in over HTTPS.
 - Add your own tools from the panel's Tools page, or with `mise use -g
   <tool>@<version>`. They live in your home, after the pinned ones on
   `PATH`. Presets install pinned Go, Rust, Python or Java toolchains the

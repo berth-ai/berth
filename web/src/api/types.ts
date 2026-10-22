@@ -394,6 +394,16 @@ export interface Forge {
   host: string;
   signed_in: boolean;
   user: string;
+  /** tea's servers; gh and glab sign in to one host and omit it. */
+  logins?: ForgeLogin[];
+}
+
+/** ForgeLogin is one Gitea or Forgejo server tea is signed in to. */
+export interface ForgeLogin {
+  name: string;
+  url: string;
+  user: string;
+  default: boolean;
 }
 
 export interface ForgeStatus {

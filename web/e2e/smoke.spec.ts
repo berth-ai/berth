@@ -459,6 +459,41 @@ test("agents sign in with a pasted code and a device code, and sign out", async 
   expect(problems).toEqual([]);
 });
 
+test("code hosts sign in with a device code and a token, and sign out", async ({ page }) => {
+  const problems = await watch(page);
+  await signIn(page);
+  await page.goto(`${NORMAL}/#/accounts`);
+  await expect(h1(page, "Accounts")).toBeVisible();
+
+  await page.getByRole("button", { name: "Sign in to GitHub" }).click();
+  await expect(page.getByText("ABCD-1234")).toBeVisible();
+  await expect(page.getByText("GitHub: signed in.")).toBeVisible();
+  await page.getByRole("button", { name: "Sign out of GitHub" }).click();
+  await page.getByRole("alertdialog").getByRole("button", { name: "Sign out" }).click();
+  await expect(page.getByText("Signed out of GitHub.")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Sign in to GitHub" })).toBeVisible();
+
+  await page.getByRole("textbox", { name: "Server", exact: true }).fill("https://codeberg.org");
+  await expect(page.getByRole("link", { name: "Create a token on codeberg.org" })).toHaveAttribute(
+    "href",
+    "https://codeberg.org/user/settings/applications",
+  );
+  await page.getByLabel("Access token").fill("bad");
+  await page.getByRole("button", { name: "Sign in", exact: true }).click();
+  await expect(page.getByText("invalid username, password or token")).toBeVisible();
+  await page.getByLabel("Access token").fill("good");
+  await page.getByRole("button", { name: "Sign in", exact: true }).click();
+  await expect(page.getByText("Gitea: signed in to codeberg.org.")).toBeVisible();
+  await expect(page.getByLabel("Access token")).toHaveValue("");
+  await expect(page.getByRole("heading", { name: "Add a server" })).toBeVisible();
+
+  await page.getByRole("button", { name: "Sign out of codeberg.org" }).click();
+  await page.getByRole("alertdialog").getByRole("button", { name: "Sign out" }).click();
+  await expect(page.getByText("Signed out of codeberg.org.")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Sign out of codeberg.org" })).toHaveCount(0);
+  expect(problems).toEqual([]);
+});
+
 test("a registry agent is added, gets a Sign-in column and is removed", async ({ page }) => {
   const problems = await watch(page);
   await signIn(page);

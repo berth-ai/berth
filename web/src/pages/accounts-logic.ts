@@ -14,3 +14,16 @@ export function forgeJobId(jobs: Job[] | undefined, forge: string): number | nul
   );
   return job ? job.id : null;
 }
+
+/** tokenPage is where a Gitea or Forgejo server issues access tokens, or
+ * null until server is an https:// address. */
+export function tokenPage(server: string): string | null {
+  let u: URL;
+  try {
+    u = new URL(server.trim());
+  } catch {
+    return null;
+  }
+  if (u.protocol !== "https:" || !u.host) return null;
+  return `${u.origin}${u.pathname.replace(/\/+$/, "")}/user/settings/applications`;
+}

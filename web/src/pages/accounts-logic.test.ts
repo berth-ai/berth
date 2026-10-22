@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Job } from "@/api/types";
-import { deviceHost, forgeJobId } from "./accounts-logic";
+import { deviceHost, forgeJobId, tokenPage } from "./accounts-logic";
 
 const job = (id: number, verb: string, state: string, args: string[]): Job => ({
   id,
@@ -28,5 +28,15 @@ describe("accounts logic", () => {
     expect(forgeJobId(jobs, "glab")).toBe(3);
     expect(forgeJobId(jobs, "gh")).toBeNull();
     expect(forgeJobId(undefined, "gh")).toBeNull();
+  });
+
+  it("links a server's token page once its address is https", () => {
+    expect(tokenPage(" https://gitea.com/ ")).toBe("https://gitea.com/user/settings/applications");
+    expect(tokenPage("https://example.org/git")).toBe(
+      "https://example.org/git/user/settings/applications",
+    );
+    expect(tokenPage("http://gitea.com")).toBeNull();
+    expect(tokenPage("gitea.com")).toBeNull();
+    expect(tokenPage("")).toBeNull();
   });
 });
