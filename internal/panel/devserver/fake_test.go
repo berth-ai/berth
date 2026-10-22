@@ -133,6 +133,37 @@ func TestFakeToolsReplaceAndRemove(t *testing.T) {
 	}
 }
 
+func TestFakeTeaLogins(t *testing.T) {
+	c, _ := newClient(t, "normal")
+	c.call("POST", "/api/login", `{"user":"dev","password":"dev password"}`)
+	tea := func() map[string]any {
+		_, out := c.call("POST", "/api/verbs/forge.status", `{}`)
+		return out["forges"].(map[string]any)["tea"].(map[string]any)
+	}
+	if got := tea(); got["signed_in"] != false || got["logins"] != nil {
+		t.Errorf("before = %v", got)
+	}
+	for body, want := range map[string]int{
+		`{"forge":"tea","url":"https://gitea.com/","token":"t"}`:    200,
+		`{"forge":"tea","url":"https://codeberg.org","token":"t"}`:  200,
+		`{"forge":"tea","url":"https://gitea.com","token":"t"}`:     409,
+		`{"forge":"tea","url":"http://example.org","token":"t"}`:    400,
+		`{"forge":"tea","url":"https://example.org","token":"bad"}`: 502,
+	} {
+		if code, out := c.call("POST", "/api/verbs/forge.token", body); code != want {
+			t.Errorf("%s = %d %v, want %d", body, code, out, want)
+		}
+	}
+	if got := tea(); got["signed_in"] != true || len(got["logins"].([]any)) != 2 {
+		t.Errorf("after = %v", got)
+	}
+	c.call("POST", "/api/verbs/forge.logout", `{"forge":"tea","name":"gitea.com"}`)
+	c.call("POST", "/api/verbs/forge.logout", `{"forge":"tea","name":"codeberg.org"}`)
+	if got := tea(); got["signed_in"] != false {
+		t.Errorf("after sign-out = %v", got)
+	}
+}
+
 func TestFakeMCPServers(t *testing.T) {
 	c, _ := newClient(t, "normal")
 	if code, out := c.call("POST", "/api/login", `{"user":"dev","password":"dev password"}`); code != 200 {

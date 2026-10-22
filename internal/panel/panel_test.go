@@ -431,7 +431,7 @@ func TestVerbAllowlist(t *testing.T) {
 	}
 	for _, verb := range []string{
 		"tools.list", "tools.versions", "tools.registry", "tools.add", "tools.remove",
-		"preset.install", "git.identity", "forge.status", "forge.login",
+		"preset.install", "git.identity", "forge.status", "forge.login", "forge.token", "forge.logout",
 		"skills.sources.preview", "skills.sources.add", "skills.sources.update", "skills.sources.remove", "config.upgrade",
 		"login.status", "login.start", "login.input", "login.cancel", "login.logout",
 	} {

@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"maps"
 	"net/http"
+	"net/url"
 	"reflect"
 	"slices"
 	"strconv"
@@ -54,6 +55,7 @@ type fake struct {
 	keys        map[string]bool
 	git         map[string]string
 	forges      map[string]bool
+	teaLogins   []map[string]any // tea's servers, in the order they signed in
 	tools       []map[string]string
 	jobs        []*job
 	started     time.Time
@@ -198,7 +200,30 @@ func (f *fake) verb(name string, in map[string]any) (int, any) {
 			}
 			return map[string]any{"host": host, "signed_in": f.forges[id], "user": user}
 		}
-		return http.StatusOK, map[string]any{"git": f.git, "forges": map[string]any{"gh": forge("gh", "github.com"), "glab": forge("glab", "gitlab.com")}}
+		tea := map[string]any{"host": "", "signed_in": len(f.teaLogins) > 0, "user": ""}
+		if len(f.teaLogins) > 0 {
+			tea["host"], tea["user"], tea["logins"] = f.teaLogins[0]["name"], f.teaLogins[0]["user"], f.teaLogins
+		}
+		return http.StatusOK, map[string]any{"git": f.git, "forges": map[string]any{
+			"gh": forge("gh", "github.com"), "glab": forge("glab", "gitlab.com"), "tea": tea}}
+	case "forge.token":
+		return f.teaSignIn(in)
+	case "forge.logout":
+		id := str(in["forge"])
+		if id != "tea" {
+			f.forges[id] = false
+			return http.StatusOK, map[string]any{"forge": id, "name": ""}
+		}
+		for i, l := range f.teaLogins {
+			if l["name"] == in["name"] {
+				f.teaLogins = slices.Delete(f.teaLogins, i, i+1)
+				if len(f.teaLogins) > 0 {
+					f.teaLogins[0]["default"] = true
+				}
+				return http.StatusOK, map[string]any{"forge": id, "name": in["name"]}
+			}
+		}
+		return http.StatusNotFound, apiError("unknown_login", "tea has no login named "+str(in["name"]))
 	case "git.identity":
 		name, _ := in["name"].(string)
 		email, _ := in["email"].(string)
@@ -1014,6 +1039,29 @@ func (f *fake) runLogin(j *job, in map[string]any) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.finish(j, 0, "succeeded", "{}")
+}
+
+// teaSignIn adds a tea login; the token "bad" is rejected like a real
+// server would.
+func (f *fake) teaSignIn(in map[string]any) (int, any) {
+	u, err := url.Parse(strings.TrimSpace(str(in["url"])))
+	if err != nil || u.Scheme != "https" || u.Host == "" {
+		return http.StatusBadRequest, apiError("invalid_request", "the server must be an https:// address such as https://gitea.com")
+	}
+	switch token := str(in["token"]); {
+	case token == "" || strings.ContainsAny(token, " \t\n"):
+		return http.StatusBadRequest, apiError("invalid_request", "the token must be 1 to 512 characters, without spaces")
+	case token == "bad":
+		return http.StatusBadGateway, apiError("command_failed", "invalid username, password or token")
+	}
+	for _, l := range f.teaLogins {
+		if l["name"] == u.Host {
+			return http.StatusConflict, apiError("signed_in", "already signed in to "+u.Host+"; sign out first")
+		}
+	}
+	server := "https://" + u.Host + strings.TrimSuffix(u.Path, "/")
+	f.teaLogins = append(f.teaLogins, map[string]any{"name": u.Host, "url": server, "user": "example-user", "default": len(f.teaLogins) == 0})
+	return http.StatusOK, map[string]any{"name": u.Host, "url": server}
 }
 
 func apiError(code, msg string) map[string]any {

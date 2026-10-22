@@ -9,7 +9,7 @@ import (
 	"time"
 )
 
-// fakeHome writes recording fakes for mise, git, gh, glab and berth into
+// fakeHome writes recording fakes for mise, git, gh, glab, tea and berth into
 // a temp dir and points tb's broker at them.
 func fakeHome(t *testing.T, tb *testBroker) string {
 	t.Helper()
@@ -30,6 +30,7 @@ esac
 		Git:   write("git", ""),
 		GH:    write("gh", ""),
 		Glab:  write("glab", ""),
+		Tea:   write("tea", "case $2 in list) printf '[]' ;; esac\n"),
 		Berth: write("berth", `printf '{"user_tools":[{"name":"go","version":"1.26.0"}],"warnings":[],"schema":1}'`),
 	}
 	tb.b.BaseTools = "../../tools/mise.toml"

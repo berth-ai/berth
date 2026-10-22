@@ -68,6 +68,8 @@ func (b *Broker) verbs() map[string]verbFunc {
 		"git.identity":                  b.gitIdentity,
 		"forge.status":                  b.forgeStatus,
 		"forge.login":                   b.forgeLogin,
+		"forge.token":                   b.forgeToken,
+		"forge.logout":                  b.forgeLogout,
 		"login.status":                  b.loginStatus,
 		"login.start":                   b.loginStart,
 		"login.input":                   b.loginInput,

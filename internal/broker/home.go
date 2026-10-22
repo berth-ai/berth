@@ -18,12 +18,13 @@ type HomeCommands struct {
 	Git   string
 	GH    string
 	Glab  string
+	Tea   string
 	Berth string
 }
 
 // DefaultHome resolves the programs on agent's PATH, as the image ships them.
 func DefaultHome(berth string) HomeCommands {
-	return HomeCommands{Mise: "mise", Git: "git", GH: "gh", Glab: "glab", Berth: berth}
+	return HomeCommands{Mise: "mise", Git: "git", GH: "gh", Glab: "glab", Tea: "tea", Berth: berth}
 }
 
 const defaultSyncTimeout = time.Minute
@@ -38,11 +39,18 @@ func (b *Broker) agentRun(ctx context.Context, timeout time.Duration, path strin
 
 // agentRunInput is agentRun with stdin; nil reads the null device.
 func (b *Broker) agentRunInput(ctx context.Context, timeout time.Duration, stdin io.Reader, path string, args ...string) (string, string, int, error) {
+	return b.agentRunCmd(ctx, timeout, runner.Cmd{Path: path, Args: args, Stdin: stdin})
+}
+
+// agentRunCmd runs c as agent and captures its output; c.Env carries values,
+// such as tokens, that must stay out of argv.
+func (b *Broker) agentRunCmd(ctx context.Context, timeout time.Duration, c runner.Cmd) (string, string, int, error) {
 	var stdout, stderr bytes.Buffer
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	r := runner.Exec{Agent: b.Agent, Stdout: &stdout, Stderr: &stderr}
-	err := r.Run(ctx, runner.Cmd{Path: path, Args: args, AsAgent: true, Stdin: stdin})
+	c.AsAgent = true
+	err := r.Run(ctx, c)
 	if errors.Is(ctx.Err(), context.DeadlineExceeded) {
 		return stdout.String(), stderr.String(), -1, errTimeout
 	}
