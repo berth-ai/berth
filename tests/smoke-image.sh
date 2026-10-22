@@ -610,7 +610,8 @@ verb main tools.list '{}' | jq -e '.user | map(.name) | index("jq")' >/dev/null 
 verb main tools.remove '{"tool":"jq"}' >/dev/null
 verb main git.identity '{"name":"Smoke Test","email":"smoke@example.org"}' >/dev/null || fail "git.identity"
 [[ $(xa main git config --global user.email) == smoke@example.org ]] || fail "git identity not written as agent"
-verb main forge.status '{}' | jq -e '.forges.gh.signed_in == false and .git.name == "Smoke Test"' >/dev/null ||
+xa main tea --version >/dev/null || fail "tea --version"
+verb main forge.status '{}' | jq -e '.forges.gh.signed_in == false and .forges.tea.signed_in == false and .git.name == "Smoke Test"' >/dev/null ||
   fail "forge.status"
 
 step "agent sign-ins reach their sign-in page and cancel cleanly"

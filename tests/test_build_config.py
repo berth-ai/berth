@@ -155,7 +155,7 @@ class DockerfileTest(unittest.TestCase):
 
     def test_every_download_has_a_checksum(self):
         text = read("Dockerfile")
-        for name in ("MISE", "TTYD", "CODE_SERVER"):
+        for name in ("MISE", "TTYD", "CODE_SERVER", "TEA"):
             for arch in ("AMD64", "ARM64"):
                 self.assertRegex(text, rf"ARG {name}_SHA256_{arch}=[0-9a-f]{{64}}\n")
         for name in ("TMUX_RESURRECT", "TMUX_CONTINUUM"):
@@ -359,7 +359,7 @@ class RenovateTest(unittest.TestCase):
         pattern = re.compile(dockerfile["matchStrings"][0].replace("(?<", "(?P<"))
         found = {m.group("depName") for m in pattern.finditer(read("Dockerfile"))}
         self.assertEqual(found, {"jdx/mise", "tsl0922/ttyd", "coder/code-server",
-                                 "tmux-plugins/tmux-resurrect", "tmux-plugins/tmux-continuum"})
+                                 "tmux-plugins/tmux-resurrect", "tmux-plugins/tmux-continuum", "gitea/tea"})
 
 
 

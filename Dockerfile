@@ -89,6 +89,11 @@ ARG TMUX_RESURRECT_SHA256=f8559d86d81be769054d63b28a268229a09bc6cc311f0623656c30
 # renovate: datasource=github-tags depName=tmux-plugins/tmux-continuum
 ARG TMUX_CONTINUUM_VERSION=v3.1.0
 ARG TMUX_CONTINUUM_SHA256=311dddeebbf7b803cd19c339ab887784b715fd8ef206ec430028cabb8574de87
+# The Gitea CLI ships from dl.gitea.com, which mise cannot list.
+# renovate: datasource=gitea-releases depName=gitea/tea extractVersion=^v(?<version>.*)$
+ARG TEA_VERSION=0.16.0
+ARG TEA_SHA256_AMD64=9c142c8a0b31485eea2387031c1c404f12b7141075eb4ffbd7ced49441590636
+ARG TEA_SHA256_ARM64=0e14a036322eeb1fc55e266acafeb8490e523ed99f9232034ae74861e2339879
 
 SHELL ["/bin/bash", "-euo", "pipefail", "-c"]
 ENV DEBIAN_FRONTEND=noninteractive TZ=UTC
@@ -112,15 +117,17 @@ RUN apt-get update \
 
 ENV LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8
 
-# Frontends and tmux plugins, verified by sha256.
+# Frontends, tea and tmux plugins, verified by sha256.
 RUN --mount=type=bind,source=build/fetch-artifact.sh,target=/usr/local/bin/fetch-artifact \
     case "${TARGETARCH}" in \
-      amd64) ttyd_arch=x86_64; ttyd_sha=${TTYD_SHA256_AMD64}; cs_sha=${CODE_SERVER_SHA256_AMD64} ;; \
-      arm64) ttyd_arch=aarch64; ttyd_sha=${TTYD_SHA256_ARM64}; cs_sha=${CODE_SERVER_SHA256_ARM64} ;; \
+      amd64) ttyd_arch=x86_64; ttyd_sha=${TTYD_SHA256_AMD64}; cs_sha=${CODE_SERVER_SHA256_AMD64}; tea_sha=${TEA_SHA256_AMD64} ;; \
+      arm64) ttyd_arch=aarch64; ttyd_sha=${TTYD_SHA256_ARM64}; cs_sha=${CODE_SERVER_SHA256_ARM64}; tea_sha=${TEA_SHA256_ARM64} ;; \
       *) echo "unsupported architecture ${TARGETARCH}" >&2; exit 1 ;; \
     esac \
  && fetch-artifact "https://github.com/tsl0922/ttyd/releases/download/${TTYD_VERSION}/ttyd.${ttyd_arch}" "${ttyd_sha}" /usr/local/bin/ttyd \
  && chmod 0755 /usr/local/bin/ttyd \
+ && fetch-artifact "https://dl.gitea.com/tea/${TEA_VERSION}/tea-${TEA_VERSION}-linux-${TARGETARCH}" "${tea_sha}" /usr/local/bin/tea \
+ && chmod 0755 /usr/local/bin/tea \
  && fetch-artifact "https://github.com/coder/code-server/releases/download/v${CODE_SERVER_VERSION}/code-server-${CODE_SERVER_VERSION}-linux-${TARGETARCH}.tar.gz" "${cs_sha}" /tmp/code-server.tgz \
  && mkdir -p /usr/lib/code-server \
  && tar -xzf /tmp/code-server.tgz -C /usr/lib/code-server --strip-components=1 \
