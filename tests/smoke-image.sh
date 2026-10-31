@@ -82,6 +82,24 @@ listens_on_loopback_only() {
   ! grep -qvE "^(0100007F|00000000000000000000000001000000|0000000000000000FFFF00000100007F):$hex\$" <<<"$addrs"
 }
 
+# listens_on_any NAME PORT: some socket on PORT is bound to every address
+# (0.0.0.0 or ::), so a published port reaches it.
+listens_on_any() {
+  local hex
+  hex=$(printf '%04X' "$2")
+  # shellcheck disable=SC2016  # an awk program, expanded by awk
+  x "$1" awk -v suffix=":$hex" '$4 == "0A" && ($2 == "00000000" suffix || $2 == "00000000000000000000000000000000" suffix) {found = 1} END {exit !found}' \
+    /proc/net/tcp /proc/net/tcp6
+}
+
+# orca_daemons NAME prints the pids of agent's Orca processes outside the
+# orca service's process group: the terminal daemon and its helpers.
+orca_daemons() {
+  local svc
+  svc=$(service_pid "$1" orca)
+  x "$1" ps -eo pid=,pgid=,user=,args= | awk -v svc="$svc" '$3 == "agent" && $2 != svc && /Orca|orca-ide|orcad/ {print $1}'
+}
+
 halt() { docker rm -f "$prefix-$1" >/dev/null; }
 x() { docker exec "$prefix-$1" "${@:2}"; }
 xa() { docker exec -u agent "$prefix-$1" "${@:2}"; }
@@ -104,7 +122,8 @@ docker run --rm -v "$ws:/workspaces" --entrypoint sh "$image" \
   fail "this host's bind mounts do not keep file ownership (Docker Desktop on macOS?); run the smoke test on Linux"
 
 step "first boot without any variable: panel only, setup link in the log"
-boot main "$first_boot_timeout"
+# The fixed host name mirrors compose.yaml, which keeps Orca's lock recognisable.
+boot main "$first_boot_timeout" --hostname berth
 x main berth health --json | jq -e '.healthy' >/dev/null || fail "not healthy in setup mode"
 [[ $(x main curl -fsS --unix-socket /run/berth/broker.sock http://b/status | jq -r '[.services[].name] | join(",")') == panel ]] ||
   fail "setup mode must run only the panel"
@@ -686,6 +705,46 @@ x main berth config set runtime.tz=Europe/Rome --json | jq -e '.changes.restarte
 [[ $(service_pid main panel) == "$panel_pid" ]] || fail "panel restarted for a TZ change"
 xa main tmux has-session -t keep || fail "tmux session lost across a ttyd restart"
 
+step "orca pairs without its link reaching any log"
+if ! x main test -x /usr/bin/orca-ide; then
+  echo "smoke: this image has no Orca ($(x main uname -m)); skipping the Orca steps"
+else
+  x main berth config set frontends.orca.enabled=true frontends.orca.pairing_address=100.64.0.10 --json |
+    jq -e '.changes.started == ["orca"]' >/dev/null || fail "enabling Orca"
+  for ((i = 0; i < 120; i++)); do
+    listens_on_any main 6768 && break
+    sleep 1
+  done
+  listens_on_any main 6768 || fail "Orca does not listen on every address on 6768"
+  wait_ok main 120
+  [[ $(ps_user 'orca-ide|orcad') == agent ]] || fail "Orca does not run as agent"
+  orca_pid=$(service_pid main orca)
+  x main sh -c "tr '\0' '\n' </proc/$orca_pid/environ" | grep -qx 'ORCA_TELEMETRY_DISABLED=1' ||
+    fail "Orca runs with telemetry on"
+  x main sh -c "tr '\0' '\n' </proc/$orca_pid/environ" | grep -q '^PATH=/var/lib/berth/bin:' ||
+    fail "Orca's PATH lacks the agent CLIs"
+  xa main sh -c 'command -v claude && command -v codex' >/dev/null || fail "agent CLIs not on agent's PATH"
+  echo "smoke: Orca serves with: $(x main ps -o args= -p "$orca_pid" | cut -c1-120)"
+  daemons=$(orca_daemons main)
+  echo "smoke: Orca processes outside the service group before pairing: ${daemons:-none}"
+  pair=$(x main berth orca pair --json) || fail "berth orca pair"
+  url=$(jq -r .url <<<"$pair")
+  [[ $url == orca://pair\?* ]] || fail "pairing returned no orca:// link: $pair"
+  [[ $(jq -r .address <<<"$pair") == 100.64.0.10 ]] || fail "pairing ignored pairing_address: $pair"
+  x main berth orca pair --mobile --json | jq -e '.scope == "mobile" and (.url | startswith("orca://pair?"))' >/dev/null ||
+    fail "mobile pairing"
+  if docker logs "$prefix-main" 2>&1 | grep -qF "$url"; then fail "a pairing link reached the container log"; fi
+  if x main curl -fsS --unix-socket /run/berth/broker.sock http://b/status | grep -qF 'orca://'; then
+    fail "a pairing link reached a service log"
+  fi
+  [[ -z $(x main ls -A /run/berth/orca) ]] || fail "pairing files left in /run/berth/orca"
+  [[ $(x main stat -c '%U %a' /run/berth/orca) == "agent 700" ]] || fail "/run/berth/orca is not agent's alone"
+  for pid in $daemons; do
+    x main kill -0 "$pid" 2>/dev/null || fail "pairing restarted Orca and killed its process $pid"
+  done
+  wait_ok main 120
+fi
+
 step "no credential on any command line or service environment"
 if x main sh -c 'cat /proc/[0-9]*/cmdline 2>/dev/null | tr "\0" " "' | grep -q 'smoke smoke smoke'; then
   fail "the panel password appears on a command line"
@@ -695,6 +754,24 @@ for pid in $(x main sh -c 'curl -fsS --unix-socket /run/berth/broker.sock http:/
     fail "service $pid has a credential in its environment"
   fi
 done
+
+step "orca survives a recreate with the same home"
+if x main test -x /usr/bin/orca-ide; then
+  halt main
+  boot main "$boot_timeout" --hostname berth
+  started=$SECONDS
+  for ((i = 0; i < 360; i++)); do
+    [[ $(x main curl -fsS --unix-socket /run/berth/broker.sock http://b/status |
+      jq -r '.services[] | select(.name == "orca") | .state') == running ]] && listens_on_any main 6768 && break
+    sleep 1
+  done
+  listens_on_any main 6768 || {
+    x main curl -fsS --unix-socket /run/berth/broker.sock http://b/status | jq '.services[] | select(.name == "orca")' >&2
+    fail "Orca did not come back after a recreate"
+  }
+  echo "smoke: Orca served again $((SECONDS - started))s after the recreate"
+  wait_ok main 120
+fi
 
 step "reset-login returns to setup"
 x main berth config reset-login --json | jq -e '.setup_url | startswith("http://127.0.0.1:7690/setup#token=")' >/dev/null ||
