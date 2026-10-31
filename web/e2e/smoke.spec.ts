@@ -58,6 +58,7 @@ test("every page renders inside the CSP", async ({ page }) => {
     ["#/tools", "Tools"],
     ["#/tools?tab=yours", "Tools"],
     ["#/tools?tab=presets", "Tools"],
+    ["#/orca", "Orca"],
     ["#/accounts", "Accounts"],
     ["#/settings", "Settings"],
     ["#/activity", "Activity"],
@@ -734,5 +735,25 @@ test("a workspace's instructions are edited and shared, and its env is set", asy
   await page.getByRole("button", { name: "Restart session" }).click();
   await page.getByRole("alertdialog").getByRole("button", { name: "Restart session" }).click();
   await expect(page.getByText("ws-acme-api restarted.")).toBeVisible();
+  expect(problems).toEqual([]);
+});
+
+test("Orca is switched on and pairs a phone", async ({ page }) => {
+  const problems = await watch(page);
+  await signIn(page);
+  await page.goto(`${NORMAL}/#/orca`);
+  await expect(page.getByText("The Orca server is off")).toBeVisible();
+  await page.getByRole("link", { name: "Open Settings" }).click();
+  await page.getByRole("switch", { name: "Orca" }).click();
+  await expect(page.getByLabel("Pairing address")).toBeVisible();
+  await expect(page.getByRole("region", { name: "Unsaved changes" })).toContainText("Starts Orca.");
+  await page.getByRole("button", { name: "Save", exact: true }).click();
+  await expect(page.getByText(/^Saved/)).toBeVisible();
+  await page.goto(`${NORMAL}/#/orca`);
+  await expect(h1(page, "Orca")).toBeVisible();
+  await page.getByRole("button", { name: "Pair a phone" }).click();
+  await expect(page.getByRole("img", { name: "Pairing QR code for a phone" })).toBeVisible();
+  await expect(page.getByText("orca://pair?code=dev")).toBeVisible();
+  await expect(page.getByText(/only this host can pair/)).toBeVisible();
   expect(problems).toEqual([]);
 });

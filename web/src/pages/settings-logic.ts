@@ -5,6 +5,8 @@ import { getPath } from "@/lib/draft";
 export const PATHS = [
   "frontends.terminal.enabled",
   "frontends.ide.enabled",
+  "frontends.orca.enabled",
+  "frontends.orca.pairing_address",
   "runtime.tz",
   "agents.keep",
   "agents.boot_timeout",
@@ -14,16 +16,22 @@ export const PATHS = [
 /** predict says, before saving, which services a change restarts. */
 export function predict(base: Config, draft: Config): string {
   const out: string[] = [];
-  const was = { t: base.frontends.terminal.enabled, i: base.frontends.ide.enabled };
-  const now = { t: draft.frontends.terminal.enabled, i: draft.frontends.ide.enabled };
+  const frontends = (c: Config) => ({
+    t: c.frontends.terminal.enabled,
+    i: c.frontends.ide.enabled,
+    o: !!c.frontends.orca?.enabled,
+  });
+  const was = frontends(base);
+  const now = frontends(draft);
   if (was.t !== now.t) out.push(now.t ? "Starts the terminal" : "Stops the terminal");
   if (was.i !== now.i) out.push(now.i ? "Starts the IDE" : "Stops the IDE");
+  if (was.o !== now.o) out.push(now.o ? "Starts Orca" : "Stops Orca");
   if (base.runtime.tz !== draft.runtime.tz) {
     const r: string[] = [];
-    if (was.t && now.t) r.push("terminal");
-    if (was.i && now.i) r.push("IDE");
-    if (r.length)
-      out.push(`Restarts the ${r.join(" and the ")}; your terminal sessions keep running`);
+    if (was.t && now.t) r.push("the terminal");
+    if (was.i && now.i) r.push("the IDE");
+    if (was.o && now.o) r.push("Orca");
+    if (r.length) out.push(`Restarts ${r.join(" and ")}; your terminal sessions keep running`);
   }
   return out.length ? `${out.join(". ")}.` : "Nothing restarts.";
 }

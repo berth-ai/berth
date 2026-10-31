@@ -34,6 +34,7 @@ import { errorText, fieldErrors } from "@/lib/errors";
 import { describeChanges } from "@/lib/format";
 import { notify } from "@/lib/notify";
 import { useTitle } from "@/lib/use-title";
+import { defaultAddress } from "./orca";
 import { BackupCard } from "./settings-backup";
 import { PATHS, predict } from "./settings-logic";
 
@@ -139,6 +140,7 @@ function SettingsForm({ initial }: { initial: Config }) {
           checked={draft.frontends.ide.enabled}
           onChange={(v) => edit("frontends.ide.enabled", v)}
         />
+        <OrcaSettings draft={draft} errors={errors} edit={edit} status={status.data} />
       </PanelCard>
       <PanelCard title="Runtime">
         <TimeZoneField
@@ -283,6 +285,58 @@ function NumberSetting({
   );
 }
 
+function OrcaSettings({
+  draft,
+  errors,
+  edit,
+  status,
+}: {
+  draft: Config;
+  errors: Record<string, string>;
+  edit: Edit;
+  status: Status | undefined;
+}) {
+  const id = useId();
+  const orca = draft.frontends.orca;
+  const error = errors["frontends.orca.pairing_address"];
+  const fallback = defaultAddress(status?.host);
+  return (
+    <>
+      <SettingRow
+        title="Orca"
+        text="Headless Orca server for the Orca desktop and mobile apps."
+        checked={!!orca?.enabled}
+        onChange={(v) => edit("frontends.orca.enabled", v)}
+      />
+      {errors["frontends.orca.enabled"] ? (
+        <InlineAlert tone="bad">{errors["frontends.orca.enabled"]}</InlineAlert>
+      ) : null}
+      {orca?.enabled || error ? (
+        <FormField
+          id={id}
+          label="Pairing address"
+          hint={
+            fallback
+              ? `What Orca apps dial. Empty means ${fallback}, the host bind address and Orca port.`
+              : "What Orca apps dial: a host, host:port or wss:// URL. Required while BIND_ADDRESS is a wildcard."
+          }
+          error={error}
+        >
+          <Input
+            {...fieldProps(id, error)}
+            value={orca?.pairing_address ?? ""}
+            placeholder={fallback}
+            className="font-mono text-xs"
+            spellCheck={false}
+            autoComplete="off"
+            onChange={(e) => edit("frontends.orca.pairing_address", e.target.value.trim())}
+          />
+        </FormField>
+      ) : null}
+    </>
+  );
+}
+
 function HostCard({ status }: { status: Status | undefined }) {
   const host = status?.host;
   return (
@@ -294,6 +348,7 @@ function HostCard({ status }: { status: Status | undefined }) {
         rows={[
           ["Bind address", <Mono key="bind">{host?.bind_address || "—"}</Mono>],
           ["Panel port", <Mono key="port">{host?.panel_port || "—"}</Mono>],
+          ["Orca port", <Mono key="orca">{host?.orca_port || "—"}</Mono>],
           [
             "User and group IDs",
             <Mono key="ids">{`${host?.puid || "?"}:${host?.pgid || "?"}`}</Mono>,

@@ -14,6 +14,7 @@ import { Route as AccountsRouteImport } from './routes/accounts'
 import { Route as AgentsRouteImport } from './routes/agents'
 import { Route as IdeRouteImport } from './routes/ide'
 import { Route as McpRouteImport } from './routes/mcp'
+import { Route as OrcaRouteImport } from './routes/orca'
 import { Route as SettingsRouteImport } from './routes/settings'
 import { Route as TerminalRouteImport } from './routes/terminal'
 import { Route as ToolsRouteImport } from './routes/tools'
@@ -47,6 +48,11 @@ const IdeRoute = IdeRouteImport.update({
 const McpRoute = McpRouteImport.update({
   id: '/mcp',
   path: '/mcp',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const OrcaRoute = OrcaRouteImport.update({
+  id: '/orca',
+  path: '/orca',
   getParentRoute: () => rootRouteImport,
 } as any)
 const SettingsRoute = SettingsRouteImport.update({
@@ -101,6 +107,7 @@ export interface FileRoutesByFullPath {
   '/agents': typeof AgentsRoute
   '/ide': typeof IdeRoute
   '/mcp': typeof McpRoute
+  '/orca': typeof OrcaRoute
   '/settings': typeof SettingsRoute
   '/terminal': typeof TerminalRoute
   '/tools': typeof ToolsRoute
@@ -117,6 +124,7 @@ export interface FileRoutesByTo {
   '/agents': typeof AgentsRoute
   '/ide': typeof IdeRoute
   '/mcp': typeof McpRoute
+  '/orca': typeof OrcaRoute
   '/settings': typeof SettingsRoute
   '/terminal': typeof TerminalRoute
   '/tools': typeof ToolsRoute
@@ -134,6 +142,7 @@ export interface FileRoutesById {
   '/agents': typeof AgentsRoute
   '/ide': typeof IdeRoute
   '/mcp': typeof McpRoute
+  '/orca': typeof OrcaRoute
   '/settings': typeof SettingsRoute
   '/terminal': typeof TerminalRoute
   '/tools': typeof ToolsRoute
@@ -152,6 +161,7 @@ export interface FileRouteTypes {
     | '/agents'
     | '/ide'
     | '/mcp'
+    | '/orca'
     | '/settings'
     | '/terminal'
     | '/tools'
@@ -168,6 +178,7 @@ export interface FileRouteTypes {
     | '/agents'
     | '/ide'
     | '/mcp'
+    | '/orca'
     | '/settings'
     | '/terminal'
     | '/tools'
@@ -184,6 +195,7 @@ export interface FileRouteTypes {
     | '/agents'
     | '/ide'
     | '/mcp'
+    | '/orca'
     | '/settings'
     | '/terminal'
     | '/tools'
@@ -201,6 +213,7 @@ export interface RootRouteChildren {
   AgentsRoute: typeof AgentsRoute
   IdeRoute: typeof IdeRoute
   McpRoute: typeof McpRoute
+  OrcaRoute: typeof OrcaRoute
   SettingsRoute: typeof SettingsRoute
   TerminalRoute: typeof TerminalRoute
   ToolsRoute: typeof ToolsRoute
@@ -247,6 +260,13 @@ declare module '@tanstack/react-router' {
       path: '/mcp'
       fullPath: '/mcp'
       preLoaderRoute: typeof McpRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/orca': {
+      id: '/orca'
+      path: '/orca'
+      fullPath: '/orca'
+      preLoaderRoute: typeof OrcaRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/settings': {
@@ -321,6 +341,7 @@ const rootRouteChildren: RootRouteChildren = {
   AgentsRoute: AgentsRoute,
   IdeRoute: IdeRoute,
   McpRoute: McpRoute,
+  OrcaRoute: OrcaRoute,
   SettingsRoute: SettingsRoute,
   TerminalRoute: TerminalRoute,
   ToolsRoute: ToolsRoute,

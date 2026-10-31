@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Config } from "@/api/types";
-import { exportedConfig, predict, readImport } from "./settings-logic";
+import { PATHS, exportedConfig, predict, readImport } from "./settings-logic";
 
 const base: Config = {
   schema: 1,
@@ -15,6 +15,37 @@ function edit(from: Config, change: (c: Config) => void): Config {
   change(c);
   return c;
 }
+
+describe("PATHS", () => {
+  it("tracks the Orca settings", () => {
+    expect(PATHS).toContain("frontends.orca.enabled");
+    expect(PATHS).toContain("frontends.orca.pairing_address");
+  });
+});
+
+describe("predict for Orca", () => {
+  const withOrca = edit(base, (c) => {
+    c.frontends.orca = { enabled: false, pairing_address: "" };
+  });
+  it("says Orca starts, stops and restarts", () => {
+    const on = edit(withOrca, (c) => {
+      c.frontends.orca!.enabled = true;
+    });
+    expect(predict(withOrca, on)).toBe("Starts Orca.");
+    expect(predict(on, withOrca)).toBe("Stops Orca.");
+    expect(
+      predict(
+        on,
+        edit(on, (c) => {
+          c.runtime.tz = "Europe/Rome";
+        }),
+      ),
+    ).toBe("Restarts the terminal and Orca; your terminal sessions keep running.");
+  });
+  it("reads a config without Orca as off", () => {
+    expect(predict(base, withOrca)).toBe("Nothing restarts.");
+  });
+});
 
 describe("predict", () => {
   it("says what a save restarts", () => {

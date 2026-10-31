@@ -247,6 +247,8 @@ export interface Candidate {
 export interface HostInfo {
   bind_address: string;
   panel_port: string;
+  // An older broker omits it.
+  orca_port?: string;
   puid: string;
   pgid: string;
   workspaces_dir: string;
@@ -267,7 +269,12 @@ export interface Status {
 export interface Config {
   schema: number;
   revision: number;
-  frontends: { terminal: { enabled: boolean }; ide: { enabled: boolean } };
+  frontends: {
+    terminal: { enabled: boolean };
+    ide: { enabled: boolean };
+    // An older broker omits it.
+    orca?: { enabled: boolean; pairing_address: string };
+  };
   agents: {
     ref: string;
     disabled: string[] | null;
@@ -424,4 +431,14 @@ export interface RegistryAgent {
   added: boolean;
   installed_version?: string;
   error?: string;
+}
+
+/** OrcaPair is orca.pair's answer: a link for one Orca app and its QR
+ * modules, row by row, "1" for dark. */
+export interface OrcaPair {
+  url: string;
+  scope: "desktop" | "mobile";
+  address: string;
+  warning?: string;
+  qr: string[];
 }
