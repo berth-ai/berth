@@ -163,6 +163,7 @@ var commands = map[string]command{
 	"config":     {"config get|set K=V...|revert|reset|export|import FILE|reset-login [--json]  read or change settings", runConfig},
 	"login":      {"login status|logout AGENT METHOD [--json]  the agents' own sign-ins", runLogin},
 	"health":     {"health [--json]                      report whether every enabled service runs", runHealth},
+	"orca":       {"orca pair [--mobile] [--json]       print a link that pairs an Orca app with this Berth", runOrca},
 	"version":    {"version                              print the berth version", runVersion},
 	"supervise":  {"supervise                            run the container's services (the entrypoint starts it)", runSupervise},
 	"mcp":        {"mcp sync                             register MCP servers with the agents (internal)", runMCP},
@@ -172,7 +173,7 @@ var commands = map[string]command{
 	"panel":      {"panel                                serve the web panel (the panel module starts it)", runPanel},
 }
 
-var order = []string{"status", "update", "rollback", "ensure", "gc", "config", "login", "health", "version", "supervise", "panel"}
+var order = []string{"status", "update", "rollback", "ensure", "gc", "config", "login", "orca", "health", "version", "supervise", "panel"}
 
 // Run executes one berth invocation and returns its exit code.
 func Run(ctx context.Context, cfg Config, args []string, stdout, stderr io.Writer) int {
