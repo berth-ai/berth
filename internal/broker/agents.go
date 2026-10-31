@@ -326,6 +326,9 @@ func (b *Broker) refreshAgents(old, next config.Config, tokens bool) {
 	if disabled || moved || shared {
 		b.startWorkspacesSync()
 	}
+	if moved {
+		b.startOrcaSync()
+	}
 	if b.Layer == nil || len(b.MCPSetup) == 0 || !disabled && !settings && !tokens && !moved {
 		return
 	}

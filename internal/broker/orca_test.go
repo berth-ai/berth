@@ -409,3 +409,66 @@ func TestOrcaDevicesTakesNoArguments(t *testing.T) {
 		t.Errorf("%d %v", code, out)
 	}
 }
+
+// orcaSyncBroker is a test broker whose Orca converger appends a line to
+// the returned file.
+func orcaSyncBroker(t *testing.T) (*testBroker, string) {
+	t.Helper()
+	tb := newTestBroker(t)
+	tb.b.Load()
+	ran := filepath.Join(t.TempDir(), "ran")
+	tb.b.OrcaSync = []string{"/bin/sh", "-c", "echo ran >>" + ran}
+	return tb, ran
+}
+
+// orcaSyncRuns waits for the jobs to finish and counts the converger's runs.
+func orcaSyncRuns(t *testing.T, tb *testBroker, ran string) int {
+	t.Helper()
+	for _, j := range tb.b.Jobs.List() {
+		if j.Verb == "orca.sync" {
+			waitJob(t, tb.b.Jobs, j.ID, StateSucceeded)
+		}
+	}
+	raw, _ := os.ReadFile(ran)
+	return strings.Count(string(raw), "ran")
+}
+
+func TestOrcaSyncRunsWhenOrcaStarts(t *testing.T) {
+	tb, ran := orcaSyncBroker(t)
+	tb.svc.started = []string{"orca"}
+	if code, out := tb.verb(t, "config.apply", `{"base_revision":0,"patch":{"frontends":{"orca":{"enabled":true}}}}`); code != http.StatusOK {
+		t.Fatalf("enable: %d %v", code, out)
+	}
+	if n := orcaSyncRuns(t, tb, ran); n != 1 {
+		t.Errorf("ran %d times", n)
+	}
+}
+
+func TestOrcaSyncFollowsWorkspaces(t *testing.T) {
+	tb, ran := orcaSyncBroker(t)
+	if code, out := tb.verb(t, "config.apply", `{"base_revision":0,"patch":{"frontends":{"orca":{"enabled":true}}}}`); code != http.StatusOK {
+		t.Fatalf("enable: %d %v", code, out)
+	}
+	cur, _, _ := tb.b.snapshot()
+	next := cur
+	next.Workspaces = map[string]config.Workspace{"api": {Path: "acme/api"}}
+	tb.b.refreshAgents(cur, next, false)
+	if n := orcaSyncRuns(t, tb, ran); n != 1 {
+		t.Errorf("ran %d times after a workspace was added", n)
+	}
+	tb.b.refreshAgents(next, next, false)
+	if n := orcaSyncRuns(t, tb, ran); n != 1 {
+		t.Errorf("ran %d times with no workspace change", n)
+	}
+}
+
+func TestOrcaSyncSkipsOrcaOff(t *testing.T) {
+	tb, ran := orcaSyncBroker(t)
+	cur, _, _ := tb.b.snapshot()
+	next := cur
+	next.Workspaces = map[string]config.Workspace{"api": {Path: "acme/api"}}
+	tb.b.refreshAgents(cur, next, false)
+	if n := orcaSyncRuns(t, tb, ran); n != 0 {
+		t.Errorf("ran %d times with Orca off", n)
+	}
+}

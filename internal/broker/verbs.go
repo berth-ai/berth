@@ -355,6 +355,7 @@ func (b *Broker) changed(old, next config.Config, err error) (int, any) {
 	specs := b.desired()
 	b.mu.Unlock()
 	ch := b.Services.Reconcile(specs)
+	b.afterReconcile(ch)
 	b.logf("config revision %d applied (started %v, restarted %v, stopped %v)",
 		next.Revision, ch.Started, ch.Restarted, ch.Stopped)
 	return http.StatusOK, map[string]any{"config": next, "changes": ch}

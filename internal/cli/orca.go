@@ -1,16 +1,23 @@
 package cli
 
 import (
+	"bytes"
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"net/http"
+	"os/exec"
+	"path/filepath"
+	"slices"
 	"text/tabwriter"
 	"time"
 
 	"github.com/berth-ai/berth/internal/broker"
+	"github.com/berth-ai/berth/internal/orcasync"
 	"github.com/berth-ai/berth/internal/output"
 	"github.com/berth-ai/berth/internal/pairqr"
 )
@@ -39,7 +46,8 @@ type orcaDevice struct {
 
 // runOrca is berth orca: pair prints a link that pairs an Orca app with
 // this Berth, restarting Orca once while its terminal sessions survive;
-// devices lists the apps already paired.
+// devices lists the apps already paired; sync, run as agent, adds the
+// workspaces to Orca and removes the ones Berth added that are gone.
 func runOrca(ctx context.Context, a *app, args []string) error {
 	fs := newFlagSet("orca")
 	jsonOut := fs.Bool("json", false, "print JSON")
@@ -51,13 +59,16 @@ func runOrca(ctx context.Context, a *app, args []string) error {
 	a.p.JSON = *jsonOut
 	switch {
 	case len(pos) == 0:
-		return usageErr(errors.New("orca needs a subcommand: pair or devices"))
-	case pos[0] != "pair" && pos[0] != "devices":
-		return usageErr(fmt.Errorf("unknown orca subcommand %q; use pair or devices", pos[0]))
+		return usageErr(errors.New("orca needs a subcommand: pair, devices or sync"))
+	case pos[0] != "pair" && pos[0] != "devices" && pos[0] != "sync":
+		return usageErr(fmt.Errorf("unknown orca subcommand %q; use pair, devices or sync", pos[0]))
 	case len(pos) > 1:
 		return usageErr(fmt.Errorf("orca %s takes no arguments", pos[0]))
-	case pos[0] == "devices" && *mobile:
+	case pos[0] != "pair" && *mobile:
 		return usageErr(errors.New("--mobile is for orca pair"))
+	}
+	if pos[0] == "sync" {
+		return orcaSync(ctx, a)
 	}
 	if !a.cfg.IsRoot {
 		return output.Errorf(output.ExitNotRoot, "not_root", "",
@@ -124,6 +135,61 @@ func orcaDevices(ctx context.Context, a *app) error {
 			fmt.Fprintf(tw, "%s\t%s\t%s\t%s\n", d.Name, app, localTime(d.PairedAt), localTime(d.LastSeenAt))
 		}
 		tw.Flush()
+	})
+}
+
+// orcaSync is the Orca projects converger. It runs as agent, whose Orca
+// profile holds the projects; root's would be another, empty one.
+func orcaSync(ctx context.Context, a *app) error {
+	if a.cfg.IsRoot {
+		return output.Errorf(output.ExitFailure, "wrong_user", "orca",
+			"berth orca sync must run as agent (docker exec -u agent <container> berth orca sync)")
+	}
+	home := a.cfg.Getenv("HOME")
+	if home == "" {
+		return output.Errorf(output.ExitFailure, "no_home", "orca", "HOME is not set")
+	}
+	s := orcasync.Syncer{
+		Orca: func(ctx context.Context, args ...string) ([]byte, error) {
+			var stdout, stderr bytes.Buffer
+			cmd := exec.CommandContext(ctx, a.cfg.OrcaIDE, args...)
+			cmd.Stdout, cmd.Stderr = &stdout, &stderr
+			cmd.WaitDelay = 5 * time.Second
+			if err := cmd.Run(); err != nil {
+				return nil, fmt.Errorf("%s", cmp.Or(orcasync.Message(stdout.Bytes(), stderr.Bytes()), err.Error()))
+			}
+			return stdout.Bytes(), nil
+		},
+		Workspaces: filepath.Join(a.cfg.ConfigDir, "workspaces.json"),
+		State:      filepath.Join(home, ".local", "state", "berth", "orca.json"),
+		Wait:       cmp.Or(a.cfg.OrcaWait, 90*time.Second),
+		Poll:       2 * time.Second,
+	}
+	ctx, cancel := context.WithTimeout(ctx, orcasync.Timeout)
+	defer cancel()
+	res, err := s.Run(ctx)
+	if errors.Is(err, orcasync.ErrUnavailable) {
+		return output.Errorf(output.ExitFailure, "orca_unavailable", "orca", "%v", err)
+	}
+	if err != nil {
+		return output.Errorf(output.ExitFailure, "orca_sync_failed", "orca", "%v", err)
+	}
+	for _, p := range slices.Sorted(maps.Keys(res.Kept)) {
+		a.p.Logf("warning: kept %s in Orca: %s", p, res.Kept[p])
+	}
+	for _, p := range slices.Sorted(maps.Keys(res.Failed)) {
+		a.p.Logf("warning: could not add %s to Orca: %s", p, res.Failed[p])
+	}
+	return a.p.Result(res, func(w io.Writer) {
+		for _, p := range res.Added {
+			fmt.Fprintf(w, "added %s\n", p)
+		}
+		for _, p := range res.Removed {
+			fmt.Fprintf(w, "removed %s\n", p)
+		}
+		if len(res.Added)+len(res.Removed) == 0 {
+			fmt.Fprintln(w, "Orca already has every workspace.")
+		}
 	})
 }
 

@@ -29,12 +29,15 @@ type Config struct {
 	BuildInfo      string
 	MiseConfig     string
 	ProcRoot       string
-	MCPSetup       []string  // argv of the MCP converger; empty skips it
-	SkillsSync     []string  // argv of the skills converger; empty skips it
-	WorkspacesSync []string  // argv of the instructions converger; empty skips it
-	Stdin          io.Reader // what hidden commands read input from; nil reads nothing
-	RegistryDir    string    // the image's registry of addable agents
-	AgentsCmd      []string  // argv prefix of berth agents, the added-agent converger; empty skips added agents
+	MCPSetup       []string      // argv of the MCP converger; empty skips it
+	SkillsSync     []string      // argv of the skills converger; empty skips it
+	WorkspacesSync []string      // argv of the instructions converger; empty skips it
+	OrcaSync       []string      // argv of the Orca projects converger; empty skips it
+	OrcaIDE        string        // Orca's CLI, orca-ide
+	OrcaWait       time.Duration // how long orca sync waits for Orca; 0 means 90s
+	Stdin          io.Reader     // what hidden commands read input from; nil reads nothing
+	RegistryDir    string        // the image's registry of addable agents
+	AgentsCmd      []string      // argv prefix of berth agents, the added-agent converger; empty skips added agents
 	GitHub         locksource.GitHub
 	Keep           int
 	LockTimeout    time.Duration
@@ -91,6 +94,8 @@ func defaultConfig(getenv func(string) string, b Build, isRoot bool, lookup func
 		MCPSetup:       []string{"/usr/local/bin/berth", "mcp", "sync"},
 		SkillsSync:     []string{"/usr/local/bin/berth", "skills", "sync"},
 		WorkspacesSync: []string{"/usr/local/bin/berth", "workspaces", "sync"},
+		OrcaSync:       []string{"/usr/local/bin/berth", "orca", "sync", "--json"},
+		OrcaIDE:        "/usr/bin/orca-ide",
 		Stdin:          os.Stdin,
 		RegistryDir:    registry.DefaultRoot,
 		AgentsCmd:      []string{"/usr/local/bin/berth", "agents"},
@@ -163,7 +168,7 @@ var commands = map[string]command{
 	"config":     {"config get|set K=V...|revert|reset|export|import FILE|reset-login [--json]  read or change settings", runConfig},
 	"login":      {"login status|logout AGENT METHOD [--json]  the agents' own sign-ins", runLogin},
 	"health":     {"health [--json]                      report whether every enabled service runs", runHealth},
-	"orca":       {"orca pair [--mobile]|devices [--json]  pair an Orca app with this Berth, or list paired ones", runOrca},
+	"orca":       {"orca pair [--mobile]|devices|sync [--json]  pair an Orca app, list paired ones, or add workspaces to Orca", runOrca},
 	"version":    {"version                              print the berth version", runVersion},
 	"supervise":  {"supervise                            run the container's services (the entrypoint starts it)", runSupervise},
 	"mcp":        {"mcp sync                             register MCP servers with the agents (internal)", runMCP},

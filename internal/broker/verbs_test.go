@@ -54,13 +54,16 @@ type fakeServices struct {
 	restarts   []string
 	status     []supervisor.Status
 	onRestart  func(name string) // runs after the restart is recorded
+	started    []string          // what the next Reconcile reports started
 }
 
 func (f *fakeServices) Reconcile(specs []supervisor.Spec) supervisor.Changes {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.reconciles = append(f.reconciles, specs)
-	return supervisor.Changes{Started: []string{}, Restarted: []string{}, Stopped: []string{}}
+	started := append([]string{}, f.started...)
+	f.started = nil
+	return supervisor.Changes{Started: started, Restarted: []string{}, Stopped: []string{}}
 }
 
 func (f *fakeServices) Restart(name string) error {

@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/berth-ai/berth/internal/config"
+	"github.com/berth-ai/berth/internal/orcasync"
 	"github.com/berth-ai/berth/internal/pairqr"
 	"github.com/berth-ai/berth/internal/supervisor"
 )
@@ -41,6 +42,36 @@ const orcaDevicesFile = ".config/orca/orca-devices.json"
 type orcaRequest struct {
 	Scope   string `json:"scope"`
 	Address string `json:"address"`
+}
+
+// orcaSyncGroup runs the Orca projects converger.
+const orcaSyncGroup = "orca-sync"
+
+// startOrcaSync runs the Orca projects converger as a job. Orca off has no
+// projects to change; the start that turns it on runs the sync.
+func (b *Broker) startOrcaSync() {
+	if len(b.OrcaSync) == 0 || !b.orcaDesired() {
+		return
+	}
+	work := b.agentWork(b.OrcaSync[0], b.OrcaSync[1:], orcasync.Timeout)
+	if err := b.orcaRuns.start(b.Jobs, "orca.sync", orcaSyncGroup, work, "Workspaces changed during the run; running again."); err != nil {
+		b.logf("WARNING: Orca sync not started: %v", err)
+	}
+}
+
+// orcaDesired reports whether the orca service should run.
+func (b *Broker) orcaDesired() bool {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return slices.ContainsFunc(b.desired(), func(s supervisor.Spec) bool { return s.Name == "orca" })
+}
+
+// afterReconcile syncs Orca's projects when Orca starts or restarts with
+// new settings: changes made while it was off land then.
+func (b *Broker) afterReconcile(ch supervisor.Changes) {
+	if slices.Contains(ch.Started, "orca") || slices.Contains(ch.Restarted, "orca") {
+		b.startOrcaSync()
+	}
 }
 
 // checkOrca refuses switching Orca on in an image that does not ship it.

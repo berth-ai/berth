@@ -128,6 +128,8 @@ type Broker struct {
 	OrcaRunDir string
 	// OrcaPairTimeout bounds orca.pair; 0 means one minute.
 	OrcaPairTimeout time.Duration
+	// OrcaSync is the argv of the Orca projects converger; empty skips it.
+	OrcaSync []string
 	// OrcaHome is the home whose .config/orca holds Orca's paired devices; empty
 	// means agent's.
 	OrcaHome string
@@ -151,6 +153,7 @@ type Broker struct {
 	mcpRuns    serialJob // mcp.setup
 	skillsRuns serialJob // skills.sync
 	wsRuns     serialJob // workspaces.sync
+	orcaRuns   serialJob // orca.sync
 	regOnce    sync.Once
 	reg        []registry.Entry
 	addedMu    sync.Mutex
@@ -223,7 +226,9 @@ func (b *Broker) Reconcile() supervisor.Changes {
 	b.mu.Lock()
 	specs := b.desired()
 	b.mu.Unlock()
-	return b.Services.Reconcile(specs)
+	ch := b.Services.Reconcile(specs)
+	b.afterReconcile(ch)
+	return ch
 }
 
 // desired is Desired plus the panel's extra settings. Caller holds b.mu.

@@ -100,6 +100,22 @@ orca_daemons() {
   x "$1" ps -eo pid=,pgid=,user=,args= | awk -v svc="$svc" '$3 == "agent" && $2 != svc && /Orca|orca-ide|orcad/ {print $1}'
 }
 
+# orca_has NAME PATH: Orca on NAME has a local project at PATH.
+orca_has() {
+  xa "$1" orca-ide project setups --host local --json | jq -e --arg p "$2" 'any(.result.setups[]; .path == $p)' >/dev/null
+}
+
+# orca_wait_for NAME PATH WANT: within a minute, orca_has NAME PATH holds
+# (WANT=yes) or does not (WANT=no).
+orca_wait_for() {
+  local i
+  for ((i = 0; i < 60; i++)); do
+    if orca_has "$1" "$2"; then [[ $3 == yes ]] && return 0; else [[ $3 == no ]] && return 0; fi
+    sleep 1
+  done
+  return 1
+}
+
 halt() { docker rm -f "$prefix-$1" >/dev/null; }
 x() { docker exec "$prefix-$1" "${@:2}"; }
 xa() { docker exec -u agent "$prefix-$1" "${@:2}"; }
@@ -743,6 +759,19 @@ else
   # devices that used one.
   x main test -s /home/agent/.config/orca/orca-devices.json || fail "Orca's device registry is not at ~/.config/orca/orca-devices.json"
   x main berth orca devices --json | jq -e '.devices == []' >/dev/null || fail "berth orca devices lists an unused link"
+  # A workspace becomes an Orca project, and forgetting it removes the
+  # project Berth added.
+  xa main mkdir -p /workspaces/smoke/orca-ws
+  xa main git -C /workspaces/smoke/orca-ws init -q
+  added=$(wait_job "$(verb main workspaces.add '{"mode":"adopt","path":"smoke/orca-ws","id":"orcaws"}' | jq -r .job.id)")
+  jq -e '.state == "succeeded"' <<<"$added" >/dev/null || fail "adopting a workspace for Orca: $added"
+  orca_wait_for main /workspaces/smoke/orca-ws yes || fail "the workspace did not become an Orca project"
+  synced=$(xa main berth orca sync --json) || fail "berth orca sync: $synced"
+  jq -e '.added == [] and .removed == []' <<<"$synced" >/dev/null || fail "a second Orca sync changed something: $synced"
+  forgot=$(wait_job "$(verb main workspaces.forget '{"id":"orcaws"}' | jq -r .job.id)")
+  jq -e '.state == "succeeded"' <<<"$forgot" >/dev/null || fail "forgetting the Orca workspace: $forgot"
+  orca_wait_for main /workspaces/smoke/orca-ws no || fail "forgetting the workspace left its Orca project"
+  xa main rm -rf /workspaces/smoke/orca-ws
   for pid in $daemons; do
     x main kill -0 "$pid" 2>/dev/null || fail "pairing restarted Orca and killed its process $pid"
   done
