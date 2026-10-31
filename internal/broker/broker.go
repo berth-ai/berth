@@ -121,6 +121,13 @@ type Broker struct {
 	SyncTimeout time.Duration
 	// LoginTimeout bounds forge.login; 0 means 15 minutes.
 	LoginTimeout time.Duration
+	// OrcaInstalled reports whether the image ships Orca; nil means it does.
+	OrcaInstalled func() bool
+	// OrcaRunDir holds the pairing request and readiness files,
+	// /run/berth/orca; empty means that.
+	OrcaRunDir string
+	// OrcaPairTimeout bounds orca.pair; 0 means one minute.
+	OrcaPairTimeout time.Duration
 	// Now and CurrentHash default to the clock and the current agent set.
 	Now         func() time.Time
 	CurrentHash func() string

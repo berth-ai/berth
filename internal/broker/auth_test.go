@@ -171,14 +171,14 @@ func TestHost(t *testing.T) {
 	env := map[string]string{"BERTH_HOST_BIND_ADDRESS": "0.0.0.0", "BERTH_HOST_PANEL_PORT": "8443",
 		"BERTH_HOST_PUID": "1001", "BERTH_HOST_PGID": "100", "BERTH_HOST_WORKSPACES_DIR": "/srv/ws"}
 	h := HostFromEnv(func(k string) string { return env[k] })
-	if h != (Host{"0.0.0.0", "8443", "1001", "100", "/srv/ws"}) {
+	if h != (Host{"0.0.0.0", "8443", "6768", "1001", "100", "/srv/ws"}) {
 		t.Errorf("host = %+v", h)
 	}
 	if got := h.SetupURL("abc"); got != "http://localhost:8443/setup#token=abc" {
 		t.Errorf("url = %s", got)
 	}
 	d := HostFromEnv(func(string) string { return "" })
-	if d != (Host{"127.0.0.1", "7690", "1000", "1000", "./workspaces"}) {
+	if d != (Host{"127.0.0.1", "7690", "6768", "1000", "1000", "./workspaces"}) {
 		t.Errorf("defaults = %+v", d)
 	}
 	if got := (Host{BindAddress: "::1", PanelPort: "7690"}).SetupURL("t"); got != "http://[::1]:7690/setup#token=t" {

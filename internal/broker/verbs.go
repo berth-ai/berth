@@ -262,6 +262,9 @@ func (b *Broker) configApply(_ context.Context, body []byte) (int, any) {
 	if err := checkAttachments(cur, preview); err != nil {
 		return validationResponse(err)
 	}
+	if err := b.checkOrca(cur, preview); err != nil {
+		return validationResponse(err)
+	}
 	if err := b.checkSecrets(in.Secrets, cur, preview); err != nil {
 		return validationResponse(err)
 	}

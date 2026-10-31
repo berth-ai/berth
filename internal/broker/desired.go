@@ -22,5 +22,8 @@ func Desired(cfg config.Config, mode string) []supervisor.Spec {
 	if cfg.Frontends.IDE.Enabled {
 		specs = append(specs, supervisor.Spec{Name: "code_server", Env: map[string]string{"TZ": tz}, Soft: map[string]string{}})
 	}
+	if cfg.Frontends.Orca.Enabled {
+		specs = append(specs, supervisor.Spec{Name: "orca", Env: map[string]string{"TZ": tz}, Soft: map[string]string{}})
+	}
 	return specs
 }
