@@ -537,7 +537,7 @@ test("a workspace is cloned, launched and forgotten", async ({ page }) => {
   await add.getByRole("button", { name: "Clone", exact: true }).click();
   await expect(add.getByText(/Repository not found, or it is private\./)).toBeVisible();
   await add.getByLabel("Repository").fill("acme/api");
-  await expect(add.getByLabel("Folder")).toHaveValue("acme/api");
+  await expect(add.getByLabel("Folder")).toHaveValue("github.com/acme/api");
   await expect(add.getByLabel("Id")).toHaveValue("acme-api");
   await add.getByRole("button", { name: "Clone", exact: true }).click();
 

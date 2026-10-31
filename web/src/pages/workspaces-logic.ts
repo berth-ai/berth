@@ -13,15 +13,18 @@ export function workspaceRows(cfg: Config | undefined): WorkspaceRow[] {
     .sort((a, b) => a.id.localeCompare(b.id));
 }
 
-/** defaultPath is owner/repo of a repository URL: its last two path
- * segments, without .git. */
+/** defaultPath is the host and path of a repository URL, without .git:
+ * https://github.com/acme/api → github.com/acme/api. The host keeps
+ * repositories of the same name on two forges in two folders; a port is
+ * left out. */
 export function defaultPath(repo: string): string {
   try {
-    const parts = new URL(repo).pathname
+    const u = new URL(repo);
+    const parts = u.pathname
       .replace(/\.git$/, "")
       .split("/")
       .filter(Boolean);
-    return parts.slice(-2).join("/");
+    return parts.length ? [u.hostname, ...parts].join("/") : "";
   } catch {
     return "";
   }
@@ -35,6 +38,16 @@ export function deriveId(path: string): string {
     .replace(/^-+|-+$/g, "")
     .slice(0, 64)
     .replace(/-+$/, "");
+}
+
+/** defaultId is the id a folder suggests. A leading host is left out
+ * (github.com/acme/api → acme-api) unless that id is taken, then kept
+ * (codeberg-org-acme-api). */
+export function defaultId(path: string, cfg: Config | undefined): string {
+  const [first = "", ...rest] = path.split("/");
+  if (!first.includes(".") || rest.length < 2) return deriveId(path);
+  const short = deriveId(rest.join("/"));
+  return cfg?.workspaces?.[short] ? deriveId(path) : short;
 }
 
 /** idError mirrors config.WorkspaceIDPattern and the broker's id_exists. */

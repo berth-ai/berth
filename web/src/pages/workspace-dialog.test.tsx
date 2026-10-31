@@ -51,7 +51,7 @@ describe("AddWorkspaceDialog", () => {
   it("derives the folder from the repository and the id from the folder", () => {
     dialog();
     type("Repository", "octocat/Hello-World");
-    expect(field("Folder").value).toBe("octocat/Hello-World");
+    expect(field("Folder").value).toBe("github.com/octocat/Hello-World");
     expect(field("Id").value).toBe("octocat-hello-world");
     type("Folder", "demo/hello");
     expect(field("Id").value).toBe("demo-hello");
@@ -75,7 +75,7 @@ describe("AddWorkspaceDialog", () => {
         mode: "clone",
         repo: "https://github.com/acme/web",
         ref: "v2",
-        path: "acme/web",
+        path: "github.com/acme/web",
         id: "acme-web",
       },
       expect.any(Function),

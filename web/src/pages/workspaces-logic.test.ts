@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { AgentPackage, Config, WorkspaceState } from "@/api/types";
 import {
   defaultPath,
+  defaultId,
   deriveId,
   folderError,
   gitSummary,
@@ -50,12 +51,28 @@ describe("workspaceRows", () => {
 });
 
 describe("defaultPath", () => {
-  it("is owner/repo of the URL", () => {
-    expect(defaultPath("https://github.com/acme/api")).toBe("acme/api");
-    expect(defaultPath("https://github.com/acme/api/")).toBe("acme/api");
-    expect(defaultPath("https://gitlab.com/group/sub/tool.git")).toBe("sub/tool");
-    expect(defaultPath("https://example.com/solo")).toBe("solo");
+  it("is the host and path of the URL", () => {
+    expect(defaultPath("https://github.com/acme/api")).toBe("github.com/acme/api");
+    expect(defaultPath("https://github.com/acme/api/")).toBe("github.com/acme/api");
+    expect(defaultPath("https://GitLab.com/group/sub/tool.git")).toBe("gitlab.com/group/sub/tool");
+    expect(defaultPath("https://git.example.com:3000/acme/api")).toBe("git.example.com/acme/api");
+    expect(defaultPath("https://example.com/solo")).toBe("example.com/solo");
+    expect(defaultPath("https://example.com/")).toBe("");
     expect(defaultPath("not a url")).toBe("");
+  });
+});
+
+describe("defaultId", () => {
+  it("leaves the host out unless that id is taken", () => {
+    const taken = {
+      workspaces: { "acme-api": { path: "github.com/acme/api" } },
+    } as unknown as Config;
+    expect(defaultId("github.com/acme/api", undefined)).toBe("acme-api");
+    expect(defaultId("codeberg.org/acme/api", taken)).toBe("codeberg-org-acme-api");
+    expect(defaultId("gitlab.com/group/sub/tool", cfg)).toBe("group-sub-tool");
+    expect(defaultId("example.com/solo", cfg)).toBe("example-com-solo");
+    expect(defaultId("acme/api", cfg)).toBe("acme-api");
+    expect(defaultId("", cfg)).toBe("");
   });
 });
 

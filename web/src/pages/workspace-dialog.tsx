@@ -20,7 +20,7 @@ import { Input } from "@/components/ui/input";
 import { errorText } from "@/lib/errors";
 import { notify } from "@/lib/notify";
 import { normalizeRepo, refError, repoError } from "./skills-logic";
-import { defaultPath, deriveId, folderError, idError } from "./workspaces-logic";
+import { defaultId, defaultPath, folderError, idError } from "./workspaces-logic";
 
 type Tab = "clone" | "adopt";
 type Field = "repo" | "ref" | "path" | "id";
@@ -53,7 +53,7 @@ export function AddWorkspaceDialog({
   const ids = { repo: useId(), ref: useId(), path: useId(), id: useId(), list: useId() };
 
   const folder = tab === "clone" ? (path ?? defaultPath(normalizeRepo(repo))) : picked;
-  const wsId = id ?? deriveId(folder);
+  const wsId = id ?? defaultId(folder, config);
   const rows = candidates.data?.candidates ?? [];
 
   const submit = async () => {
