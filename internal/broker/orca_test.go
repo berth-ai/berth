@@ -324,7 +324,7 @@ func orcaDevicesBroker(t *testing.T, registry string) *testBroker {
 	tb.b.Load()
 	tb.b.OrcaHome = t.TempDir()
 	if registry != "" {
-		dir := filepath.Join(tb.b.OrcaHome, ".orca")
+		dir := filepath.Join(tb.b.OrcaHome, ".config", "orca")
 		if err := os.MkdirAll(dir, 0o700); err != nil {
 			t.Fatal(err)
 		}
@@ -338,11 +338,11 @@ func orcaDevicesBroker(t *testing.T, registry string) *testBroker {
 func TestOrcaDevices(t *testing.T) {
 	// 1767225600000 ms is 2026-01-01T00:00:00Z.
 	tb := orcaDevicesBroker(t, `[
-		{"deviceId":"d1","name":"Studio Mac","token":"secret-1","scope":"desktop","pairedAt":1767225600000,"lastSeenAt":1767229200000},
+		{"deviceId":"d1","name":"Studio Mac","token":"secret-1","scope":"runtime","pairedAt":1767225600000,"lastSeenAt":1767229200000},
 		{"deviceId":"d2","name":"Mobile 1/2/2026","scope":"mobile","pairedAt":1767312000000,"lastSeenAt":0,"credentialKind":"device-key","devicePublicKeyB64":"k"},
 		{"deviceId":"d3","name":"Mobile 1/3/2026","token":"secret-3","scope":"mobile","pairedAt":1767398400000,"lastSeenAt":0},
-		{"deviceId":"d4","name":"Browser","scope":"desktop","pairedAt":1767225600000,"lastSeenAt":1767229200000,"ephemeral":true},
-		{"name":"no id","scope":"desktop","pairedAt":1,"lastSeenAt":1},
+		{"deviceId":"d4","name":"Browser","scope":"runtime","pairedAt":1767225600000,"lastSeenAt":1767229200000,"ephemeral":true},
+		{"name":"no id","scope":"runtime","pairedAt":1,"lastSeenAt":1},
 		"not a row"
 	]`)
 	code, out := tb.verb(t, "orca.devices", "")
@@ -388,7 +388,10 @@ func TestOrcaDevicesRefusesASymlinkOutOfHome(t *testing.T) {
 	if err := os.WriteFile(outside, []byte(`[{"deviceId":"x","name":"leak","scope":"desktop","pairedAt":1,"lastSeenAt":1}]`), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.Symlink(filepath.Dir(outside), filepath.Join(tb.b.OrcaHome, ".orca")); err != nil {
+	if err := os.Mkdir(filepath.Join(tb.b.OrcaHome, ".config"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(filepath.Dir(outside), filepath.Join(tb.b.OrcaHome, ".config", "orca")); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.Rename(outside, filepath.Join(filepath.Dir(outside), "orca-devices.json")); err != nil {

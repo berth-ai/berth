@@ -29,9 +29,12 @@ const (
 	orcaReadinessFile = "readiness.json"
 )
 
-// orcaDevicesFile is Orca's device registry in its home, ~/.orca unless
-// XDG_DATA_HOME or ORCA_USER_DATA moves it, which the image never does.
-const orcaDevicesFile = ".orca/orca-devices.json"
+// orcaDevicesFile is Orca's device registry in its home. orca-ide serve
+// keeps its profile where the packaged app does, ~/.config/orca on Linux,
+// whether it runs Electron or orcad; ~/.orca is only standalone orcad's.
+// XDG_CONFIG_HOME or ORCA_USER_DATA_PATH would move it; the image sets
+// neither.
+const orcaDevicesFile = ".config/orca/orca-devices.json"
 
 // orcaRequest asks the next start of the orca module to create a pairing
 // offer for scope, telling clients to dial address.
@@ -268,7 +271,12 @@ func readOrcaDevices(home string) ([]orcaDevice, error) {
 		if row.LastSeenAt == 0 && row.Token != "" && row.CredentialKind == "" {
 			continue
 		}
-		devices = append(devices, orcaDevice{ID: row.DeviceID, Name: row.Name, Scope: row.Scope,
+		// Orca calls a paired desktop a runtime; orca.pair calls it a desktop.
+		scope := row.Scope
+		if scope == "runtime" {
+			scope = "desktop"
+		}
+		devices = append(devices, orcaDevice{ID: row.DeviceID, Name: row.Name, Scope: scope,
 			PairedAt: msTime(row.PairedAt), LastSeenAt: msTime(row.LastSeenAt)})
 	}
 	return devices, nil
