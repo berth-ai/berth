@@ -8,6 +8,10 @@
       },
       "ide": {
         "enabled": false
+      },
+      "orca": {
+        "enabled": false,
+        "pairing_address": ""
       }
     },
     "agents": {

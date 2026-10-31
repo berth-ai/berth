@@ -33,10 +33,18 @@ type Config struct {
 	Workspaces map[string]Workspace `json:"workspaces"`
 }
 
-// Frontends switches the optional browser frontends.
+// Frontends switches the optional frontends.
 type Frontends struct {
-	Terminal Toggle `json:"terminal"`
-	IDE      Toggle `json:"ide"`
+	Terminal Toggle       `json:"terminal"`
+	IDE      Toggle       `json:"ide"`
+	Orca     OrcaFrontend `json:"orca"`
+}
+
+// OrcaFrontend switches Orca's headless server. PairingAddress is the
+// address Orca apps dial; empty means the host bind address and Orca port.
+type OrcaFrontend struct {
+	Enabled        bool   `json:"enabled"`
+	PairingAddress string `json:"pairing_address"`
 }
 
 // Toggle is an on/off setting.
@@ -173,6 +181,9 @@ func (c Config) Validate() error {
 	v.between("agents.mcp_timeout", c.Agents.MCPTimeout, 10, 1800)
 	if !validZone(c.Runtime.TZ) {
 		v.add("runtime.tz", "%q is not a time zone such as UTC or Europe/Rome", c.Runtime.TZ)
+	}
+	if msg := CheckPairingAddress(c.Frontends.Orca.PairingAddress); msg != "" {
+		v.add("frontends.orca.pairing_address", "%s", msg)
 	}
 	c.MCP.validate(v)
 	validateSources(v, c.Skills.Sources, c.Workspaces)

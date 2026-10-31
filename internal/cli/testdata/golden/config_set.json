@@ -15,6 +15,10 @@
       },
       "ide": {
         "enabled": true
+      },
+      "orca": {
+        "enabled": false,
+        "pairing_address": ""
       }
     },
     "agents": {
