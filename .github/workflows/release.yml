@@ -55,7 +55,7 @@ jobs:
           provenance: mode=max
           sbom: true
           cache-from: type=gha,scope=release-${{ matrix.arch }}
-          cache-to: type=gha,mode=max,scope=release-${{ matrix.arch }}
+          cache-to: type=gha,mode=max,scope=release-${{ matrix.arch }},ignore-error=true
           build-args: |
             BERTH_VERSION=${{ steps.meta.outputs.version }}
             BERTH_COMMIT=${{ github.sha }}

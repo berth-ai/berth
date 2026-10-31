@@ -174,7 +174,7 @@ jobs:
           load: true
           tags: berth:ci
           cache-from: type=gha,scope=image-${{ matrix.arch }}
-          cache-to: type=gha,mode=max,scope=image-${{ matrix.arch }}
+          cache-to: type=gha,mode=max,scope=image-${{ matrix.arch }},ignore-error=true
           build-args: |
             BERTH_VERSION=0.0.0-ci
             BERTH_COMMIT=${{ github.sha }}
