@@ -306,3 +306,12 @@ func TestOrcaPairBadScope(t *testing.T) {
 		t.Errorf("restarts = %v", tb.svc.restarts)
 	}
 }
+
+func TestOrcaPairSkipsNoiseBeforeTheReadyLine(t *testing.T) {
+	tb, _, _ := orcaBroker(t, "100.64.0.10", func(orcaRequest) string {
+		return "Gtk-Message: no theme\n[orca] " + `{"type":"orca_server_ready","pairing":{"available":true,"url":"orca://pair?code=n"}}` + "\n"
+	})
+	if code, out := tb.verb(t, "orca.pair", `{"scope":"desktop"}`); code != http.StatusOK || out["url"] != "orca://pair?code=n" {
+		t.Fatalf("%d %v", code, out)
+	}
+}

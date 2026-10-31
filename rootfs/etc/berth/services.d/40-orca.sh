@@ -21,8 +21,10 @@ orca_start() {
     if [[ $scope =~ ^(desktop|mobile)$ && -n $address && $address != -* ]]; then
       args+=(--pairing-address "$address" --json)
       [[ $scope == mobile ]] && args+=(--mobile-pairing)
+      # Create the file 0600 in a subshell: Orca, and every terminal it
+      # starts, keeps the service's own umask.
       rm -f "$dir/readiness.json"
-      umask 077
+      (umask 077 && : >"$dir/readiness.json")
       exec orca-ide "${args[@]}" >"$dir/readiness.json"
     fi
     echo "berth: ignoring an invalid Orca pairing request" >&2

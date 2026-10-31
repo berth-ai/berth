@@ -9,6 +9,7 @@ from shellharness import MODULE_RUN, Harness, needs_bash, needs_jq
 ORCA_FAKE = r"""
 echo "$*" >> "$FAKE_LOG/orca-ide.calls"
 env | sort > "$FAKE_LOG/orca-ide.env"
+umask > "$FAKE_LOG/orca-ide.umask"
 case " $* " in
   *" --reclaim-stale-lock "*) echo "lock: none"; exit "${FAKE_RECLAIM_STATUS:-4}" ;;
 esac
@@ -105,6 +106,14 @@ class ModuleRunTest(unittest.TestCase):
         self.assertIn("orca://pair?code=t", ready.read_text())
         self.assertEqual(stat.S_IMODE(os.stat(ready).st_mode), 0o600)
         self.assertIn("orca: starting", r.stderr)
+
+    @needs_jq
+    def test_orca_keeps_the_service_umask_when_pairing(self):
+        self.orca()
+        plain = self.h.read_log("orca-ide.umask")
+        self.orca({"scope": "desktop", "address": "100.64.0.10:6768"})
+        self.assertEqual(self.h.read_log("orca-ide.umask"), plain,
+                         "Orca and every terminal it starts would inherit a pairing-only umask")
 
     @needs_jq
     def test_orca_mobile_request_adds_mobile_pairing(self):

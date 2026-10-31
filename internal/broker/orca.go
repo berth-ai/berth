@@ -6,7 +6,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"io"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -152,29 +151,27 @@ type orcaPairing struct {
 }
 
 // readOrcaPairing finds the first JSON object with a pairing key in Orca's
-// readiness output, which may be one object, several lines, or still being
-// written.
+// readiness output. That is one line, which may follow other output or
+// carry a prefix; pretty-printed JSON is read too. A file still being
+// written yields nothing until the object is complete.
 func readOrcaPairing(path string) (orcaPairing, bool) {
 	raw, err := os.ReadFile(path)
 	if err != nil {
 		return orcaPairing{}, false
 	}
+	type ready struct {
+		Pairing *orcaPairing `json:"pairing"`
+	}
+	for line := range bytes.Lines(raw) {
+		var v ready
+		if i := bytes.IndexByte(line, '{'); i >= 0 && json.Unmarshal(line[i:], &v) == nil && v.Pairing != nil {
+			return *v.Pairing, true
+		}
+	}
 	dec := json.NewDecoder(bytes.NewReader(raw))
 	for {
-		var v struct {
-			Pairing *orcaPairing `json:"pairing"`
-		}
+		var v ready
 		if err := dec.Decode(&v); err != nil {
-			if !errors.Is(err, io.EOF) {
-				// A line that is not JSON: skip to the next one.
-				rest, _ := io.ReadAll(dec.Buffered())
-				i := bytes.IndexByte(rest, '\n')
-				if i < 0 {
-					return orcaPairing{}, false
-				}
-				dec = json.NewDecoder(bytes.NewReader(rest[i+1:]))
-				continue
-			}
 			return orcaPairing{}, false
 		}
 		if v.Pairing != nil {
