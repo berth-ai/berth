@@ -739,6 +739,10 @@ else
   fi
   [[ -z $(x main ls -A /run/berth/orca) ]] || fail "pairing files left in /run/berth/orca"
   [[ $(x main stat -c '%U %a' /run/berth/orca) == "agent 700" ]] || fail "/run/berth/orca is not agent's alone"
+  # The offers sit in the registry orca.devices reads, which lists only
+  # devices that used one.
+  x main test -s /home/agent/.orca/orca-devices.json || fail "Orca's device registry is not at ~/.orca/orca-devices.json"
+  x main berth orca devices --json | jq -e '.devices == []' >/dev/null || fail "berth orca devices lists an unused link"
   for pid in $daemons; do
     x main kill -0 "$pid" 2>/dev/null || fail "pairing restarted Orca and killed its process $pid"
   done

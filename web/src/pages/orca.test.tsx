@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ApiError, verb } from "@/api/request";
 import { OrcaBody } from "./orca";
@@ -21,6 +21,23 @@ const pair = (scope: string, warning?: string) => ({
   qr: ["111", "101", "111"],
   ...(warning ? { warning } : {}),
 });
+
+const devices = [
+  {
+    id: "d1",
+    name: "Work laptop",
+    scope: "desktop" as const,
+    paired_at: "2026-10-28T09:00:00Z",
+    last_seen_at: new Date(Date.now() - 5 * 60_000).toISOString(),
+  },
+  {
+    id: "d2",
+    name: "Mobile 10/30/2026",
+    scope: "mobile" as const,
+    paired_at: "2026-10-30T09:00:00Z",
+    last_seen_at: null,
+  },
+];
 
 describe("OrcaBody", () => {
   beforeEach(() => vi.mocked(verb).mockReset());
@@ -69,5 +86,36 @@ describe("OrcaBody", () => {
     expect(screen.getByRole("link", { name: "Open Settings" }).getAttribute("href")).toBe(
       "/settings",
     );
+  });
+
+  it("lists the paired devices", () => {
+    render(<OrcaBody enabled state="running" address="100.64.0.10:6768" devices={devices} />);
+    const list = screen.getByRole("list", { name: "Paired devices" });
+    const rows = within(list).getAllByRole("listitem");
+    expect(rows).toHaveLength(2);
+    expect(within(rows[0]).getByText("Work laptop")).toBeTruthy();
+    expect(within(rows[0]).getByText(/Desktop · paired/)).toBeTruthy();
+    expect(within(rows[0]).getByText("Last seen 5 min ago")).toBeTruthy();
+    expect(within(rows[1]).getByText(/Phone · paired/)).toBeTruthy();
+    expect(within(rows[1]).getByText("Not connected yet")).toBeTruthy();
+    expect(screen.getByText(/Remove a device in Orca/)).toBeTruthy();
+  });
+
+  it("says when no device is paired", () => {
+    render(<OrcaBody enabled state="running" address="100.64.0.10:6768" devices={[]} />);
+    expect(screen.getByText("No devices are paired yet.")).toBeTruthy();
+    expect(screen.queryByRole("list", { name: "Paired devices" })).toBeNull();
+  });
+
+  it("shows why the devices could not be read", () => {
+    render(
+      <OrcaBody
+        enabled
+        state="running"
+        address="100.64.0.10:6768"
+        devicesError="could not read Orca's paired devices"
+      />,
+    );
+    expect(screen.getByText("could not read Orca's paired devices")).toBeTruthy();
   });
 });

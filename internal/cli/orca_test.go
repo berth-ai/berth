@@ -16,6 +16,13 @@ import (
 // orcaBroker answers orca.pair with code and body, and records requests.
 func orcaBroker(t *testing.T, code int, body func(scope string) any) (Config, *[]string) {
 	t.Helper()
+	return orcaVerbBroker(t, "orca.pair", code, body)
+}
+
+// orcaVerbBroker answers verb with code and body, and records each
+// request's scope.
+func orcaVerbBroker(t *testing.T, verb string, code int, body func(scope string) any) (Config, *[]string) {
+	t.Helper()
 	cfg := testConfig(t)
 	cfg.BrokerSocket = filepath.Join(shortTempDir(t), "b.sock")
 	l, err := broker.Listen(cfg.BrokerSocket, -1)
@@ -24,7 +31,7 @@ func orcaBroker(t *testing.T, code int, body func(scope string) any) (Config, *[
 	}
 	var scopes []string
 	srv := &http.Server{ReadHeaderTimeout: time.Second, Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/verbs/orca.pair" {
+		if r.URL.Path != "/verbs/"+verb {
 			http.NotFound(w, r)
 			return
 		}
@@ -105,7 +112,7 @@ func TestOrcaPairErrors(t *testing.T) {
 
 func TestOrcaUsage(t *testing.T) {
 	cfg, scopes := orcaBroker(t, http.StatusOK, pairBody(""))
-	for _, args := range [][]string{{"orca"}, {"orca", "frob"}, {"orca", "pair", "extra"}} {
+	for _, args := range [][]string{{"orca"}, {"orca", "frob"}, {"orca", "pair", "extra"}, {"orca", "devices", "extra"}, {"orca", "devices", "--mobile"}} {
 		if _, _, code := run(t, cfg, args...); code != 2 {
 			t.Errorf("%v: exit %d", args, code)
 		}
@@ -117,4 +124,42 @@ func TestOrcaUsage(t *testing.T) {
 	if len(*scopes) != 0 {
 		t.Errorf("scopes = %v", *scopes)
 	}
+}
+
+func devicesBody(string) any {
+	return map[string]any{"devices": []map[string]any{
+		{"id": "d1", "name": "Studio Mac", "scope": "desktop", "paired_at": "2026-01-01T00:00:00Z", "last_seen_at": "2026-01-01T01:00:00Z"},
+		{"id": "d2", "name": "Mobile 1/2/2026", "scope": "mobile", "paired_at": "2026-01-02T00:00:00Z", "last_seen_at": nil},
+	}}
+}
+
+func TestOrcaDevicesHuman(t *testing.T) {
+	cfg, _ := orcaVerbBroker(t, "orca.devices", http.StatusOK, devicesBody)
+	out, errOut, code := run(t, cfg, "orca", "devices")
+	if code != 0 {
+		t.Fatalf("exit %d: %s", code, errOut)
+	}
+	lines := strings.Split(strings.TrimSpace(out), "\n")
+	if len(lines) != 3 || !strings.HasPrefix(lines[0], "NAME") ||
+		!strings.Contains(lines[1], "Studio Mac") || !strings.Contains(lines[1], "desktop") ||
+		!strings.Contains(lines[2], "Mobile 1/2/2026") || !strings.Contains(lines[2], "phone") || !strings.HasSuffix(lines[2], "never") {
+		t.Errorf("stdout:\n%s", out)
+	}
+}
+
+func TestOrcaDevicesNone(t *testing.T) {
+	cfg, _ := orcaVerbBroker(t, "orca.devices", http.StatusOK, func(string) any { return map[string]any{"devices": []any{}} })
+	out, errOut, code := run(t, cfg, "orca", "devices")
+	if code != 0 || !strings.Contains(out, "berth orca pair") {
+		t.Errorf("exit %d: %q %q", code, out, errOut)
+	}
+}
+
+func TestOrcaDevicesJSON(t *testing.T) {
+	cfg, _ := orcaVerbBroker(t, "orca.devices", http.StatusOK, devicesBody)
+	out, errOut, code := run(t, cfg, "orca", "devices", "--json")
+	if code != 0 {
+		t.Fatalf("exit %d: %s", code, errOut)
+	}
+	golden(t, "orca_devices", out)
 }

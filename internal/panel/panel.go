@@ -43,7 +43,7 @@ var browserVerbs = map[string]bool{
 	"workspaces.instructions.read": true, "workspaces.instructions.write": true, "workspaces.instructions.merge": true,
 	"workspaces.report": true, "skills.vendor.resolve": true,
 	"login.status": true, "login.start": true, "login.input": true, "login.cancel": true, "login.logout": true,
-	"orca.pair": true,
+	"orca.pair": true, "orca.devices": true,
 }
 
 var jobID = regexp.MustCompile(`^[0-9]{1,9}$`)

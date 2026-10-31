@@ -442,3 +442,13 @@ export interface OrcaPair {
   warning?: string;
   qr: string[];
 }
+
+/** OrcaDevice is one Orca app paired with this Berth, from orca.devices.
+ * last_seen_at is null until the app first connects. */
+export interface OrcaDevice {
+  id: string;
+  name: string;
+  scope: "desktop" | "mobile";
+  paired_at: string | null;
+  last_seen_at: string | null;
+}

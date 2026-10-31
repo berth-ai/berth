@@ -305,6 +305,8 @@ func (f *fake) verb(name string, in map[string]any) (int, any) {
 		return http.StatusOK, f.loginStatus(str(in["agent"]))
 	case "orca.pair":
 		return f.orcaPair(in)
+	case "orca.devices":
+		return http.StatusOK, f.orcaDevices()
 	case "agents.registry":
 		return http.StatusOK, map[string]any{"agents": f.registry()}
 	case "agents.add":
@@ -1427,6 +1429,14 @@ func (f *fake) instructionsReport(id string) map[string]any {
 		f.links[id] = map[string]bool{}
 	}
 	return map[string]any{"path": "/workspaces/" + f.workspacePath(id), "links": links, "skipped": skipped}
+}
+
+// orcaDevices is a desktop in use and a phone that has not connected yet.
+func (f *fake) orcaDevices() map[string]any {
+	return map[string]any{"devices": []map[string]any{
+		{"id": "d1", "name": "Work laptop", "scope": "desktop", "paired_at": f.started.Add(-72 * time.Hour), "last_seen_at": f.started.Add(-5 * time.Minute)},
+		{"id": "d2", "name": "Mobile 10/30/2026", "scope": "mobile", "paired_at": f.started.Add(-26 * time.Hour), "last_seen_at": nil},
+	}}
 }
 
 // orcaPair answers like the broker on a host bound to loopback: a fixed

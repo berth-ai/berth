@@ -751,6 +751,9 @@ test("Orca is switched on and pairs a phone", async ({ page }) => {
   await expect(page.getByText(/^Saved/)).toBeVisible();
   await page.goto(`${NORMAL}/#/orca`);
   await expect(h1(page, "Orca")).toBeVisible();
+  const paired = page.getByRole("list", { name: "Paired devices" });
+  await expect(paired.getByText("Work laptop")).toBeVisible();
+  await expect(paired.getByText("Not connected yet")).toBeVisible();
   await page.getByRole("button", { name: "Pair a phone" }).click();
   await expect(page.getByRole("img", { name: "Pairing QR code for a phone" })).toBeVisible();
   await expect(page.getByText("orca://pair?code=dev")).toBeVisible();

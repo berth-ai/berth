@@ -128,6 +128,9 @@ type Broker struct {
 	OrcaRunDir string
 	// OrcaPairTimeout bounds orca.pair; 0 means one minute.
 	OrcaPairTimeout time.Duration
+	// OrcaHome is the home whose .orca holds Orca's paired devices; empty
+	// means agent's.
+	OrcaHome string
 	// Now and CurrentHash default to the clock and the current agent set.
 	Now         func() time.Time
 	CurrentHash func() string

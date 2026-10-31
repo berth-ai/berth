@@ -8,6 +8,7 @@ import type {
   InstructionFile,
   Job,
   LoginStatus,
+  OrcaDevice,
   RegistryAgent,
   Session,
   Status,
@@ -34,6 +35,7 @@ export const keys = {
   instructions: (id: string, file: string) => ["instructions", id, file],
   workspaceStatus: ["workspace-status"],
   candidates: ["workspace-candidates"],
+  orcaDevices: ["orca-devices"],
 } as const;
 
 export function useSession() {
@@ -182,4 +184,20 @@ export function useInstructionFile(id: string, file: string) {
     queryKey: keys.instructions(id, file),
     queryFn: () => readInstructionFile(id, file),
   });
+}
+
+/** useOrcaDevices polls the Orca apps paired with this Berth, so a phone
+ * shows up once it uses its link. */
+export function useOrcaDevices(enabled: boolean) {
+  return useQuery({
+    queryKey: keys.orcaDevices,
+    queryFn: () => verb<{ devices: OrcaDevice[] }>("orca.devices").then((r) => r.devices),
+    enabled,
+    refetchInterval: 5000,
+  });
+}
+
+/** refreshOrcaDevices reloads the paired devices now, after a pairing. */
+export function refreshOrcaDevices(): Promise<void> {
+  return queryClient.invalidateQueries({ queryKey: keys.orcaDevices });
 }

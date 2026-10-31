@@ -315,3 +315,94 @@ func TestOrcaPairSkipsNoiseBeforeTheReadyLine(t *testing.T) {
 		t.Fatalf("%d %v", code, out)
 	}
 }
+
+// orcaDevicesBroker is a test broker whose agent home holds registry as
+// Orca's device file; an empty registry writes no file.
+func orcaDevicesBroker(t *testing.T, registry string) *testBroker {
+	t.Helper()
+	tb := newTestBroker(t)
+	tb.b.Load()
+	tb.b.OrcaHome = t.TempDir()
+	if registry != "" {
+		dir := filepath.Join(tb.b.OrcaHome, ".orca")
+		if err := os.MkdirAll(dir, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, "orca-devices.json"), []byte(registry), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return tb
+}
+
+func TestOrcaDevices(t *testing.T) {
+	// 1767225600000 ms is 2026-01-01T00:00:00Z.
+	tb := orcaDevicesBroker(t, `[
+		{"deviceId":"d1","name":"Studio Mac","token":"secret-1","scope":"desktop","pairedAt":1767225600000,"lastSeenAt":1767229200000},
+		{"deviceId":"d2","name":"Mobile 1/2/2026","scope":"mobile","pairedAt":1767312000000,"lastSeenAt":0,"credentialKind":"device-key","devicePublicKeyB64":"k"},
+		{"deviceId":"d3","name":"Mobile 1/3/2026","token":"secret-3","scope":"mobile","pairedAt":1767398400000,"lastSeenAt":0},
+		{"deviceId":"d4","name":"Browser","scope":"desktop","pairedAt":1767225600000,"lastSeenAt":1767229200000,"ephemeral":true},
+		{"name":"no id","scope":"desktop","pairedAt":1,"lastSeenAt":1},
+		"not a row"
+	]`)
+	code, out := tb.verb(t, "orca.devices", "")
+	if code != http.StatusOK {
+		t.Fatalf("%d %v", code, out)
+	}
+	raw, _ := json.Marshal(out)
+	if strings.Contains(string(raw), "secret") {
+		t.Errorf("a token reached the answer: %s", raw)
+	}
+	want := `{"devices":[` +
+		`{"id":"d1","last_seen_at":"2026-01-01T01:00:00Z","name":"Studio Mac","paired_at":"2026-01-01T00:00:00Z","scope":"desktop"},` +
+		`{"id":"d2","last_seen_at":null,"name":"Mobile 1/2/2026","paired_at":"2026-01-02T00:00:00Z","scope":"mobile"}]}`
+	if string(raw) != want {
+		t.Errorf("got  %s\nwant %s", raw, want)
+	}
+}
+
+func TestOrcaDevicesNone(t *testing.T) {
+	for _, registry := range []string{"", "[]"} {
+		tb := orcaDevicesBroker(t, registry)
+		code, out := tb.verb(t, "orca.devices", "")
+		if devices, ok := out["devices"].([]any); code != http.StatusOK || !ok || len(devices) != 0 {
+			t.Errorf("%q: %d %v", registry, code, out)
+		}
+	}
+}
+
+func TestOrcaDevicesUnreadable(t *testing.T) {
+	for name, registry := range map[string]string{"not json": "{", "not an array": `{"devices":[]}`} {
+		tb := orcaDevicesBroker(t, registry)
+		if code, out := tb.verb(t, "orca.devices", ""); code != http.StatusBadGateway || errCode(out) != "orca_devices_unreadable" {
+			t.Errorf("%s: %d %v", name, code, out)
+		}
+	}
+}
+
+// The file is agent's: a symlink out of the home must not make root read
+// another file.
+func TestOrcaDevicesRefusesASymlinkOutOfHome(t *testing.T) {
+	tb := orcaDevicesBroker(t, "")
+	outside := filepath.Join(t.TempDir(), "elsewhere")
+	if err := os.WriteFile(outside, []byte(`[{"deviceId":"x","name":"leak","scope":"desktop","pairedAt":1,"lastSeenAt":1}]`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(filepath.Dir(outside), filepath.Join(tb.b.OrcaHome, ".orca")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Rename(outside, filepath.Join(filepath.Dir(outside), "orca-devices.json")); err != nil {
+		t.Fatal(err)
+	}
+	code, out := tb.verb(t, "orca.devices", "")
+	if raw, _ := json.Marshal(out); code == http.StatusOK || strings.Contains(string(raw), "leak") {
+		t.Errorf("%d %s", code, raw)
+	}
+}
+
+func TestOrcaDevicesTakesNoArguments(t *testing.T) {
+	tb := orcaDevicesBroker(t, "[]")
+	if code, out := tb.verb(t, "orca.devices", `{"scope":"desktop"}`); code != http.StatusBadRequest {
+		t.Errorf("%d %v", code, out)
+	}
+}

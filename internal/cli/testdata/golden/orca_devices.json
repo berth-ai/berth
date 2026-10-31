@@ -1,0 +1,19 @@
+{
+  "devices": [
+    {
+      "id": "d1",
+      "name": "Studio Mac",
+      "scope": "desktop",
+      "paired_at": "2026-01-01T00:00:00Z",
+      "last_seen_at": "2026-01-01T01:00:00Z"
+    },
+    {
+      "id": "d2",
+      "name": "Mobile 1/2/2026",
+      "scope": "mobile",
+      "paired_at": "2026-01-02T00:00:00Z",
+      "last_seen_at": null
+    }
+  ],
+  "schema": 1
+}

@@ -1,9 +1,10 @@
 import { Copy, Monitor, Smartphone } from "lucide-react";
 import { useState } from "react";
-import { useConfig, useStatus } from "@/api/queries";
+import { refreshOrcaDevices, useConfig, useOrcaDevices, useStatus } from "@/api/queries";
 import { verb } from "@/api/request";
-import type { HostInfo, OrcaPair } from "@/api/types";
+import type { HostInfo, OrcaDevice, OrcaPair } from "@/api/types";
 import { BusyButton } from "@/components/busy-button";
+import { EmptyState } from "@/components/empty-state";
 import { Facts, Mono } from "@/components/facts";
 import { InlineAlert } from "@/components/inline-alert";
 import { LoadingRows } from "@/components/loading";
@@ -14,6 +15,7 @@ import { StatusBadge } from "@/components/status-badge";
 import { Button } from "@/components/ui/button";
 import { copyText } from "@/lib/copy";
 import { errorText } from "@/lib/errors";
+import { since } from "@/lib/format";
 import { useTitle } from "@/lib/use-title";
 import { FrontendOff } from "./frontend";
 
@@ -36,6 +38,7 @@ export function OrcaPage() {
   const config = useConfig();
   const status = useStatus();
   const orca = config.data?.config.frontends.orca;
+  const devices = useOrcaDevices(!!orca?.enabled);
   let body = <LoadingRows n={2} />;
   if (config.isError) body = <InlineAlert tone="bad">{errorText(config.error)}</InlineAlert>;
   else if (config.data)
@@ -44,6 +47,8 @@ export function OrcaPage() {
         enabled={!!orca?.enabled}
         state={status.data?.services?.find((s) => s.name === "orca")?.state ?? "disabled"}
         address={orca?.pairing_address || defaultAddress(status.data?.host)}
+        devices={devices.data}
+        devicesError={devices.isError ? errorText(devices.error) : ""}
       />
     );
   return (
@@ -61,10 +66,15 @@ export function OrcaBody({
   enabled,
   state,
   address,
+  devices,
+  devicesError = "",
 }: {
   enabled: boolean;
   state: string;
   address: string;
+  /** devices is undefined while loading. */
+  devices?: OrcaDevice[];
+  devicesError?: string;
 }) {
   const [busy, setBusy] = useState<Scope | null>(null);
   const [result, setResult] = useState<OrcaPair | null>(null);
@@ -76,6 +86,7 @@ export function OrcaBody({
     setResult(null);
     try {
       setResult(await verb<OrcaPair>("orca.pair", { scope }));
+      void refreshOrcaDevices();
     } catch (err) {
       setError(errorText(err));
     }
@@ -98,11 +109,9 @@ export function OrcaBody({
             ],
           ]}
         />
-        <p className="text-fg-muted">
-          Orca uses the agents and sign-ins of this Berth. Remove paired devices in Orca, under
-          Shared Server Access.
-        </p>
+        <p className="text-fg-muted">Orca uses the agents and sign-ins of this Berth.</p>
       </PanelCard>
+      <PairedDevices devices={devices} error={devicesError} />
       <PanelCard title="Pair a device">
         <p className="text-fg-secondary">
           Pairing restarts Orca once; your terminal sessions keep running.
@@ -132,6 +141,48 @@ export function OrcaBody({
       </PanelCard>
     </>
   );
+}
+
+function PairedDevices({ devices, error }: { devices?: OrcaDevice[]; error: string }) {
+  let body = <LoadingRows n={2} />;
+  if (error) body = <InlineAlert tone="bad">{error}</InlineAlert>;
+  else if (devices && !devices.length) body = <EmptyState text="No devices are paired yet." />;
+  else if (devices)
+    body = (
+      <ul
+        aria-label="Paired devices"
+        className="m-0 flex list-none flex-col divide-y rounded-md border p-0"
+      >
+        {devices.map((d) => {
+          const Icon = d.scope === "mobile" ? Smartphone : Monitor;
+          return (
+            <li key={d.id} className="flex flex-wrap items-center gap-x-3 gap-y-1 px-3 py-2">
+              <Icon aria-hidden className="size-4 text-fg-muted" strokeWidth={1.6} />
+              <span className="flex min-w-0 flex-col">
+                <span className="font-semibold wrap-anywhere">{d.name}</span>
+                <span className="text-xs text-fg-muted">
+                  {d.scope === "mobile" ? "Phone" : "Desktop"} · paired {day(d.paired_at)}
+                </span>
+              </span>
+              <span className="flex-1" />
+              <span className="text-xs text-fg-secondary tabular-nums">
+                {d.last_seen_at ? `Last seen ${since(d.last_seen_at)} ago` : "Not connected yet"}
+              </span>
+            </li>
+          );
+        })}
+      </ul>
+    );
+  return (
+    <PanelCard title="Paired devices">
+      {body}
+      <p className="text-fg-muted">Remove a device in Orca, under Shared Server Access.</p>
+    </PanelCard>
+  );
+}
+
+function day(iso: string | null): string {
+  return iso ? new Date(iso).toLocaleDateString() : "—";
 }
 
 function PairResult({ result }: { result: OrcaPair }) {

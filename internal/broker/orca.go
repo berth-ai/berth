@@ -6,6 +6,9 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"io"
+	"io/fs"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -25,6 +28,10 @@ const (
 	orcaRequestFile   = "pair-request.json"
 	orcaReadinessFile = "readiness.json"
 )
+
+// orcaDevicesFile is Orca's device registry in its home, ~/.orca unless
+// XDG_DATA_HOME or ORCA_USER_DATA moves it, which the image never does.
+const orcaDevicesFile = ".orca/orca-devices.json"
 
 // orcaRequest asks the next start of the orca module to create a pairing
 // offer for scope, telling clients to dial address.
@@ -178,4 +185,100 @@ func readOrcaPairing(path string) (orcaPairing, bool) {
 			return *v.Pairing, true
 		}
 	}
+}
+
+// orcaDevice is one row of orca.devices. Times are nil when Orca has none.
+type orcaDevice struct {
+	ID         string     `json:"id"`
+	Name       string     `json:"name"`
+	Scope      string     `json:"scope"`
+	PairedAt   *time.Time `json:"paired_at"`
+	LastSeenAt *time.Time `json:"last_seen_at"`
+}
+
+// orcaDevices lists the devices paired with Orca, read from its registry.
+// The registry holds each device's token; only the fields above leave it.
+func (b *Broker) orcaDevices(_ context.Context, body []byte) (int, any) {
+	if err := decode(body, &struct{}{}); err != nil {
+		return badRequest(err)
+	}
+	home := b.OrcaHome
+	if home == "" && b.Agent != nil {
+		home = b.Agent.Home
+	}
+	if home == "" {
+		return fail(http.StatusInternalServerError, "no_agent_user", "there is no agent home to read Orca's devices from")
+	}
+	devices, err := readOrcaDevices(home)
+	if err != nil {
+		return fail(http.StatusBadGateway, "orca_devices_unreadable", "could not read Orca's paired devices: %v", err)
+	}
+	return http.StatusOK, map[string]any{"devices": devices}
+}
+
+// orcaDevicesMax bounds the registry read; a real one is a few KiB.
+const orcaDevicesMax = 4 << 20
+
+// readOrcaDevices reads the registry in home as Orca 1.4 writes it: a JSON
+// array of rows. It opens the file through home as an os.Root, because
+// agent owns both and root must not follow a link out of the home. A
+// missing file means no devices. Rows Orca would not count as a paired
+// device are left out: a link nobody used yet (a token, never seen) and a
+// browser's session-only key.
+func readOrcaDevices(home string) ([]orcaDevice, error) {
+	root, err := os.OpenRoot(home)
+	if err != nil {
+		return nil, err
+	}
+	defer root.Close()
+	f, err := root.Open(orcaDevicesFile)
+	if errors.Is(err, fs.ErrNotExist) {
+		return []orcaDevice{}, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+	raw, err := io.ReadAll(io.LimitReader(f, orcaDevicesMax+1))
+	if err != nil {
+		return nil, err
+	}
+	if len(raw) > orcaDevicesMax {
+		return nil, fmt.Errorf("%s is over %d bytes", orcaDevicesFile, orcaDevicesMax)
+	}
+	var rows []json.RawMessage
+	if err := json.Unmarshal(raw, &rows); err != nil {
+		return nil, fmt.Errorf("%s is not a JSON array: %w", orcaDevicesFile, err)
+	}
+	devices := []orcaDevice{}
+	for _, r := range rows {
+		var row struct {
+			DeviceID       string `json:"deviceId"`
+			Name           string `json:"name"`
+			Token          string `json:"token"`
+			Scope          string `json:"scope"`
+			PairedAt       int64  `json:"pairedAt"`
+			LastSeenAt     int64  `json:"lastSeenAt"`
+			CredentialKind string `json:"credentialKind"`
+			Ephemeral      bool   `json:"ephemeral"`
+		}
+		if json.Unmarshal(r, &row) != nil || row.DeviceID == "" || row.Ephemeral {
+			continue
+		}
+		if row.LastSeenAt == 0 && row.Token != "" && row.CredentialKind == "" {
+			continue
+		}
+		devices = append(devices, orcaDevice{ID: row.DeviceID, Name: row.Name, Scope: row.Scope,
+			PairedAt: msTime(row.PairedAt), LastSeenAt: msTime(row.LastSeenAt)})
+	}
+	return devices, nil
+}
+
+// msTime is a JavaScript timestamp in UTC; 0 is nil.
+func msTime(ms int64) *time.Time {
+	if ms <= 0 {
+		return nil
+	}
+	t := time.UnixMilli(ms).UTC()
+	return &t
 }
