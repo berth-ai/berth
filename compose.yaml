@@ -8,6 +8,9 @@ services:
     image: ghcr.io/berth-ai/berth:${BERTH_VERSION:-0.1.0}
     # build: .   # uncomment to build locally instead of pulling
     init: false # tini is PID 1 inside the image
+    # Orca's profile lock in the home volume records the host name; a fixed
+    # one lets a recreated container reclaim it.
+    hostname: berth
     restart: unless-stopped
     security_opt:
       - no-new-privileges:true
@@ -21,8 +24,12 @@ services:
       BERTH_HOST_PUID: ${PUID:-1000}
       BERTH_HOST_PGID: ${PGID:-1000}
       BERTH_HOST_WORKSPACES_DIR: ${WORKSPACES_DIR:-./workspaces}
+      BERTH_HOST_ORCA_PORT: ${ORCA_PORT:-6768}
     ports:
       - "${BIND_ADDRESS:-127.0.0.1}:${PANEL_PORT:-7690}:7690"
+      # Orca apps connect here directly, gated by per-device pairing. Nothing
+      # listens until frontends.orca.enabled is set.
+      - "${BIND_ADDRESS:-127.0.0.1}:${ORCA_PORT:-6768}:6768"
     volumes:
       - berth-home:/home/agent
       - berth-agents:/opt/agents

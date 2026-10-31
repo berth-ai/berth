@@ -68,13 +68,14 @@ class BuildHelperTest(unittest.TestCase):
     def test_write_build_info(self):
         lock = REPO / "agents/package-lock.json"
         out = self.tmp / "build-info.json"
-        r = sh(BUILD / "write-build-info.sh", out, "1.0.0", "abc", "arm64", "sha256:00", "1.7.7", "4.139.1", lock)
+        r = sh(BUILD / "write-build-info.sh", out, "1.0.0", "abc", "arm64", "sha256:00", "1.7.7", "4.139.1", lock, "1.4.245")
         self.assertEqual(r.returncode, 0, r.stderr)
         info = json.loads(out.read_text())
         self.assertEqual(info["seed_hash"], hashlib.sha256(lock.read_bytes()).hexdigest()[:12])
         self.assertEqual(info["arch"], "arm64")
+        self.assertEqual(info["orca_version"], "1.4.245")
         self.assertEqual(set(info), {"version", "commit", "arch", "base_digest", "ttyd_version",
-                                     "code_server_version", "seed_hash"})
+                                     "code_server_version", "orca_version", "seed_hash"})
 
 
 if __name__ == "__main__":

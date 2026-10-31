@@ -94,6 +94,10 @@ ARG TMUX_CONTINUUM_SHA256=311dddeebbf7b803cd19c339ab887784b715fd8ef206ec430028ca
 ARG TEA_VERSION=0.16.0
 ARG TEA_SHA256_AMD64=9c142c8a0b31485eea2387031c1c404f12b7141075eb4ffbd7ced49441590636
 ARG TEA_SHA256_ARM64=0e14a036322eeb1fc55e266acafeb8490e523ed99f9232034ae74861e2339879
+# Orca publishes no checksums; hash the release asset with sha256sum.
+# renovate: datasource=github-releases depName=stablyai/orca extractVersion=^v(?<version>.*)$
+ARG ORCA_VERSION=1.4.245
+ARG ORCA_SHA256_AMD64=54420e22d49dda9df66ed4e943b62844c955d4fd9d5c1059bf8f7702b760bc89
 
 SHELL ["/bin/bash", "-euo", "pipefail", "-c"]
 ENV DEBIAN_FRONTEND=noninteractive TZ=UTC
@@ -114,6 +118,16 @@ RUN apt-get update \
       libpango-1.0-0 libx11-6 libxcb1 libxcomposite1 libxdamage1 libxext6 libxfixes3 \
       libxkbcommon0 libxrandr2 fonts-liberation fonts-noto-color-emoji \
  && rm -rf /var/lib/apt/lists/*
+
+# Orca's headless server, amd64 only: the published image is amd64, and
+# skipping keeps local arm64 builds working. The .deb pulls Electron's
+# libraries, so it gets its own layer.
+RUN --mount=type=bind,source=build/fetch-artifact.sh,target=/usr/local/bin/fetch-artifact \
+    if [[ ${TARGETARCH} != amd64 ]]; then echo "skipping Orca on ${TARGETARCH}"; exit 0; fi \
+ && fetch-artifact "https://github.com/stablyai/orca/releases/download/v${ORCA_VERSION}/orca-ide_${ORCA_VERSION}_amd64.deb" "${ORCA_SHA256_AMD64}" /tmp/orca.deb \
+ && apt-get update \
+ && apt-get install -y --no-install-recommends /tmp/orca.deb \
+ && rm -rf /tmp/orca.deb /var/lib/apt/lists/*
 
 ENV LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8
 
@@ -171,18 +185,20 @@ ARG BERTH_VERSION=dev
 ARG BERTH_COMMIT=unknown
 ARG BERTH_REPO=berth-ai/berth
 RUN --mount=type=bind,source=build/write-build-info.sh,target=/usr/local/bin/write-build-info \
-    write-build-info /usr/share/berth/build-info.json "${BERTH_VERSION}" "${BERTH_COMMIT}" \
+    orca_version=none; if [[ ${TARGETARCH} == amd64 ]]; then orca_version=${ORCA_VERSION}; fi \
+ && write-build-info /usr/share/berth/build-info.json "${BERTH_VERSION}" "${BERTH_COMMIT}" \
       "${TARGETARCH}" "${UBUNTU_IMAGE#*@}" "${TTYD_VERSION}" "${CODE_SERVER_VERSION}" \
-      /usr/share/berth/agents/package-lock.json
+      /usr/share/berth/agents/package-lock.json "${orca_version}"
 
 ENV BERTH_REPO=${BERTH_REPO} \
     DISABLE_AUTOUPDATER=1 \
+    ORCA_TELEMETRY_DISABLED=1 \
     EDITOR=nvim \
     VISUAL=nvim \
     XDG_CONFIG_DIRS=/etc/berth/defaults/xdg:/etc/xdg \
     PATH=/var/lib/berth/bin:/opt/mise/wrappers:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 
-EXPOSE 7690
+EXPOSE 7690 6768
 HEALTHCHECK --interval=30s --timeout=10s --start-period=600s --start-interval=2s --retries=3 \
   CMD ["berth-healthcheck"]
 ENTRYPOINT ["tini", "--", "berth-entrypoint"]

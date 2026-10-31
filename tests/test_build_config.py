@@ -162,6 +162,17 @@ class DockerfileTest(unittest.TestCase):
             self.assertRegex(text, rf"ARG {name}_SHA256=[0-9a-f]{{64}}\n")
         self.assertNotRegex(text, r"\bcurl\s+-", "download only through fetch-artifact")
 
+    def test_orca_pinned_amd64_only(self):
+        text = read("Dockerfile")
+        self.assertRegex(text, r"# renovate: datasource=github-releases depName=stablyai/orca "
+                               r"extractVersion=\^v\(\?<version>\.\*\)\$\nARG ORCA_VERSION=\d+\.\d+\.\d+\n")
+        self.assertRegex(text, r"ARG ORCA_SHA256_AMD64=[0-9a-f]{64}\n")
+        self.assertNotIn("ORCA_SHA256_ARM64", text)
+        self.assertIn('fetch-artifact "https://github.com/stablyai/orca/releases/download/v${ORCA_VERSION}/'
+                      'orca-ide_${ORCA_VERSION}_amd64.deb" "${ORCA_SHA256_AMD64}"', text)
+        self.assertIn("apt-get install -y --no-install-recommends /tmp/orca.deb", text)
+        self.assertIn('echo "skipping Orca on ${TARGETARCH}"', text)
+
     def test_every_copy_source_is_in_the_build_context(self):
         # .dockerignore is an allowlist: a COPY source it does not re-include
         # fails only at image build time, with "not found".
@@ -187,7 +198,8 @@ class DockerfileTest(unittest.TestCase):
         self.assertIn("/usr/sbin:/usr/bin:/sbin:/bin", text)
         self.assertNotIn("VOLUME", text)
         self.assertIn("passwd", text)
-        self.assertIn("EXPOSE 7690\n", text)
+        self.assertIn("EXPOSE 7690 6768\n", text)
+        self.assertIn("ORCA_TELEMETRY_DISABLED=1", text)
         self.assertIn("useradd --system --gid berth-panel", text)
         self.assertIn("install -d -m 0755 /var/lib/berth", text)
 
@@ -204,14 +216,19 @@ class ComposeTest(unittest.TestCase):
         self.assertRegex(self.text, r"# renovate: datasource=docker depName=ghcr.io/berth-ai/berth\n\s+image: "
                                     r"ghcr\.io/berth-ai/berth:\$\{BERTH_VERSION:-\d+\.\d+\.\d+\}\n")
 
-    def test_only_the_panel_port(self):
-        ports = re.findall(r'^\s+- "(.*:7690)"$', self.text, re.M)
-        self.assertEqual(ports, ["${BIND_ADDRESS:-127.0.0.1}:${PANEL_PORT:-7690}:7690"])
-        self.assertEqual(len(re.findall(r"^\s+- \"", self.text, re.M)), 1)
+    def test_published_ports(self):
+        ports = re.findall(r'^\s+- "(.*:\d+)"$', self.text, re.M)
+        self.assertEqual(ports, ["${BIND_ADDRESS:-127.0.0.1}:${PANEL_PORT:-7690}:7690",
+                                 "${BIND_ADDRESS:-127.0.0.1}:${ORCA_PORT:-6768}:6768"])
+        self.assertEqual(len(re.findall(r"^\s+- \"", self.text, re.M)), 2)
+
+    def test_fixed_hostname(self):
+        self.assertRegex(self.text, r"(?m)^    hostname: berth$")
 
     def test_host_values_passed_through(self):
         for var, src in (("BIND_ADDRESS", "BIND_ADDRESS:-127.0.0.1"), ("PANEL_PORT", "PANEL_PORT:-7690"),
-                         ("PUID", "PUID:-1000"), ("PGID", "PGID:-1000"), ("WORKSPACES_DIR", "WORKSPACES_DIR:-./workspaces")):
+                         ("PUID", "PUID:-1000"), ("PGID", "PGID:-1000"), ("WORKSPACES_DIR", "WORKSPACES_DIR:-./workspaces"),
+                         ("ORCA_PORT", "ORCA_PORT:-6768")):
             self.assertIn(f"BERTH_HOST_{var}: ${{{src}}}", self.text)
         self.assertIn("PUID: ${PUID:-1000}", self.text)
 
@@ -224,7 +241,7 @@ class ComposeTest(unittest.TestCase):
     def test_env_example_is_optional(self):
         env = read(".env.example")
         self.assertNotRegex(env, r"(?m)^[A-Z_]+=", "every override is commented out")
-        for var in ("BERTH_VERSION", "BIND_ADDRESS", "PANEL_PORT", "PUID", "PGID", "WORKSPACES_DIR", "GITHUB_TOKEN"):
+        for var in ("BERTH_VERSION", "BIND_ADDRESS", "PANEL_PORT", "PUID", "PGID", "WORKSPACES_DIR", "GITHUB_TOKEN", "ORCA_PORT"):
             self.assertRegex(env, rf"(?m)^# {var}=", var)
         for gone in ("PANEL_CREDENTIAL", "WEB_TERMINAL_CREDENTIAL", "CODE_SERVER_PASSWORD"):
             self.assertNotIn(gone, env)
@@ -359,7 +376,8 @@ class RenovateTest(unittest.TestCase):
         pattern = re.compile(dockerfile["matchStrings"][0].replace("(?<", "(?P<"))
         found = {m.group("depName") for m in pattern.finditer(read("Dockerfile"))}
         self.assertEqual(found, {"jdx/mise", "tsl0922/ttyd", "coder/code-server",
-                                 "tmux-plugins/tmux-resurrect", "tmux-plugins/tmux-continuum", "gitea/tea"})
+                                 "tmux-plugins/tmux-resurrect", "tmux-plugins/tmux-continuum", "gitea/tea",
+                                 "stablyai/orca"})
 
 
 
