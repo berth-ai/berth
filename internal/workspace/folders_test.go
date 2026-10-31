@@ -71,14 +71,17 @@ func TestProbeReadOnly(t *testing.T) {
 
 func TestCandidates(t *testing.T) {
 	root := t.TempDir()
-	mkdir(t, root, "a/b", "a/c", "a-b", "repo/.git", "repo/sub", "ws/x", "holder/x", "holder/y", ".hidden/z", ".berth-tmp-1/q")
+	mkdir(t, root, "a/b", "a/c", "a-b", "repo/.git", "repo/sub", "ws/x", "holder/x", "holder/y", ".hidden/z", ".berth-tmp-1/q",
+		"git.example.com/acme/api/.git", "git.example.com/acme/api/src", "git.example.com/acme/deep/er")
 	os.WriteFile(filepath.Join(root, "file.txt"), nil, 0o644)
 	os.Symlink(filepath.Join(root, "a"), filepath.Join(root, "link"))
 	got, err := Candidates(root, []string{"ws", "holder/x"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := []Candidate{{"a", false}, {"a-b", false}, {"a/b", false}, {"a/c", false}, {"holder/y", false}, {"repo", true}}
+	want := []Candidate{{"a", false}, {"a-b", false}, {"a/b", false}, {"a/c", false},
+		{"git.example.com", false}, {"git.example.com/acme", false}, {"git.example.com/acme/api", true}, {"git.example.com/acme/deep", false},
+		{"holder/y", false}, {"repo", true}}
 	if !slices.Equal(got, want) {
 		t.Errorf("Candidates = %+v\nwant         %+v", got, want)
 	}

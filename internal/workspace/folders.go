@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io/fs"
 	"os"
+	"path"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -20,7 +21,9 @@ const (
 	// RemoveTimeout bounds deleting one workspace folder.
 	RemoveTimeout = 10 * time.Minute
 	maxLeft       = 50
-	wOK           = 0x2 // access(2) W_OK
+	// maxCandidateDepth is how deep Candidates looks: host/owner/repo.
+	maxCandidateDepth = 3
+	wOK               = 0x2 // access(2) W_OK
 )
 
 // Probe is what agent can do in a folder.
@@ -79,43 +82,39 @@ type Candidate struct {
 	Git  bool   `json:"git"`
 }
 
-// Candidates lists the folders at depth 1 and 2 under root that could
-// become workspaces: none of taken, not inside or holding one of them, not
-// hidden (temporary clones included), not a symlink and not inside a git
-// repository. The list is sorted and capped at MaxCandidates.
+// Candidates lists the folders at depth 1 to 3 under root that could
+// become workspaces, so host/owner/repo clones can be adopted again: none
+// of taken, not inside or holding one of them, not hidden (temporary
+// clones included), not a symlink and not inside a git repository. The
+// list is sorted and capped at MaxCandidates.
 func Candidates(root string, taken []string) ([]Candidate, error) {
-	top, err := os.ReadDir(root)
-	if err != nil {
-		return nil, err
-	}
 	free := func(p string) bool {
 		return !slices.ContainsFunc(taken, func(t string) bool { return config.PathsOverlap(p, t) })
 	}
 	out := []Candidate{}
-	for _, e := range top {
-		if !e.IsDir() || strings.HasPrefix(e.Name(), ".") {
-			continue
-		}
-		p, dir := e.Name(), filepath.Join(root, e.Name())
-		git := isGit(dir)
-		if free(p) {
-			out = append(out, Candidate{Path: p, Git: git})
-		}
-		if git || slices.Contains(taken, p) {
-			continue
-		}
-		subs, err := os.ReadDir(dir)
+	var walk func(rel string, depth int) error
+	walk = func(rel string, depth int) error {
+		entries, err := os.ReadDir(filepath.Join(root, filepath.FromSlash(rel)))
 		if err != nil {
-			continue
+			return err
 		}
-		for _, s := range subs {
-			if !s.IsDir() || strings.HasPrefix(s.Name(), ".") {
+		for _, e := range entries {
+			if !e.IsDir() || strings.HasPrefix(e.Name(), ".") {
 				continue
 			}
-			if sp := p + "/" + s.Name(); free(sp) {
-				out = append(out, Candidate{Path: sp, Git: isGit(filepath.Join(dir, s.Name()))})
+			p := path.Join(rel, e.Name())
+			git := isGit(filepath.Join(root, filepath.FromSlash(p)))
+			if free(p) {
+				out = append(out, Candidate{Path: p, Git: git})
+			}
+			if depth < maxCandidateDepth && !git && !slices.Contains(taken, p) {
+				_ = walk(p, depth+1) // an unreadable subfolder is skipped
 			}
 		}
+		return nil
+	}
+	if err := walk("", 1); err != nil {
+		return nil, err
 	}
 	slices.SortFunc(out, func(a, b Candidate) int { return strings.Compare(a.Path, b.Path) })
 	return out[:min(len(out), MaxCandidates)], nil
