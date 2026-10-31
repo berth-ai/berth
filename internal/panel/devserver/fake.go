@@ -15,6 +15,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/berth-ai/berth/internal/pairqr"
 )
 
 const (
@@ -86,7 +88,8 @@ func newFake(mode string) *fake {
 func defaultConfig(rev int) map[string]any {
 	return map[string]any{
 		"schema": 6, "revision": rev,
-		"frontends":  map[string]any{"terminal": map[string]any{"enabled": true}, "ide": map[string]any{"enabled": false}},
+		"frontends": map[string]any{"terminal": map[string]any{"enabled": true}, "ide": map[string]any{"enabled": false},
+			"orca": map[string]any{"enabled": false, "pairing_address": ""}},
 		"agents":     map[string]any{"ref": "main", "disabled": []any{}, "added": []any{}, "keep": 2, "boot_timeout": 600, "mcp_timeout": 300},
 		"runtime":    map[string]any{"tz": "Etc/UTC"},
 		"mcp":        map[string]any{"servers": map[string]any{}, "available": map[string]any{}, "workspaces": map[string]any{}},
@@ -300,6 +303,8 @@ func (f *fake) verb(name string, in map[string]any) (int, any) {
 	case "login.logout":
 		delete(f.signedIn, str(in["agent"])+" "+str(in["method"]))
 		return http.StatusOK, f.loginStatus(str(in["agent"]))
+	case "orca.pair":
+		return f.orcaPair(in)
 	case "agents.registry":
 		return http.StatusOK, map[string]any{"agents": f.registry()}
 	case "agents.add":
@@ -491,6 +496,9 @@ func (f *fake) status() map[string]any {
 		services = append(services, map[string]any{"name": "code_server", "state": "failed", "pid": 0, "started_at": nil, "restarts": 3,
 			"log": []string{"code-server: listen tcp 127.0.0.1:8080: bind: address already in use"}})
 	}
+	if f.mode == "normal" && enabled(f.cfg, "orca") {
+		services = append(services, map[string]any{"name": "orca", "state": "running", "pid": 104, "started_at": ago(time.Hour), "restarts": 0, "log": []string{}})
+	}
 	current := map[string]any{"hash": "3f9c2a7d1e0b4c65a8f7e2d9c1b0a3f4e5d6c7b8a9f0e1d2c3b4a5f6e7d8c9b0",
 		"source":   map[string]any{"origin": "image", "fetched_at": ago(72 * time.Hour)},
 		"packages": map[string]string{"@example/agent-cli": "2.1.0", "@example/other-cli": "1.4.0", "@example/mcp-files": "0.6.2"}, "installed_at": ago(72 * time.Hour)}
@@ -504,7 +512,7 @@ func (f *fake) status() map[string]any {
 			"build": map[string]string{"version": "0.0.0-dev", "commit": "dev", "arch": "arm64"}},
 		"packages": f.packages(),
 		"check":    f.check(),
-		"host":     map[string]string{"bind_address": "127.0.0.1", "panel_port": "7690", "puid": "1000", "pgid": "1000", "workspaces_dir": "./workspaces"},
+		"host":     map[string]string{"bind_address": "127.0.0.1", "panel_port": "7690", "orca_port": "6768", "puid": "1000", "pgid": "1000", "workspaces_dir": "./workspaces"},
 	}
 	if f.mode == "recovery" {
 		st["config_error"] = "config.json: invalid character '}' looking for beginning of object key string"
@@ -1419,4 +1427,30 @@ func (f *fake) instructionsReport(id string) map[string]any {
 		f.links[id] = map[string]bool{}
 	}
 	return map[string]any{"path": "/workspaces/" + f.workspacePath(id), "links": links, "skipped": skipped}
+}
+
+// orcaPair answers like the broker on a host bound to loopback: a fixed
+// link and a warning that only this host can pair.
+func (f *fake) orcaPair(in map[string]any) (int, any) {
+	scope := str(in["scope"])
+	if scope != "desktop" && scope != "mobile" {
+		return http.StatusBadRequest, apiError("invalid_request", "scope must be desktop or mobile")
+	}
+	if f.mode != "normal" || !enabled(f.cfg, "orca") {
+		return http.StatusConflict, apiError("orca_disabled", "Orca is off; turn on frontends.orca.enabled first")
+	}
+	addr := "127.0.0.1:6768"
+	if a := str(f.cfg["frontends"].(map[string]any)["orca"].(map[string]any)["pairing_address"]); a != "" {
+		addr = a
+	}
+	const url = "orca://pair?code=dev"
+	rows, err := pairqr.Matrix(url)
+	if err != nil {
+		return http.StatusInternalServerError, apiError("qr_failed", err.Error())
+	}
+	out := map[string]any{"url": url, "scope": scope, "address": addr, "qr": rows}
+	if addr == "127.0.0.1:6768" {
+		out["warning"] = "Orca is published on 127.0.0.1, so only this host can pair; to pair other devices, set BIND_ADDRESS to a private address or frontends.orca.pairing_address to one they reach"
+	}
+	return http.StatusOK, out
 }

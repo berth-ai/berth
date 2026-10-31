@@ -53,6 +53,7 @@ type fakeServices struct {
 	reconciles [][]supervisor.Spec
 	restarts   []string
 	status     []supervisor.Status
+	onRestart  func(name string) // runs after the restart is recorded
 }
 
 func (f *fakeServices) Reconcile(specs []supervisor.Spec) supervisor.Changes {
@@ -64,8 +65,12 @@ func (f *fakeServices) Reconcile(specs []supervisor.Spec) supervisor.Changes {
 
 func (f *fakeServices) Restart(name string) error {
 	f.mu.Lock()
-	defer f.mu.Unlock()
 	f.restarts = append(f.restarts, name)
+	hook := f.onRestart
+	f.mu.Unlock()
+	if hook != nil {
+		hook(name)
+	}
 	return nil
 }
 

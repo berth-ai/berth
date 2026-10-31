@@ -75,6 +75,7 @@ func (b *Broker) verbs() map[string]verbFunc {
 		"login.input":                   b.loginInput,
 		"login.cancel":                  b.loginCancel,
 		"login.logout":                  b.loginLogout,
+		"orca.pair":                     b.orcaPair,
 	}
 }
 

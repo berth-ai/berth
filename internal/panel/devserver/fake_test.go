@@ -554,3 +554,29 @@ func TestFakeInstructionsAndEnv(t *testing.T) {
 		t.Errorf("restart = %d", code)
 	}
 }
+
+func TestFakeOrcaPair(t *testing.T) {
+	c, _ := newClient(t, "normal")
+	c.call("POST", "/api/login", `{"user":"dev","password":"dev password"}`)
+	if code, out := c.call("POST", "/api/verbs/orca.pair", `{"scope":"mobile"}`); code != 409 || out["error"].(map[string]any)["code"] != "orca_disabled" {
+		t.Fatalf("off = %d %v", code, out)
+	}
+	if code, out := c.call("POST", "/api/verbs/config.apply", `{"base_revision":1,"patch":{"frontends":{"orca":{"enabled":true}}}}`); code != 200 {
+		t.Fatalf("enable = %d %v", code, out)
+	}
+	code, out := c.call("POST", "/api/verbs/orca.pair", `{"scope":"mobile"}`)
+	if qr, _ := out["qr"].([]any); code != 200 || out["url"] != "orca://pair?code=dev" || out["scope"] != "mobile" || len(qr) < 21 || out["warning"] == nil {
+		t.Fatalf("pair = %d %v", code, out)
+	}
+	if code, _ := c.call("POST", "/api/verbs/orca.pair", `{"scope":"tablet"}`); code != 400 {
+		t.Errorf("bad scope = %d", code)
+	}
+	_, st := c.call("GET", "/api/status", "")
+	var names []string
+	for _, s := range st["services"].([]any) {
+		names = append(names, s.(map[string]any)["name"].(string))
+	}
+	if !slices.Contains(names, "orca") {
+		t.Errorf("services = %v", names)
+	}
+}
