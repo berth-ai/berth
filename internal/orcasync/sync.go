@@ -25,7 +25,7 @@ import (
 const Timeout = 5 * time.Minute
 
 // ErrUnavailable means Orca did not answer within the wait.
-var ErrUnavailable = errors.New("Orca is not answering")
+var ErrUnavailable = errors.New("no answer from Orca")
 
 // Syncer converges once.
 type Syncer struct {
@@ -148,7 +148,7 @@ func (s Syncer) setups(ctx context.Context) (map[string]string, error) {
 			return local, nil
 		}
 		if time.Now().After(deadline) {
-			return nil, fmt.Errorf("%w after %s: %v", ErrUnavailable, s.Wait, err)
+			return nil, fmt.Errorf("%w after %s: %w", ErrUnavailable, s.Wait, err)
 		}
 		select {
 		case <-ctx.Done():
