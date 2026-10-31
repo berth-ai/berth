@@ -143,15 +143,19 @@ func TestFakeTeaLogins(t *testing.T) {
 	if got := tea(); got["signed_in"] != false || got["logins"] != nil {
 		t.Errorf("before = %v", got)
 	}
-	for body, want := range map[string]int{
-		`{"forge":"tea","url":"https://gitea.com/","token":"t"}`:    200,
-		`{"forge":"tea","url":"https://codeberg.org","token":"t"}`:  200,
-		`{"forge":"tea","url":"https://gitea.com","token":"t"}`:     409,
-		`{"forge":"tea","url":"http://example.org","token":"t"}`:    400,
-		`{"forge":"tea","url":"https://example.org","token":"bad"}`: 502,
+	// In order: the second gitea.com sign-in conflicts with the first.
+	for _, tc := range []struct {
+		body string
+		want int
+	}{
+		{`{"forge":"tea","url":"https://gitea.com/","token":"t"}`, 200},
+		{`{"forge":"tea","url":"https://codeberg.org","token":"t"}`, 200},
+		{`{"forge":"tea","url":"https://gitea.com","token":"t"}`, 409},
+		{`{"forge":"tea","url":"http://example.org","token":"t"}`, 400},
+		{`{"forge":"tea","url":"https://example.org","token":"bad"}`, 502},
 	} {
-		if code, out := c.call("POST", "/api/verbs/forge.token", body); code != want {
-			t.Errorf("%s = %d %v, want %d", body, code, out, want)
+		if code, out := c.call("POST", "/api/verbs/forge.token", tc.body); code != tc.want {
+			t.Errorf("%s = %d %v, want %d", tc.body, code, out, tc.want)
 		}
 	}
 	if got := tea(); got["signed_in"] != true || len(got["logins"].([]any)) != 2 {
