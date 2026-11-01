@@ -169,11 +169,11 @@ func summarize(name string, src *locksource.UsageSource, dirs locksource.HomeDir
 		}
 		total := r.tokens.total()
 		a.Days[day].Total += total
-		a.Week.Tokens.add(r.tokens)
+		a.Week.add(r.tokens)
 		a.Week.Messages++
 		weekSessions[r.session] = true
 		if !at.Before(todayStart) {
-			a.Today.Tokens.add(r.tokens)
+			a.Today.add(r.tokens)
 			a.Today.Messages++
 			todaySessions[r.session] = true
 		}
@@ -182,7 +182,7 @@ func summarize(name string, src *locksource.UsageSource, dirs locksource.HomeDir
 			md = &Model{Model: r.model}
 			models[r.model] = md
 		}
-		md.Tokens.add(r.tokens)
+		md.add(r.tokens)
 		md.Messages++
 		if a.LastActive == nil || at.After(*a.LastActive) {
 			t := at
