@@ -158,14 +158,7 @@ func (b *Broker) gc(_ context.Context, body []byte) (int, any) {
 }
 
 func (b *Broker) startJob(verb string, args []string) (int, any) {
-	job, err := b.Jobs.Start(verb, agentsGroup, args, berthWork(b.Exec, args))
-	if errors.Is(err, ErrJobRunning) {
-		return fail(http.StatusConflict, "job_running", "%v", err)
-	}
-	if err != nil {
-		return fail(http.StatusInternalServerError, "internal", "%v", err)
-	}
-	return http.StatusAccepted, map[string]any{"job": job}
+	return b.jobAccepted(verb, agentsGroup, args, berthWork(b.Exec, args))
 }
 
 // berthWork runs berth args as a job whose result is berth's --json output.

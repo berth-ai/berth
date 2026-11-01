@@ -1,10 +1,12 @@
 package broker
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
 	"regexp"
@@ -138,7 +140,42 @@ func (b *Broker) forgeLogin(_ context.Context, body []byte) (int, any) {
 	if timeout == 0 {
 		timeout = defaultLoginTimeout
 	}
-	return b.homeJob("forge.login", forgeGroup, spec.path, spec.login, timeout)
+	login := b.homeWork(spec.path, spec.login, timeout)
+	work := func(ctx context.Context, out io.Writer) (int, json.RawMessage, error) {
+		code, res, err := login(ctx, out)
+		if err != nil || code != 0 {
+			return code, res, err
+		}
+		if err := b.setCredentialHelper(ctx, spec); err != nil {
+			fmt.Fprintf(out, "Signed in, but git could not be set up to use %s: %v\n", spec.path, err)
+			return 1, nil, nil
+		}
+		return 0, res, nil
+	}
+	return b.jobAccepted("forge.login", forgeGroup, append([]string{spec.path}, spec.login...), work)
+}
+
+// setCredentialHelper makes the CLI git's only credential helper for its
+// host, so HTTPS clones of private repositories fetch and push. The helper
+// names the CLI as Home does, not its install path, so it survives upgrades;
+// gh auth setup-git and glab's --setup-git-credential-helper would not.
+func (b *Broker) setCredentialHelper(ctx context.Context, spec forgeSpec) error {
+	key := "credential.https://" + spec.host + ".helper"
+	steps := [][]string{
+		{"config", "--global", "--unset-all", key},
+		{"config", "--global", "--add", key, ""}, // drops helpers set elsewhere
+		{"config", "--global", "--add", key, "!" + spec.path + " auth git-credential"},
+	}
+	for i, args := range steps {
+		_, stderr, exit, err := b.agentRun(ctx, b.syncTimeout(), b.Home.Git, args...)
+		if err != nil {
+			return err
+		}
+		if exit != 0 && !(i == 0 && exit == 5) { // 5: no helper was set
+			return fmt.Errorf("git %s: %s", strings.Join(args[:2], " "), cmp.Or(strings.TrimSpace(stderr), fmt.Sprintf("exit %d", exit)))
+		}
+	}
+	return nil
 }
 
 // forgeToken signs tea in to a server with an access token. The token reaches

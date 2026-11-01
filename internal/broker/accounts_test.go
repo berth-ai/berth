@@ -190,7 +190,7 @@ func TestForgeLogout(t *testing.T) {
 
 func TestForgeLogin(t *testing.T) {
 	tb := newTestBroker(t)
-	fakeHome(t, tb)
+	dir := fakeHome(t, tb)
 	os.WriteFile(tb.b.Home.GH, []byte("#!/bin/sh\necho \"$*\" > \"$0.args\"\necho '! First copy your one-time code: 1A2B-3C4D'\necho 'Open this URL to continue in your web browser: https://github.com/login/device'\n"), 0o755)
 	code, out := tb.verb(t, "forge.login", `{"forge":"gh"}`)
 	if code != 202 || out["job"].(map[string]any)["group"] != "forge" {
@@ -206,10 +206,48 @@ func TestForgeLogin(t *testing.T) {
 	if strings.TrimSpace(string(args)) != "auth login --hostname github.com --web --git-protocol https --skip-ssh-key" {
 		t.Errorf("gh args = %q", args)
 	}
+	if job, _ := tb.b.Jobs.Get(1); job.State != StateSucceeded {
+		t.Errorf("state = %s", job.State)
+	}
+	key := "credential.https://github.com.helper"
+	want := "config --global --unset-all " + key + "\n" +
+		"config --global --add " + key + " \n" +
+		"config --global --add " + key + " !" + tb.b.Home.GH + " auth git-credential\n"
+	if got := callLog(dir, "git"); got != want {
+		t.Errorf("git ran %q, want %q", got, want)
+	}
 	for _, body := range []string{`{"forge":"bitbucket"}`, `{"forge":"-gh"}`, `{}`} {
 		if code, _ := tb.verb(t, "forge.login", body); code != 400 {
 			t.Errorf("%s = %d", body, code)
 		}
+	}
+}
+
+func TestForgeLoginSetsUpGitOnlyOnSuccess(t *testing.T) {
+	tb := newTestBroker(t)
+	dir := fakeHome(t, tb)
+	os.WriteFile(tb.b.Home.Glab, []byte("#!/bin/sh\nexit 1\n"), 0o755)
+	tb.verb(t, "forge.login", `{"forge":"glab"}`)
+	tb.waitIdle(t)
+	if job, _ := tb.b.Jobs.Get(1); job.State != StateFailed {
+		t.Errorf("failed login: state = %s", job.State)
+	}
+	if got := callLog(dir, "git"); got != "" {
+		t.Errorf("git ran after a failed login: %q", got)
+	}
+
+	// git config exits 5 when there was no helper to unset; any other
+	// failure fails the job.
+	os.WriteFile(tb.b.Home.Glab, []byte("#!/bin/sh\n"), 0o755)
+	os.WriteFile(tb.b.Home.Git, []byte("#!/bin/sh\ncase $3 in --unset-all) exit 5 ;; esac\necho 'could not lock config file' >&2\nexit 255\n"), 0o755)
+	tb.verb(t, "forge.login", `{"forge":"glab"}`)
+	tb.waitIdle(t)
+	job, _ := tb.b.Jobs.Get(2)
+	if job.State != StateFailed {
+		t.Errorf("git failure: state = %s", job.State)
+	}
+	if log := job.Log; !strings.Contains(log, "could not lock config file") {
+		t.Errorf("log = %q", log)
 	}
 }
 

@@ -178,8 +178,12 @@ func (b *Broker) presetInstall(_ context.Context, body []byte) (int, any) {
 
 // homeJob starts an agent-side job; its Args show the command for the log.
 func (b *Broker) homeJob(verb, group, path string, args []string, timeout time.Duration) (int, any) {
-	shown := append([]string{path}, args...)
-	job, err := b.Jobs.Start(verb, group, shown, b.homeWork(path, args, timeout))
+	return b.jobAccepted(verb, group, append([]string{path}, args...), b.homeWork(path, args, timeout))
+}
+
+// jobAccepted starts work as a job and answers the verb with it.
+func (b *Broker) jobAccepted(verb, group string, shown []string, work Work) (int, any) {
+	job, err := b.Jobs.Start(verb, group, shown, work)
 	if errors.Is(err, ErrJobRunning) {
 		return fail(http.StatusConflict, "job_running", "%v", err)
 	}
