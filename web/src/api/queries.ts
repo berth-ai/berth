@@ -135,6 +135,10 @@ export function useUsage() {
   });
 }
 
+export function refreshUsage() {
+  return queryClient.invalidateQueries({ queryKey: keys.usage });
+}
+
 export function useAgentRegistry() {
   return useQuery({
     queryKey: keys.agentRegistry,

@@ -6,6 +6,7 @@ import {
   refreshAgentRegistry,
   refreshLogins,
   refreshStatus,
+  refreshUsage,
   useAgentRegistry,
   useConfig,
   useLogins,
@@ -33,7 +34,8 @@ import { InlineAlert } from "@/components/inline-alert";
 import { LoadingRows } from "@/components/loading";
 import { CardGrid, Page, PageHeader } from "@/components/page";
 import { PanelCard } from "@/components/panel-card";
-import { StatusBadge } from "@/components/status-badge";
+import { StatusBadge, StatusIcon } from "@/components/status-badge";
+import { UsageSpark } from "@/components/usage-bars";
 import { Button, buttonVariants } from "@/components/ui/button";
 import {
   Dialog,
@@ -53,7 +55,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { errorText, fieldErrors } from "@/lib/errors";
-import { describeSource, short, when } from "@/lib/format";
+import { describeSource, short, tokens, when } from "@/lib/format";
 import { notify, type Tone } from "@/lib/notify";
 import { useTitle } from "@/lib/use-title";
 import { AddAgentDialog } from "./agent-dialog";
@@ -61,9 +63,10 @@ import {
   addedToast,
   agentSlug,
   allAdded,
+  cardStatus,
   checkResult,
   signInSummary,
-  usageFacts,
+  usageLine,
   versionLabel,
 } from "./agents-logic";
 
@@ -130,6 +133,7 @@ export function AgentsPage() {
             notify(addedToast(name));
             void refreshStatus();
             void refreshLogins();
+            void refreshUsage();
             void refreshAgentRegistry();
           }}
         />
@@ -138,7 +142,9 @@ export function AgentsPage() {
   );
 }
 
-/** AgentCard is an agent at a glance: sign-in, version and usage. */
+/** AgentCard is an agent at a glance: one status icon, the version, and
+ * its tokens today and this week. The details sit behind the icon and on
+ * the agent's page. */
 function AgentCard({
   p,
   slug,
@@ -156,19 +162,30 @@ function AgentCard({
   usage: AgentUsage | undefined;
   usageLoading: boolean;
 }) {
-  const s = signInSummary(p.enabled, logins?.agents?.[p.package]?.methods, loginsLoading);
-  const badge =
-    s.state === "loading" ? (
-      <Skeleton className="h-4 w-20" />
-    ) : s.state === "none" || (loginsFailed && s.state !== "off") ? null : (
-      <StatusBadge state={s.state} detail={s.account} />
-    );
+  const st = cardStatus(
+    p,
+    signInSummary(p.enabled, logins?.agents?.[p.package]?.methods, loginsLoading),
+    loginsFailed,
+    usage?.error,
+  );
   return (
     <PanelCard
       title={p.name}
       icon={<BrandIcon slug={p.icon} name={p.name} id={p.package} />}
-      badge={badge}
-      footer={
+      badge={
+        st ? (
+          <StatusIcon state={st.state} label={st.label}>
+            {st.details.map((d) => (
+              <p key={d} className="m-0 text-xs wrap-anywhere text-fg-secondary">
+                {d}
+              </p>
+            ))}
+          </StatusIcon>
+        ) : (
+          <Skeleton className="size-7" />
+        )
+      }
+      actions={
         <Link
           to="/agents/$id"
           params={{ id: slug }}
@@ -176,16 +193,45 @@ function AgentCard({
           aria-label={`Manage ${p.name}`}
         >
           Manage
+          <ChevronRight aria-hidden />
         </Link>
       }
     >
-      <span className="flex flex-wrap items-center gap-2 font-mono text-xs break-all text-fg-muted">
+      <span className="font-mono text-xs break-all text-fg-muted">
         {p.package} {p.version}
-        {p.origin === "added" ? <StatusBadge small state="added" /> : null}
       </span>
-      {p.error ? <span className="text-xs text-warn">{p.error}</span> : null}
-      {usageLoading ? <LoadingRows n={3} /> : usage ? <Facts rows={usageFacts(usage)} /> : null}
+      {usageLoading ? <LoadingRows n={2} /> : usage ? <CardUsage usage={usage} /> : null}
     </PanelCard>
+  );
+}
+
+function CardUsage({ usage }: { usage: AgentUsage }) {
+  if (!usage.tracked)
+    return <p className="m-0 text-xs text-fg-muted">Usage isn't tracked for this agent.</p>;
+  return (
+    <div className="flex flex-col gap-1.5">
+      <div className="flex items-end justify-between gap-4">
+        <dl className="m-0 flex gap-6">
+          {(
+            [
+              ["Today", usage.today.total],
+              ["Last 7 days", usage.week.total],
+            ] as const
+          ).map(([label, n]) => (
+            <div key={label} className="flex flex-col">
+              <dt className="text-xs text-fg-muted">{label}</dt>
+              <dd className="m-0 text-md font-semibold tabular-nums">
+                {tokens(n)} <span className="text-xs font-normal text-fg-muted">tokens</span>
+              </dd>
+            </div>
+          ))}
+        </dl>
+        {usage.week.total ? (
+          <UsageSpark days={usage.days ?? []} className="max-[360px]:hidden" />
+        ) : null}
+      </div>
+      <p className="m-0 text-xs text-fg-muted tabular-nums">{usageLine(usage)}</p>
+    </div>
   );
 }
 

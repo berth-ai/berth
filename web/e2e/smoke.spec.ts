@@ -432,7 +432,12 @@ test("agents sign in with a pasted code and a device code, and sign out", async 
   await page.goto(`${NORMAL}/#/agents`);
   const card = (name: string) =>
     page.locator("[data-slot=card]").filter({ has: page.getByText(name, { exact: true }) });
-  await expect(card("Example Agent").getByText("Signed out")).toBeVisible();
+  // The status is an icon; its words are its name and open on demand.
+  const status = card("Example Agent").getByRole("button", { name: "Signed out" });
+  await expect(status).toBeVisible();
+  await status.click();
+  await expect(page.getByText("Sign in from Manage.")).toBeVisible();
+  await page.keyboard.press("Escape");
 
   await page.getByRole("link", { name: "Manage Example Agent" }).click();
   await expect(h1(page, "Example Agent")).toBeVisible();
@@ -463,8 +468,10 @@ test("agents sign in with a pasted code and a device code, and sign out", async 
 
   // The cards sum the sign-ins: Other Agent is signed in through one method.
   await page.goto(`${NORMAL}/#/agents`);
-  await expect(card("Other Agent").getByText("you@example.org")).toBeVisible();
-  await expect(card("Example Agent").getByText("you@example.org")).toBeVisible();
+  for (const name of ["Other Agent", "Example Agent"])
+    await expect(
+      card(name).getByRole("button", { name: "Signed in as you@example.org" }),
+    ).toBeVisible();
 
   await page.goto(`${NORMAL}/#/agents/agent-cli`);
   await page.getByRole("button", { name: "Sign Example Agent out of Example account" }).click();
@@ -480,9 +487,11 @@ test("agents show their usage on the cards and on their page", async ({ page }) 
   await page.goto(`${NORMAL}/#/agents`);
   const card = (name: string) =>
     page.locator("[data-slot=card]").filter({ has: page.getByText(name, { exact: true }) });
-  await expect(card("Example Agent").getByText("1.4M tokens · 3 sessions")).toBeVisible();
-  await expect(card("Example Agent").getByText("8.3M tokens · 14 sessions")).toBeVisible();
-  await expect(card("Example Agent").getByText("12 min ago")).toBeVisible();
+  await expect(card("Example Agent").getByRole("definition").first()).toHaveText("1.4M tokens");
+  await expect(card("Example Agent").getByRole("definition").last()).toHaveText("8.3M tokens");
+  await expect(
+    card("Example Agent").getByText("14 sessions this week · active 12 min ago"),
+  ).toBeVisible();
   await expect(card("Other Agent").getByText("Not used in the last 7 days")).toBeVisible();
 
   await page.getByRole("link", { name: "Manage Example Agent" }).click();
@@ -556,8 +565,10 @@ test("a registry agent is added, gets a sign-in and is removed", async ({ page }
   const card = page
     .locator("[data-slot=card]")
     .filter({ has: page.getByText("GitHub Copilot CLI", { exact: true }) });
-  await expect(card.getByText("Added")).toBeVisible();
-  await expect(card.getByText("Not tracked for this agent")).toBeVisible();
+  await card.getByRole("button", { name: "Signed out" }).click();
+  await expect(page.getByText("Added from the registry; Manage can remove it.")).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(card.getByText("Usage isn't tracked for this agent.")).toBeVisible();
   await expect(page.getByRole("button", { name: "Add agent" })).toBeHidden();
 
   await page.getByRole("link", { name: "Manage GitHub Copilot CLI" }).click();

@@ -6,7 +6,7 @@ import type {
   RegistryAgent,
   UpdateCheck,
 } from "@/api/types";
-import { short, since, tokens } from "@/lib/format";
+import { short, since } from "@/lib/format";
 import type { Tone } from "@/lib/notify";
 
 export function checkResult(c: UpdateCheck): { tone: Tone; text: string } {
@@ -94,16 +94,55 @@ export function signInSummary(
   return { state: "signed_out" };
 }
 
-/** usageFacts are an agent card's usage lines. */
-export function usageFacts(u: AgentUsage | undefined, now = Date.now()): [string, string][] {
-  if (!u) return [];
-  if (!u.tracked) return [["Usage", "Not tracked for this agent"]];
-  const sessions = (n: number) => `${n} ${n === 1 ? "session" : "sessions"}`;
-  return [
-    ["Today", `${tokens(u.today.total)} tokens · ${sessions(u.today.sessions)}`],
-    ["Last 7 days", `${tokens(u.week.total)} tokens · ${sessions(u.week.sessions)}`],
-    ["Last active", lastActive(u.last_active, now)],
-  ];
+/** usageLine is the line under an agent card's token counts. */
+export function usageLine(u: AgentUsage, now = Date.now()): string {
+  if (!u.last_active) return "Not used in the last 7 days";
+  const n = u.week.sessions;
+  return `${n} ${n === 1 ? "session" : "sessions"} this week · active ${lastActive(u.last_active, now)}`;
+}
+
+/** CardStatus is an agent card's status icon: its state, the words for
+ * it, and the details its popover lists. */
+export interface CardStatus {
+  state: string;
+  label: string;
+  details: string[];
+}
+
+/** cardStatus sums an agent into one icon. A problem (an install error, or
+ * session files Berth could not read) wins over the sign-in, which then
+ * moves into the details. Null while the sign-in is loading. */
+export function cardStatus(
+  p: Pick<AgentPackage, "error" | "origin">,
+  s: SignInSummary,
+  loginsFailed: boolean,
+  usageError = "",
+): CardStatus | null {
+  if (s.state === "loading") return null;
+  let st: CardStatus;
+  if (s.state === "off")
+    st = { state: "off", label: "Off", details: ["Switch it on from Manage."] };
+  else if (loginsFailed || s.state === "probe_failed")
+    st = {
+      state: "probe_failed",
+      label: "Sign-in unknown",
+      details: ["Berth couldn't check the sign-in."],
+    };
+  else if (s.state === "signed_in")
+    st = {
+      state: "signed_in",
+      label: s.account ? `Signed in as ${s.account}` : "Signed in",
+      details: [],
+    };
+  else if (s.state === "signed_out")
+    st = { state: "signed_out", label: "Signed out", details: ["Sign in from Manage."] };
+  else st = { state: "on", label: "Ready", details: ["Needs no sign-in."] };
+  const problems = [p.error, usageError && `Usage: ${usageError}`].filter((x): x is string => !!x);
+  if (problems.length) {
+    st = { state: "attention", label: "Needs attention", details: [...problems, st.label] };
+  }
+  if (p.origin === "added") st.details.push("Added from the registry; Manage can remove it.");
+  return st;
 }
 
 /** lastActive is "12 min ago", or "Not used in the last 7 days". */

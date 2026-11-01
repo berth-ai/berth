@@ -67,3 +67,32 @@ export function UsageBars({
     </div>
   );
 }
+
+/** UsageSpark is UsageBars at a glance for a card: the same bars, small,
+ * without labels or focus. It is decoration; the card states the numbers. */
+export function UsageSpark({
+  days,
+  className,
+}: {
+  days: { date: string; total: number }[];
+  className?: string;
+}) {
+  const max = Math.max(1, ...days.map((d) => d.total));
+  return (
+    <span
+      aria-hidden
+      className={cn(
+        "grid h-8 w-24 grid-flow-col auto-cols-fr items-end gap-1 border-b border-line",
+        className,
+      )}
+    >
+      {days.map((d) => (
+        <span
+          key={d.date}
+          className="block rounded-t-[2px] bg-primary"
+          style={{ height: d.total ? `max(2px, ${(d.total / max) * 100}%)` : 0 }}
+        />
+      ))}
+    </span>
+  );
+}

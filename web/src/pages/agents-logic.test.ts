@@ -11,8 +11,9 @@ import {
   keyBadge,
   lastActive,
   removeBody,
+  cardStatus,
   signInSummary,
-  usageFacts,
+  usageLine,
   versionLabel,
 } from "./agents-logic";
 
@@ -165,24 +166,44 @@ describe("added agents", () => {
 
   it("words an agent's usage for its card", () => {
     const now = Date.parse("2026-11-01T15:00:00Z");
-    expect(usageFacts(undefined)).toEqual([]);
-    expect(usageFacts(usage({ tracked: false }))).toEqual([
-      ["Usage", "Not tracked for this agent"],
-    ]);
+    expect(usageLine(usage({}), now)).toBe("Not used in the last 7 days");
     expect(
-      usageFacts(
-        usage({
-          today: period(1_368_850, 1),
-          week: period(8_347_775, 14),
-          last_active: "2026-11-01T14:48:00Z",
-        }),
-        now,
-      ),
-    ).toEqual([
-      ["Today", "1.4M tokens · 1 session"],
-      ["Last 7 days", "8.3M tokens · 14 sessions"],
-      ["Last active", "12 min ago"],
-    ]);
+      usageLine(usage({ week: period(8_347_775, 14), last_active: "2026-11-01T14:48:00Z" }), now),
+    ).toBe("14 sessions this week · active 12 min ago");
+    expect(
+      usageLine(usage({ week: period(10, 1), last_active: "2026-11-01T14:48:00Z" }), now),
+    ).toBe("1 session this week · active 12 min ago");
     expect(lastActive(null)).toBe("Not used in the last 7 days");
+  });
+
+  it("sums an agent into one status icon", () => {
+    const p = { origin: "locked" as const };
+    expect(cardStatus(p, { state: "loading" }, false)).toBeNull();
+    expect(cardStatus(p, { state: "signed_in", account: "me@example.com" }, false)).toEqual({
+      state: "signed_in",
+      label: "Signed in as me@example.com",
+      details: [],
+    });
+    expect(cardStatus(p, { state: "signed_out" }, false)?.state).toBe("signed_out");
+    expect(cardStatus(p, { state: "none" }, false)?.label).toBe("Ready");
+    expect(cardStatus(p, { state: "signed_out" }, true)?.state).toBe("probe_failed");
+    expect(cardStatus(p, { state: "off" }, true)?.state).toBe("off");
+    expect(
+      cardStatus(
+        { origin: "added", error: "broken install" },
+        { state: "signed_in" },
+        false,
+        "EACCES",
+      ),
+    ).toEqual({
+      state: "attention",
+      label: "Needs attention",
+      details: [
+        "broken install",
+        "Usage: EACCES",
+        "Signed in",
+        "Added from the registry; Manage can remove it.",
+      ],
+    });
   });
 });

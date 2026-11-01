@@ -1,6 +1,6 @@
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
-import { StatusBadge } from "./status-badge";
+import { StatusBadge, StatusIcon } from "./status-badge";
 
 describe("StatusBadge", () => {
   it.each([
@@ -20,5 +20,19 @@ describe("StatusBadge", () => {
   it("adds the detail in muted text", () => {
     render(<StatusBadge state="restarting" detail="3 restarts" />);
     expect(screen.getByText("3 restarts")).toBeTruthy();
+  });
+});
+
+describe("StatusIcon", () => {
+  it("names the status in words and shows details on demand", async () => {
+    render(
+      <StatusIcon state="signed_in" label="Signed in as me@example.com">
+        <p>more</p>
+      </StatusIcon>,
+    );
+    const trigger = screen.getByRole("button", { name: "Signed in as me@example.com" });
+    expect(screen.queryByText("more")).toBeNull();
+    fireEvent.click(trigger);
+    expect(await screen.findByText("more")).toBeTruthy();
   });
 });

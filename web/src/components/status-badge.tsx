@@ -10,7 +10,9 @@ import {
   RefreshCw,
   type LucideIcon,
 } from "lucide-react";
+import type { ReactNode } from "react";
 import { Badge } from "@/components/ui/badge";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
 
 type BadgeTone = "ok" | "warn" | "info" | "bad" | "idle";
@@ -36,6 +38,7 @@ const STATES: Record<string, [BadgeTone, LucideIcon, string]> = {
   restarting: ["warn", RefreshCw, "Restarting"],
   outdated: ["warn", CircleArrowUp, "Update available"],
   update: ["warn", CircleArrowUp, "Update available"],
+  attention: ["warn", CircleAlert, "Needs attention"],
   clash: ["warn", CircleAlert, "Clashes with a built-in server"],
   probe_failed: ["warn", CircleAlert, "Unknown"],
   in_progress: ["info", RefreshCw, "Running"],
@@ -78,5 +81,53 @@ export function StatusBadge({
       {word}
       {detail ? <span className="font-normal text-fg-muted">{detail}</span> : null}
     </Badge>
+  );
+}
+
+const TEXT: Record<BadgeTone, string> = {
+  ok: "text-ok",
+  warn: "text-warn",
+  info: "text-info",
+  bad: "text-bad",
+  idle: "text-idle",
+};
+
+/** StatusIcon is a status as its icon alone, for dense cards. Its label is
+ * the accessible name; hovering, focusing or pressing it opens a popover
+ * with the label and the details. */
+export function StatusIcon({
+  state,
+  label,
+  children,
+}: {
+  state: string;
+  /** label says the status in words; defaults to the state's word. */
+  label?: string;
+  children?: ReactNode;
+}) {
+  const [tone, Icon, word] = STATES[state] ?? STATES.unknown;
+  const text = label || word;
+  return (
+    <Popover>
+      <PopoverTrigger
+        openOnHover
+        delay={150}
+        aria-label={text}
+        className={cn(
+          "relative inline-flex size-7 shrink-0 items-center justify-center rounded-sm outline-offset-2 hover:bg-surface-sunken focus-visible:outline-2 focus-visible:outline-(--focus)",
+          "before:absolute before:-inset-1.5 before:content-['']",
+          TEXT[tone],
+        )}
+      >
+        <Icon aria-hidden className="size-4" strokeWidth={2} />
+      </PopoverTrigger>
+      <PopoverContent align="start" className="w-auto max-w-72 gap-1.5 p-3 text-sm">
+        <p className={cn("m-0 flex items-center gap-1.5 font-semibold", TEXT[tone])}>
+          <Icon aria-hidden className="size-3.5 shrink-0" strokeWidth={2} />
+          {text}
+        </p>
+        {children}
+      </PopoverContent>
+    </Popover>
   );
 }
