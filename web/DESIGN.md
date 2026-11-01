@@ -152,7 +152,7 @@ anything.
 Harbor styling, per component:
 
 - **Common.** Controls are `--control-h` (32 px) tall, `--radius-m`, `font:
-inherit`, weight 500. Compact controls inside cards and table rows are
+  inherit`, weight 500. Compact controls inside cards and table rows are
   `--control-h-s` (28 px) at `--text-xs`. Hover changes background only, never
   size or border width. Every interactive element gets
   `:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px }`.
