@@ -1,11 +1,11 @@
 # syntax=docker/dockerfile:1.19
 
 # renovate: datasource=docker depName=ubuntu
-ARG UBUNTU_IMAGE=ubuntu:24.04@sha256:008173c23f95b170204355c12626cb5a965d779a7e1283b09e9cffbb1bf33ca3
+ARG UBUNTU_IMAGE=ubuntu:24.04@sha256:fe81560990fae86dc4743202b2cb4d3df98d0bcf949173cecef15ce1127ef852
 # renovate: datasource=docker depName=golang
-ARG GO_IMAGE=golang:1.27.1-bookworm@sha256:69a7b9788769bec032d238959b61854e9ae87f57be9029ec04e9885fabf99195
+ARG GO_IMAGE=golang:1.27.3-bookworm@sha256:d9b6a1beb9474adc2a1ce842573639b44b2a0dd49b6669f51d3821baf9ec37c9
 # renovate: datasource=docker depName=node
-ARG NODE_IMAGE=node:24.21.0-bookworm-slim@sha256:0e0ff40c39bc087845bfb27465a0df4ea419520094bc35842ff83dd8cbe6f9b6
+ARG NODE_IMAGE=node:24.22.2-bookworm-slim@sha256:c86ecead9e55a5210ac1727de38a4ca840bf03dcaf34dc9749addbf383b1920c
 
 # --------------------------------------------------------------- web-build
 # The panel UI. Its output is architecture independent, so it builds once on
@@ -41,9 +41,9 @@ RUN CGO_ENABLED=0 GOOS=linux GOARCH=${TARGETARCH} go build -trimpath \
 FROM ${UBUNTU_IMAGE} AS tools
 ARG TARGETARCH
 # renovate: datasource=github-releases depName=jdx/mise extractVersion=^v(?<version>.*)$
-ARG MISE_VERSION=2026.9.17
-ARG MISE_SHA256_AMD64=63049bc35fb9065e8dc35ac8b25fdae53e9bd6f1885a843aedeba398e046a1ee
-ARG MISE_SHA256_ARM64=ab125726a93a2967e30290ade713a960b9fe8eed0ae0e2fc0976e327b08af70d
+ARG MISE_VERSION=2026.10.25
+ARG MISE_SHA256_AMD64=5d362ecc578dc7c146679b841dda949d6472cbf86ff5635db7afdca1b6b3fd87
+ARG MISE_SHA256_ARM64=bb09e88b13164ca90691a5cc042726d079f0ba26ab55527344cb173c2e83c998
 SHELL ["/bin/bash", "-euo", "pipefail", "-c"]
 RUN apt-get update \
  && apt-get install -y --no-install-recommends ca-certificates curl git xz-utils bzip2 unzip \
@@ -80,9 +80,9 @@ ARG TTYD_VERSION=1.7.7
 ARG TTYD_SHA256_AMD64=8a217c968aba172e0dbf3f34447218dc015bc4d5e59bf51db2f2cd12b7be4f55
 ARG TTYD_SHA256_ARM64=b38acadd89d1d396a0f5649aa52c539edbad07f4bc7348b27b4f4b7219dd4165
 # renovate: datasource=github-releases depName=coder/code-server extractVersion=^v(?<version>.*)$
-ARG CODE_SERVER_VERSION=4.139.1
-ARG CODE_SERVER_SHA256_AMD64=53029be6c5781b7bca49b815fcc9a2a3fc111813ad8c9965b2c0f0d2985a0674
-ARG CODE_SERVER_SHA256_ARM64=0edb4b60d9c4744b2dd14b0911e3c2e6dd8c6f3c13bd58bda23ae744e59e7df1
+ARG CODE_SERVER_VERSION=4.144.0
+ARG CODE_SERVER_SHA256_AMD64=710f749c40a0f3d0ab3be09c0de65314e5c2907cc50646f5fbc0f24c0e8fba2d
+ARG CODE_SERVER_SHA256_ARM64=4404c784f541bd56a2a8d6e2a9474ed0b4e37bc8502aa3a247898ca933434482
 # renovate: datasource=github-tags depName=tmux-plugins/tmux-resurrect
 ARG TMUX_RESURRECT_VERSION=v4.0.0
 ARG TMUX_RESURRECT_SHA256=f8559d86d81be769054d63b28a268229a09bc6cc311f0623656c3090ec781b76
