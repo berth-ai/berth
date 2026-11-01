@@ -3,12 +3,12 @@
   "private": true,
   "description": "Agent CLIs and MCP servers installed by berth update. Exact versions only.",
   "dependencies": {
-    "@anthropic-ai/claude-code": "2.1.285",
-    "@google/gemini-cli": "0.62.0",
-    "@openai/codex": "0.159.2",
-    "@playwright/mcp": "0.0.83",
-    "@upstash/context7-mcp": "4.1.1",
-    "opencode-ai": "1.18.33"
+    "@anthropic-ai/claude-code": "2.1.316",
+    "@google/gemini-cli": "0.66.0",
+    "@openai/codex": "0.166.0",
+    "@playwright/mcp": "0.0.84",
+    "@upstash/context7-mcp": "4.4.4",
+    "opencode-ai": "1.19.5"
   },
   "berth": {
     "@anthropic-ai/claude-code": { "kind": "agent", "name": "Claude Code", "keys": ["ANTHROPIC_API_KEY"] },

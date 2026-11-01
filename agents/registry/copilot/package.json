@@ -2,7 +2,7 @@
   "name": "berth-registry-copilot",
   "private": true,
   "dependencies": {
-    "@github/copilot": "1.0.91"
+    "@github/copilot": "1.0.105"
   },
   "berth": {
     "@github/copilot": {
