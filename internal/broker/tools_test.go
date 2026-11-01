@@ -112,7 +112,7 @@ func TestToolJobs(t *testing.T) {
 	for _, c := range []struct{ verb, body, want string }{
 		{"tools.add", `{"tool":"jq","version":"1.8.2"}`, "use -g jq@1.8.2"},
 		{"tools.remove", `{"tool":"jq"}`, "unuse -g jq"},
-		{"preset.install", `{"preset":"go"}`, "use -g go@1.27.1"},
+		{"preset.install", `{"preset":"go"}`, "use -g go@1.27.3"},
 	} {
 		code, out := tb.verb(t, c.verb, c.body)
 		if code != 202 || out["job"].(map[string]any)["group"] != "tools" {

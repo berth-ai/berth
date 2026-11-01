@@ -5,4 +5,4 @@ name = "Rust"
 description = "Rust toolchain with cargo"
 
 [tools]
-rust = "1.99.0"
+rust = "1.99.1"
