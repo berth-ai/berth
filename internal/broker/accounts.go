@@ -171,7 +171,7 @@ func (b *Broker) setCredentialHelper(ctx context.Context, spec forgeSpec) error 
 		if err != nil {
 			return err
 		}
-		if exit != 0 && !(i == 0 && exit == 5) { // 5: no helper was set
+		if exit != 0 && (i != 0 || exit != 5) { // 5: no helper was set
 			return fmt.Errorf("git %s: %s", strings.Join(args[:2], " "), cmp.Or(strings.TrimSpace(stderr), fmt.Sprintf("exit %d", exit)))
 		}
 	}

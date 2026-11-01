@@ -192,10 +192,10 @@ func summarize(name string, src *locksource.UsageSource, dirs locksource.HomeDir
 	if err != nil && !errors.Is(err, fs.ErrNotExist) {
 		a.Error = err.Error()
 	}
-	a.Week.Total, a.Week.Sessions = a.Week.Tokens.total(), len(weekSessions)
-	a.Today.Total, a.Today.Sessions = a.Today.Tokens.total(), len(todaySessions)
+	a.Week.Total, a.Week.Sessions = a.Week.total(), len(weekSessions)
+	a.Today.Total, a.Today.Sessions = a.Today.total(), len(todaySessions)
 	for _, md := range models {
-		md.Total = md.Tokens.total()
+		md.Total = md.total()
 		a.Models = append(a.Models, *md)
 	}
 	slices.SortFunc(a.Models, func(x, y Model) int {
