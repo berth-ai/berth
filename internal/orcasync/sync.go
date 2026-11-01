@@ -47,10 +47,27 @@ type Result struct {
 	Failed  map[string]string `json:"failed"` // Orca refused the change
 }
 
-// state is the record of folders Berth added to Orca.
+// state is the record of folders Berth added to Orca, and how the last run
+// went.
 type state struct {
-	Schema int      `json:"schema"`
-	Added  []string `json:"added"` // absolute folders, sorted
+	Schema   int               `json:"schema"`
+	Added    []string          `json:"added"`            // absolute folders, sorted
+	Failed   map[string]string `json:"failed,omitempty"` // folder → why the last run could not add it
+	SyncedAt *time.Time        `json:"synced_at,omitempty"`
+}
+
+// Project is one workspace as Orca sees it.
+type Project struct {
+	Path   string `json:"path"`
+	InOrca bool   `json:"in_orca"`
+	Error  string `json:"error,omitempty"` // why the last run could not add it
+}
+
+// Status is each workspace, by id, as Orca sees it, and when the last run
+// ended; SyncedAt is nil before the first.
+type Status struct {
+	Workspaces map[string]Project `json:"workspaces"`
+	SyncedAt   *time.Time         `json:"synced_at"`
 }
 
 // setup is the part of an Orca project host setup the sync reads.
@@ -120,8 +137,38 @@ func (s Syncer) Run(ctx context.Context) (Result, error) {
 		delete(added, p)
 		res.Removed = append(res.Removed, p)
 	}
-	st.Added = sortedKeys(added)
+	now := time.Now().UTC()
+	st.Added, st.Failed, st.SyncedAt = sortedKeys(added), res.Failed, &now
 	return res, writeState(s.State, st)
+}
+
+// Status reports whether Orca has each workspace folder, with the error
+// the last run hit adding one it does not. It changes nothing.
+func (s Syncer) Status(ctx context.Context) (Status, error) {
+	out := Status{Workspaces: map[string]Project{}}
+	pub, err := config.ReadWorkspacesFile(s.Workspaces)
+	if err != nil {
+		return out, err
+	}
+	st, err := readState(s.State)
+	if err != nil {
+		return out, err
+	}
+	local, err := s.setups(ctx)
+	if err != nil {
+		return out, err
+	}
+	out.SyncedAt = st.SyncedAt
+	for id, w := range pub {
+		p := filepath.Clean(w.Path)
+		_, in := local[p]
+		pr := Project{Path: p, InOrca: in}
+		if !in {
+			pr.Error = st.Failed[p]
+		}
+		out.Workspaces[id] = pr
+	}
+	return out, nil
 }
 
 // setups maps each folder set up on this machine to its setup id, waiting

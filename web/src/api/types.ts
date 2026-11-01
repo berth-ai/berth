@@ -443,6 +443,22 @@ export interface OrcaPair {
   qr: string[];
 }
 
+/** OrcaProject is one workspace as Orca sees it, from orca.status. error
+ * is why the last sync could not add a folder Orca does not have. */
+export interface OrcaProject {
+  path: string;
+  in_orca: boolean;
+  error?: string;
+}
+
+/** OrcaStatus is orca.status: each workspace by id, when the last sync
+ * ended (null before the first) and whether one runs. */
+export interface OrcaStatus {
+  workspaces: Record<string, OrcaProject>;
+  synced_at: string | null;
+  syncing: boolean;
+}
+
 /** OrcaDevice is one Orca app paired with this Berth, from orca.devices.
  * last_seen_at is null until the app first connects. */
 export interface OrcaDevice {

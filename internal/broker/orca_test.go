@@ -472,3 +472,68 @@ func TestOrcaSyncSkipsOrcaOff(t *testing.T) {
 		t.Errorf("ran %d times with Orca off", n)
 	}
 }
+
+// orcaStatusBroker is a test broker with Orca on, whose berth prints the
+// report given, or Orca's unavailable error for an empty one.
+func orcaStatusBroker(t *testing.T, report string) *testBroker {
+	t.Helper()
+	tb, _ := orcaSyncBroker(t)
+	script := "#!/bin/sh\nprintf '%s' '" + report + "'\n"
+	if report == "" {
+		script = "#!/bin/sh\nprintf '{\"error\":{\"code\":\"orca_unavailable\",\"step\":\"orca\",\"message\":\"no answer from Orca\"},\"schema\":1}'\nexit 1\n"
+	}
+	p := filepath.Join(t.TempDir(), "berth-fake")
+	if err := os.WriteFile(p, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	tb.b.Home = HomeCommands{Berth: p}
+	if code, out := tb.verb(t, "config.apply", `{"base_revision":0,"patch":{"frontends":{"orca":{"enabled":true}}}}`); code != http.StatusOK {
+		t.Fatalf("enable: %d %v", code, out)
+	}
+	return tb
+}
+
+func TestOrcaStatus(t *testing.T) {
+	tb := orcaStatusBroker(t, `{"schema":1,"synced_at":null,"workspaces":{"api":{"path":"/ws/acme/api","in_orca":true}}}`)
+	code, out := tb.verb(t, "orca.status", "")
+	if code != http.StatusOK {
+		t.Fatalf("%d %v", code, out)
+	}
+	raw, _ := json.Marshal(out)
+	want := `{"synced_at":null,"syncing":false,"workspaces":{"api":{"in_orca":true,"path":"/ws/acme/api"}}}`
+	if string(raw) != want {
+		t.Errorf("got  %s\nwant %s", raw, want)
+	}
+}
+
+func TestOrcaStatusUnavailable(t *testing.T) {
+	tb := orcaStatusBroker(t, "")
+	if code, out := tb.verb(t, "orca.status", ""); code != http.StatusBadGateway || errCode(out) != "orca_unavailable" {
+		t.Errorf("%d %v", code, out)
+	}
+}
+
+func TestOrcaStatusAndSyncNeedOrca(t *testing.T) {
+	tb, ran := orcaSyncBroker(t)
+	for _, verb := range []string{"orca.status", "orca.sync"} {
+		if code, out := tb.verb(t, verb, ""); code != http.StatusConflict || errCode(out) != "orca_disabled" {
+			t.Errorf("%s: %d %v", verb, code, out)
+		}
+	}
+	if n := orcaSyncRuns(t, tb, ran); n != 0 {
+		t.Errorf("ran %d times with Orca off", n)
+	}
+}
+
+func TestOrcaSyncNow(t *testing.T) {
+	tb, ran := orcaSyncBroker(t)
+	if code, out := tb.verb(t, "config.apply", `{"base_revision":0,"patch":{"frontends":{"orca":{"enabled":true}}}}`); code != http.StatusOK {
+		t.Fatalf("enable: %d %v", code, out)
+	}
+	if code, out := tb.verb(t, "orca.sync", ""); code != http.StatusOK {
+		t.Fatalf("%d %v", code, out)
+	}
+	if n := orcaSyncRuns(t, tb, ran); n != 1 {
+		t.Errorf("ran %d times", n)
+	}
+}

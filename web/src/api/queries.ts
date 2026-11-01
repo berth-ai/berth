@@ -9,6 +9,7 @@ import type {
   Job,
   LoginStatus,
   OrcaDevice,
+  OrcaStatus,
   RegistryAgent,
   Session,
   Status,
@@ -36,6 +37,7 @@ export const keys = {
   workspaceStatus: ["workspace-status"],
   candidates: ["workspace-candidates"],
   orcaDevices: ["orca-devices"],
+  orcaStatus: ["orca-status"],
 } as const;
 
 export function useSession() {
@@ -195,6 +197,22 @@ export function useOrcaDevices(enabled: boolean) {
     enabled,
     refetchInterval: 5000,
   });
+}
+
+/** useOrcaStatus polls which workspaces Orca has: often while a sync runs,
+ * rarely otherwise, as each poll asks Orca. */
+export function useOrcaStatus(enabled: boolean) {
+  return useQuery({
+    queryKey: keys.orcaStatus,
+    queryFn: () => verb<OrcaStatus>("orca.status"),
+    enabled,
+    refetchInterval: (q) => (q.state.data?.syncing ? 2000 : 30000),
+  });
+}
+
+/** refreshOrcaStatus reloads the Orca status now, after Sync now. */
+export function refreshOrcaStatus(): Promise<void> {
+  return queryClient.invalidateQueries({ queryKey: keys.orcaStatus });
 }
 
 /** refreshOrcaDevices reloads the paired devices now, after a pairing. */

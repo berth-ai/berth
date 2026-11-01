@@ -247,3 +247,33 @@ func TestOrcaSyncOrcaDown(t *testing.T) {
 		t.Errorf("exit %d: %s", code, out)
 	}
 }
+
+func TestOrcaStatus(t *testing.T) {
+	cfg, calls := orcaSyncConfig(t)
+	out, errOut, code := run(t, cfg, "orca", "status", "--json")
+	if code != 0 {
+		t.Fatalf("exit %d: %s", code, errOut)
+	}
+	var res struct {
+		Workspaces map[string]struct {
+			Path   string `json:"path"`
+			InOrca bool   `json:"in_orca"`
+		} `json:"workspaces"`
+	}
+	if err := json.Unmarshal([]byte(out), &res); err != nil || res.Workspaces["proj"].InOrca || filepath.Base(res.Workspaces["proj"].Path) != "proj" {
+		t.Fatalf("%v %s", err, out)
+	}
+	if raw, _ := os.ReadFile(calls); strings.Contains(string(raw), "repo add") {
+		t.Errorf("status changed Orca:\n%s", raw)
+	}
+	golden(t, "orca_status", strings.ReplaceAll(out, res.Workspaces["proj"].Path, "/workspaces/proj"))
+}
+
+func TestOrcaStatusDoesNotWait(t *testing.T) {
+	cfg, _ := orcaSyncConfig(t)
+	cfg.OrcaIDE = filepath.Join(t.TempDir(), "missing")
+	cfg.OrcaWait = time.Hour
+	if out, _, code := run(t, cfg, "orca", "status", "--json"); code == 0 || !strings.Contains(out, `"orca_unavailable"`) {
+		t.Errorf("exit %d: %s", code, out)
+	}
+}

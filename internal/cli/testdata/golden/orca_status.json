@@ -1,0 +1,10 @@
+{
+  "schema": 1,
+  "synced_at": null,
+  "workspaces": {
+    "proj": {
+      "path": "/workspaces/proj",
+      "in_orca": false
+    }
+  }
+}

@@ -59,6 +59,58 @@ func (b *Broker) startOrcaSync() {
 	}
 }
 
+// orcaSyncNow runs the Orca projects converger now, as the panel asks
+// after a project was removed in Orca. A run already going runs once more.
+func (b *Broker) orcaSyncNow(_ context.Context, body []byte) (int, any) {
+	if err := decode(body, &struct{}{}); err != nil {
+		return badRequest(err)
+	}
+	if !b.orcaDesired() {
+		return fail(http.StatusConflict, "orca_disabled", "Orca is off; turn on frontends.orca.enabled first")
+	}
+	b.startOrcaSync()
+	return http.StatusOK, map[string]any{"syncing": b.orcaSyncing()}
+}
+
+// orcaSyncing reports whether an Orca sync job runs.
+func (b *Broker) orcaSyncing() bool {
+	return slices.ContainsFunc(b.Jobs.List(), func(j Job) bool { return j.Verb == "orca.sync" && j.State == StateRunning })
+}
+
+// orcaStatusTimeout bounds berth orca status, which asks Orca once.
+const orcaStatusTimeout = 45 * time.Second
+
+// orcaStatus reports, through berth orca status as agent, whether Orca has
+// each workspace, and whether a sync runs.
+func (b *Broker) orcaStatus(ctx context.Context, body []byte) (int, any) {
+	if err := decode(body, &struct{}{}); err != nil {
+		return badRequest(err)
+	}
+	if !b.orcaDesired() {
+		return fail(http.StatusConflict, "orca_disabled", "Orca is off; turn on frontends.orca.enabled first")
+	}
+	syncing := b.orcaSyncing()
+	args := []string{"orca", "status", "--json"}
+	stdout, stderr, code, err := b.agentRun(ctx, orcaStatusTimeout, b.Home.Berth, args...)
+	if err != nil {
+		return fail(http.StatusInternalServerError, "status_failed", "berth orca status failed: %v %s", err, strings.TrimSpace(stderr))
+	}
+	if code != 0 {
+		fe := cliError([]byte(stdout), args)
+		if fe.Code == "orca_unavailable" {
+			return fail(http.StatusBadGateway, fe.Code, "%s", fe.Message)
+		}
+		return fail(http.StatusInternalServerError, fe.Code, "%s", fe.Message)
+	}
+	var out map[string]any
+	if err := json.Unmarshal([]byte(stdout), &out); err != nil {
+		return fail(http.StatusInternalServerError, "status_failed", "berth orca status printed no report: %v", err)
+	}
+	delete(out, "schema")
+	out["syncing"] = syncing
+	return http.StatusOK, out
+}
+
 // orcaDesired reports whether the orca service should run.
 func (b *Broker) orcaDesired() bool {
 	b.mu.Lock()

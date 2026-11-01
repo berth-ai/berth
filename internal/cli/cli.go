@@ -168,7 +168,7 @@ var commands = map[string]command{
 	"config":     {"config get|set K=V...|revert|reset|export|import FILE|reset-login [--json]  read or change settings", runConfig},
 	"login":      {"login status|logout AGENT METHOD [--json]  the agents' own sign-ins", runLogin},
 	"health":     {"health [--json]                      report whether every enabled service runs", runHealth},
-	"orca":       {"orca pair [--mobile]|devices|sync [--json]  pair an Orca app, list paired ones, or add workspaces to Orca", runOrca},
+	"orca":       {"orca pair [--mobile]|devices|sync|status [--json]  pair an Orca app, list paired ones, add workspaces to Orca, or show which it has", runOrca},
 	"version":    {"version                              print the berth version", runVersion},
 	"supervise":  {"supervise                            run the container's services (the entrypoint starts it)", runSupervise},
 	"mcp":        {"mcp sync                             register MCP servers with the agents (internal)", runMCP},

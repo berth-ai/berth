@@ -77,6 +77,8 @@ func (b *Broker) verbs() map[string]verbFunc {
 		"login.logout":                  b.loginLogout,
 		"orca.pair":                     b.orcaPair,
 		"orca.devices":                  b.orcaDevices,
+		"orca.status":                   b.orcaStatus,
+		"orca.sync":                     b.orcaSyncNow,
 	}
 }
 

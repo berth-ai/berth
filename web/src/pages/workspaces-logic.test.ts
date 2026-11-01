@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
-import type { AgentPackage, Config, WorkspaceState } from "@/api/types";
+import type { AgentPackage, Config, OrcaStatus, WorkspaceState } from "@/api/types";
 import {
   defaultPath,
+  orcaView,
   defaultId,
   deriveId,
   folderError,
@@ -144,5 +145,38 @@ describe("terminal", () => {
     expect(parseWorkspaceTab("mcp")).toBe("mcp");
     expect(parseWorkspaceTab("bogus")).toBe("overview");
     expect(parseWorkspaceTab(undefined)).toBe("overview");
+  });
+});
+
+describe("orcaView", () => {
+  const now = Date.parse("2026-10-31T12:00:00Z");
+  const st = (
+    api: { in_orca: boolean; error?: string } | undefined,
+    syncing = false,
+  ): OrcaStatus => ({
+    workspaces: api ? { api: { path: "/workspaces/acme/api", ...api } } : {},
+    synced_at: "2026-10-31T11:55:00Z",
+    syncing,
+  });
+
+  it("reads each state", () => {
+    expect(orcaView(undefined, "api").state).toBe("checking");
+    expect(orcaView(st({ in_orca: false }, true), "api").state).toBe("syncing");
+    expect(orcaView(st({ in_orca: true }), "api", now)).toEqual({
+      state: "in_orca",
+      detail: "synced 5 min ago",
+      error: "",
+      canSync: false,
+    });
+    expect(orcaView(st({ in_orca: false, error: "nope" }), "api")).toMatchObject({
+      state: "orca_failed",
+      error: "nope",
+      canSync: true,
+    });
+    expect(orcaView(st({ in_orca: false }), "api")).toMatchObject({
+      state: "not_in_orca",
+      canSync: true,
+    });
+    expect(orcaView(st(undefined), "api").state).toBe("not_in_orca");
   });
 });

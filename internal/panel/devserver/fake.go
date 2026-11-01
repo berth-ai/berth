@@ -67,6 +67,8 @@ type fake struct {
 	overwritten map[string]bool              // "<ws>/<source>/<name>" after Overwrite
 	files       map[string]map[string]string // workspace id → instruction file → content
 	links       map[string]map[string]bool   // workspace id → files Berth linked to AGENTS.md
+	inOrca      map[string]bool              // workspace ids in Orca; a new one waits for Sync now
+	orcaSynced  *time.Time
 }
 
 func newFake(mode string) *fake {
@@ -76,6 +78,7 @@ func newFake(mode string) *fake {
 		overwritten: map[string]bool{},
 		files:       map[string]map[string]string{},
 		links:       map[string]map[string]bool{},
+		inOrca:      map[string]bool{},
 		mode:        mode, user: devUser, started: time.Now().UTC(), step: 400 * time.Millisecond,
 		cfg:    defaultConfig(1),
 		keys:   map[string]bool{"EXAMPLE_API_KEY": false, "COPILOT_GITHUB_TOKEN": false},
@@ -307,6 +310,19 @@ func (f *fake) verb(name string, in map[string]any) (int, any) {
 		return f.orcaPair(in)
 	case "orca.devices":
 		return http.StatusOK, f.orcaDevices()
+	case "orca.status", "orca.sync":
+		if f.mode != "normal" || !enabled(f.cfg, "orca") {
+			return http.StatusConflict, apiError("orca_disabled", "Orca is off; turn on frontends.orca.enabled first")
+		}
+		if name == "orca.sync" {
+			now := time.Now().UTC()
+			f.orcaSynced = &now
+			for id := range f.cfg["workspaces"].(map[string]any) {
+				f.inOrca[id] = true
+			}
+			return http.StatusOK, map[string]any{"syncing": false}
+		}
+		return http.StatusOK, f.orcaStatus()
 	case "agents.registry":
 		return http.StatusOK, map[string]any{"agents": f.registry()}
 	case "agents.add":
@@ -1437,6 +1453,16 @@ func (f *fake) orcaDevices() map[string]any {
 		{"id": "d1", "name": "Work laptop", "scope": "desktop", "paired_at": f.started.Add(-72 * time.Hour), "last_seen_at": f.started.Add(-5 * time.Minute)},
 		{"id": "d2", "name": "Mobile 10/30/2026", "scope": "mobile", "paired_at": f.started.Add(-26 * time.Hour), "last_seen_at": nil},
 	}}
+}
+
+// orcaStatus says which workspaces Orca has: the ones the last Sync now
+// found, so a workspace added since shows as not in Orca.
+func (f *fake) orcaStatus() map[string]any {
+	ws := map[string]any{}
+	for id := range f.cfg["workspaces"].(map[string]any) {
+		ws[id] = map[string]any{"path": "/workspaces/" + f.workspacePath(id), "in_orca": f.inOrca[id]}
+	}
+	return map[string]any{"workspaces": ws, "synced_at": f.orcaSynced, "syncing": false}
 }
 
 // orcaPair answers like the broker on a host bound to loopback: a fixed

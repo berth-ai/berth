@@ -47,7 +47,8 @@ type orcaDevice struct {
 // runOrca is berth orca: pair prints a link that pairs an Orca app with
 // this Berth, restarting Orca once while its terminal sessions survive;
 // devices lists the apps already paired; sync, run as agent, adds the
-// workspaces to Orca and removes the ones Berth added that are gone.
+// workspaces to Orca and removes the ones Berth added that are gone;
+// status, run as agent, says which workspaces Orca has.
 func runOrca(ctx context.Context, a *app, args []string) error {
 	fs := newFlagSet("orca")
 	jsonOut := fs.Bool("json", false, "print JSON")
@@ -59,16 +60,16 @@ func runOrca(ctx context.Context, a *app, args []string) error {
 	a.p.JSON = *jsonOut
 	switch {
 	case len(pos) == 0:
-		return usageErr(errors.New("orca needs a subcommand: pair, devices or sync"))
-	case pos[0] != "pair" && pos[0] != "devices" && pos[0] != "sync":
-		return usageErr(fmt.Errorf("unknown orca subcommand %q; use pair, devices or sync", pos[0]))
+		return usageErr(errors.New("orca needs a subcommand: pair, devices, sync or status"))
+	case !slices.Contains([]string{"pair", "devices", "sync", "status"}, pos[0]):
+		return usageErr(fmt.Errorf("unknown orca subcommand %q; use pair, devices, sync or status", pos[0]))
 	case len(pos) > 1:
 		return usageErr(fmt.Errorf("orca %s takes no arguments", pos[0]))
 	case pos[0] != "pair" && *mobile:
 		return usageErr(errors.New("--mobile is for orca pair"))
 	}
-	if pos[0] == "sync" {
-		return orcaSync(ctx, a)
+	if pos[0] == "sync" || pos[0] == "status" {
+		return orcaSync(ctx, a, pos[0])
 	}
 	if !a.cfg.IsRoot {
 		return output.Errorf(output.ExitNotRoot, "not_root", "",
@@ -138,12 +139,13 @@ func orcaDevices(ctx context.Context, a *app) error {
 	})
 }
 
-// orcaSync is the Orca projects converger. It runs as agent, whose Orca
-// profile holds the projects; root's would be another, empty one.
-func orcaSync(ctx context.Context, a *app) error {
+// orcaSync is the Orca projects converger, or with verb status its report.
+// It runs as agent, whose Orca profile holds the projects; root's would be
+// another, empty one.
+func orcaSync(ctx context.Context, a *app, verb string) error {
 	if a.cfg.IsRoot {
 		return output.Errorf(output.ExitFailure, "wrong_user", "orca",
-			"berth orca sync must run as agent (docker exec -u agent <container> berth orca sync)")
+			"berth orca %s must run as agent (docker exec -u agent <container> berth orca %[1]s)", verb)
 	}
 	home := a.cfg.Getenv("HOME")
 	if home == "" {
@@ -164,6 +166,9 @@ func orcaSync(ctx context.Context, a *app) error {
 		State:      filepath.Join(home, ".local", "state", "berth", "orca.json"),
 		Wait:       cmp.Or(a.cfg.OrcaWait, 90*time.Second),
 		Poll:       2 * time.Second,
+	}
+	if verb == "status" {
+		return orcaStatus(ctx, a, s)
 	}
 	ctx, cancel := context.WithTimeout(ctx, orcasync.Timeout)
 	defer cancel()
@@ -190,6 +195,40 @@ func orcaSync(ctx context.Context, a *app) error {
 		if len(res.Added)+len(res.Removed) == 0 {
 			fmt.Fprintln(w, "Orca already has every workspace.")
 		}
+	})
+}
+
+// orcaStatus asks Orca once, without waiting: a report must not hang on an
+// Orca that is still starting.
+func orcaStatus(ctx context.Context, a *app, s orcasync.Syncer) error {
+	s.Wait = 0
+	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+	st, err := s.Status(ctx)
+	if errors.Is(err, orcasync.ErrUnavailable) {
+		return output.Errorf(output.ExitFailure, "orca_unavailable", "orca", "%v", err)
+	}
+	if err != nil {
+		return output.Errorf(output.ExitFailure, "orca_status_failed", "orca", "%v", err)
+	}
+	return a.p.Result(st, func(w io.Writer) {
+		tw := tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)
+		fmt.Fprintln(tw, "WORKSPACE\tIN ORCA\tFOLDER")
+		for _, id := range slices.Sorted(maps.Keys(st.Workspaces)) {
+			p := st.Workspaces[id]
+			in := "no"
+			if p.InOrca {
+				in = "yes"
+			}
+			fmt.Fprintf(tw, "%s\t%s\t%s\n", id, in, p.Path)
+		}
+		tw.Flush()
+		for _, id := range slices.Sorted(maps.Keys(st.Workspaces)) {
+			if e := st.Workspaces[id].Error; e != "" {
+				fmt.Fprintf(w, "%s: the last sync could not add it: %s\n", id, e)
+			}
+		}
+		fmt.Fprintf(w, "Last sync: %s\n", localTime(st.SyncedAt))
 	})
 }
 

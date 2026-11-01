@@ -1,5 +1,5 @@
-import type { AgentPackage, Config, Workspace, WorkspaceState } from "@/api/types";
-import { count } from "@/lib/format";
+import type { AgentPackage, Config, OrcaStatus, Workspace, WorkspaceState } from "@/api/types";
+import { count, since } from "@/lib/format";
 import { pathError } from "./skills-logic";
 
 export interface WorkspaceRow {
@@ -106,3 +106,26 @@ export const WORKSPACE_TABS = [
 export type WorkspaceTab = (typeof WORKSPACE_TABS)[number];
 export const parseWorkspaceTab = (v: unknown): WorkspaceTab =>
   WORKSPACE_TABS.find((t) => t === v) ?? "overview";
+
+/** OrcaView is how the workspace page shows a workspace in Orca: a status
+ * badge state with its detail, why the last sync could not add it, and
+ * whether Sync now helps. */
+export interface OrcaView {
+  state: "checking" | "syncing" | "in_orca" | "not_in_orca" | "orca_failed";
+  detail: string;
+  error: string;
+  canSync: boolean;
+}
+
+/** orcaView reads workspace id from orca.status; undefined is still
+ * loading. A workspace the report lacks was added after Orca's last look. */
+export function orcaView(st: OrcaStatus | undefined, id: string, now = Date.now()): OrcaView {
+  const view: OrcaView = { state: "checking", detail: "", error: "", canSync: false };
+  if (!st) return view;
+  if (st.syncing) return { ...view, state: "syncing" };
+  const p = st.workspaces[id];
+  const detail = st.synced_at ? `synced ${since(st.synced_at, now)} ago` : "";
+  if (p?.in_orca) return { ...view, state: "in_orca", detail };
+  if (p?.error) return { ...view, state: "orca_failed", error: p.error, canSync: true };
+  return { ...view, state: "not_in_orca", canSync: true };
+}

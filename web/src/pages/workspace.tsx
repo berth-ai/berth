@@ -1,6 +1,6 @@
 import { Link, useNavigate } from "@tanstack/react-router";
 import { ExternalLink } from "lucide-react";
-import { useId, useState } from "react";
+import { type ReactNode, useId, useState } from "react";
 import { refreshWorkspaces, useConfig, useStatus, useWorkspaceStatus } from "@/api/queries";
 import { runJob } from "@/api/run-job";
 import type { Job, Workspace, WorkspaceState } from "@/api/types";
@@ -34,6 +34,7 @@ import { SessionBadge } from "./workspaces";
 import { WorkspaceEnv } from "./workspace-env";
 import { WorkspaceInstructions } from "./workspace-instructions";
 import { WorkspaceMcp } from "./workspace-mcp";
+import { OrcaFact } from "./workspace-orca";
 import { WorkspaceSkills } from "./workspace-skills";
 import {
   gitSummary,
@@ -152,6 +153,7 @@ export function WorkspacePage({
           ws={ws}
           st={st}
           hostDir={status.data?.host?.workspaces_dir}
+          orca={!!config.data.config.frontends.orca?.enabled}
           onForget={forget}
           onDelete={() => setDeleting(true)}
         />
@@ -177,6 +179,7 @@ function Overview({
   ws,
   st,
   hostDir,
+  orca,
   onForget,
   onDelete,
 }: {
@@ -184,6 +187,8 @@ function Overview({
   ws: Workspace;
   st: WorkspaceState | undefined;
   hostDir: string | undefined;
+  /** orca shows whether Orca has the workspace. */
+  orca: boolean;
   onForget: () => void;
   onDelete: () => void;
 }) {
@@ -218,6 +223,7 @@ function Overview({
                 <SessionBadge st={st} />
               </span>,
             ],
+            ...(orca ? [["Orca", <OrcaFact key="orca" id={id} />] as [string, ReactNode]] : []),
           ]}
         />
       </PanelCard>

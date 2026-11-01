@@ -758,5 +758,18 @@ test("Orca is switched on and pairs a phone", async ({ page }) => {
   await expect(page.getByRole("img", { name: "Pairing QR code for a phone" })).toBeVisible();
   await expect(page.getByText("orca://pair?code=dev")).toBeVisible();
   await expect(page.getByText(/only this host can pair/)).toBeVisible();
+
+  // A workspace's Overview says whether Orca has it; the fake adds it on
+  // Sync now.
+  await page.goto(`${NORMAL}/#/workspaces`);
+  const add = page.getByRole("dialog", { name: "Add a workspace" });
+  await page.getByRole("button", { name: "Add workspace" }).first().click();
+  await add.getByLabel("Repository").fill("acme/web");
+  await add.getByRole("button", { name: "Clone", exact: true }).click();
+  await expect(h1(page, "acme-web")).toBeVisible();
+  await expect(page.getByText("Not in Orca")).toBeVisible();
+  await page.getByRole("button", { name: "Sync now" }).click();
+  await expect(page.getByText(/^In Orca/)).toBeVisible();
+  await expect(page.getByRole("button", { name: "Sync now" })).toHaveCount(0);
   expect(problems).toEqual([]);
 });

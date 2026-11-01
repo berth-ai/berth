@@ -580,3 +580,27 @@ func TestFakeOrcaPair(t *testing.T) {
 		t.Errorf("services = %v", names)
 	}
 }
+
+func TestFakeOrcaStatus(t *testing.T) {
+	c, _ := newClient(t, "normal")
+	c.call("POST", "/api/login", `{"user":"dev","password":"dev password"}`)
+	if code, out := c.call("POST", "/api/verbs/orca.status", ""); code != 409 {
+		t.Fatalf("off = %d %v", code, out)
+	}
+	if code, out := c.call("POST", "/api/verbs/config.apply", `{"base_revision":1,"patch":{"frontends":{"orca":{"enabled":true}},"workspaces":{"api":{"path":"acme/api"}}}}`); code != 200 {
+		t.Fatalf("enable = %d %v", code, out)
+	}
+	inOrca := func() any {
+		_, out := c.call("POST", "/api/verbs/orca.status", "")
+		return out["workspaces"].(map[string]any)["api"].(map[string]any)["in_orca"]
+	}
+	if inOrca() != false {
+		t.Error("a new workspace is in Orca before a sync")
+	}
+	if code, out := c.call("POST", "/api/verbs/orca.sync", ""); code != 200 {
+		t.Fatalf("sync = %d %v", code, out)
+	}
+	if inOrca() != true {
+		t.Error("not in Orca after a sync")
+	}
+}

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"maps"
 	"os"
 	"path/filepath"
 	"slices"
@@ -214,5 +215,53 @@ func TestSyncGivesUpWhenOrcaNeverAnswers(t *testing.T) {
 	_, err := fx.s.Run(context.Background())
 	if !errors.Is(err, ErrUnavailable) {
 		t.Errorf("got %v", err)
+	}
+}
+
+func TestStatusBeforeAnyRun(t *testing.T) {
+	fx := newFixture(t, "a")
+	st, err := fx.s.Status(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if st.SyncedAt != nil || st.Workspaces["w0"] != (Project{Path: fx.path("a")}) {
+		t.Errorf("%+v", st)
+	}
+	if strings.Contains(strings.Join(fx.orca.calls, "\n"), "repo add") {
+		t.Error("status changed Orca")
+	}
+}
+
+func TestStatusAfterARun(t *testing.T) {
+	fx := newFixture(t, "a", "b")
+	fx.orca.addErr[fx.path("a")] = "not a folder Orca can open"
+	fx.run()
+	st, err := fx.s.Status(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]Project{
+		"w0": {Path: fx.path("a"), Error: "not a folder Orca can open"},
+		"w1": {Path: fx.path("b"), InOrca: true},
+	}
+	if st.SyncedAt == nil || !maps.Equal(st.Workspaces, want) {
+		t.Errorf("%+v", st)
+	}
+	// Removed in Orca: no longer in it, and no error until a run fails.
+	delete(fx.orca.setups, fx.path("b"))
+	if st, _ := fx.s.Status(context.Background()); st.Workspaces["w1"] != (Project{Path: fx.path("b")}) {
+		t.Errorf("%+v", st.Workspaces["w1"])
+	}
+}
+
+func TestStatusWhenOrcaIsDown(t *testing.T) {
+	fx := newFixture(t, "a")
+	fx.orca.down = 1 << 30
+	fx.s.Wait = 0
+	if _, err := fx.s.Status(context.Background()); !errors.Is(err, ErrUnavailable) {
+		t.Errorf("got %v", err)
+	}
+	if len(fx.orca.calls) != 1 {
+		t.Errorf("tried %d times with no wait", len(fx.orca.calls))
 	}
 }
