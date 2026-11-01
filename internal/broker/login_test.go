@@ -12,6 +12,8 @@ echo "$*" >> "$0.log"
 case "$1 $2" in
 "login status")
   printf '{"agents":{"@openai/codex":{"name":"Codex","methods":[{"id":"chatgpt","label":"ChatGPT","flow":"device","signed_in":false,"account":"","error":""}]}},"schema":1}' ;;
+"usage --json")
+  printf '{"agents":{"@anthropic-ai/claude-code":{"name":"Claude Code","tracked":true}},"schema":1}' ;;
 "login logout")
   case "$3" in
   gone) printf '{"error":{"code":"unknown","step":"login","message":"no such agent or sign-in method"}}'; exit 2 ;;
@@ -63,6 +65,21 @@ func TestLoginStatusVerb(t *testing.T) {
 	}
 	if log, _ := os.ReadFile(tb.b.Home.Berth + ".log"); !strings.Contains(string(log), "login status --json") {
 		t.Errorf("berth ran %q", log)
+	}
+}
+
+func TestAgentsUsageVerb(t *testing.T) {
+	tb := loginBroker(t)
+	code, out := tb.verb(t, "agents.usage", `{}`)
+	agents, _ := out["agents"].(map[string]any)
+	if code != 200 || agents["@anthropic-ai/claude-code"] == nil {
+		t.Fatalf("usage = %d %v", code, out)
+	}
+	if log, _ := os.ReadFile(tb.b.Home.Berth + ".log"); !strings.Contains(string(log), "usage --json") {
+		t.Errorf("berth ran %q", log)
+	}
+	if code, _ := tb.verb(t, "agents.usage", `{"days":30}`); code != 400 {
+		t.Errorf("unknown field = %d, want 400", code)
 	}
 }
 

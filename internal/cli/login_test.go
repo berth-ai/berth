@@ -52,3 +52,24 @@ func TestLoginUsage(t *testing.T) {
 		t.Errorf("help:\n%s", out)
 	}
 }
+
+func TestUsageWithoutAgentSet(t *testing.T) {
+	cfg := testConfig(t)
+	t.Setenv("HOME", t.TempDir())
+	out, errOut, code := run(t, cfg, "usage", "--json")
+	if code != 0 {
+		t.Fatalf("exit %d: %s", code, errOut)
+	}
+	golden(t, "usage", out)
+	human, _, code := run(t, cfg, "usage")
+	if code != 0 || !strings.Contains(human, "No agent is installed.") {
+		t.Errorf("human = %q (exit %d)", human, code)
+	}
+	if _, _, code := run(t, cfg, "usage", "extra"); code != 2 {
+		t.Errorf("usage extra: exit %d, want 2", code)
+	}
+	help, _, _ := run(t, cfg, "help")
+	if !strings.Contains(help, "usage [--json]") {
+		t.Errorf("help:\n%s", help)
+	}
+}

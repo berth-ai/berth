@@ -27,6 +27,7 @@
         "skills": { "dir": "~/.claude/skills", "project": ".claude/skills" },
         "icon": "claude",
         "instructions": "CLAUDE.md",
+        "usage": { "format": "claude-code", "dir": "~/.claude/projects" },
         "login": { "methods": [
           { "id": "claude", "label": "Claude account", "flow": "paste", "prompt": "Paste code here",
             "args": ["auth", "login", "--claudeai"],

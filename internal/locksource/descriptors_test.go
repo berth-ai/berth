@@ -422,3 +422,36 @@ func TestInstructionsDescriptor(t *testing.T) {
 		}
 	}
 }
+
+func TestUsageDescriptor(t *testing.T) {
+	meta := map[string]Meta{"a": {Kind: KindAgent, Name: "A"}, "b": {Kind: KindAgent, Name: "B"}}
+	parse := func(usage string) (Descriptors, error) {
+		raw := `{"berthAgents":{"schema":1,"agents":{"a":{"usage":` + usage + `},"b":{}}}}`
+		return ParseDescriptors([]byte(raw), meta)
+	}
+	d, err := parse(`{"format":"claude-code","dir":"~/.claude/projects"}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if u := d.Agents["a"].Usage; u == nil || u.Format != "claude-code" || u.Dir != "~/.claude/projects" {
+		t.Errorf("a usage = %+v", u)
+	}
+	if d.Agents["b"].Usage != nil {
+		t.Errorf("b usage = %+v", d.Agents["b"].Usage)
+	}
+	// A format this build cannot read still parses: the reader reports it.
+	if _, err := parse(`{"format":"from-the-future","dir":"$XDG_DATA_HOME/x"}`); err != nil {
+		t.Errorf("unknown format: %v", err)
+	}
+	for _, bad := range []string{
+		`{"format":"","dir":"~/.x"}`,
+		`{"format":"Claude Code","dir":"~/.x"}`,
+		`{"format":"claude-code","dir":"/etc"}`,
+		`{"format":"claude-code","dir":"~/../etc"}`,
+		`{"format":"claude-code"}`,
+	} {
+		if _, err := parse(bad); !errors.Is(err, ErrInvalid) || !strings.Contains(err.Error(), "usage") {
+			t.Errorf("%s: err = %v", bad, err)
+		}
+	}
+}

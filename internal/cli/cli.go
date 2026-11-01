@@ -167,6 +167,7 @@ var commands = map[string]command{
 	"gc":         {"gc [--json]                          remove unused agent sets", runGC},
 	"config":     {"config get|set K=V...|revert|reset|export|import FILE|reset-login [--json]  read or change settings", runConfig},
 	"login":      {"login status|logout AGENT METHOD [--json]  the agents' own sign-ins", runLogin},
+	"usage":      {"usage [--json]                       token usage per agent, last 7 days", runAgentUsage},
 	"health":     {"health [--json]                      report whether every enabled service runs", runHealth},
 	"orca":       {"orca pair [--mobile]|devices|sync|status [--json]  pair an Orca app, list paired ones, add workspaces to Orca, or show which it has", runOrca},
 	"version":    {"version                              print the berth version", runVersion},
@@ -178,7 +179,7 @@ var commands = map[string]command{
 	"panel":      {"panel                                serve the web panel (the panel module starts it)", runPanel},
 }
 
-var order = []string{"status", "update", "rollback", "ensure", "gc", "config", "login", "orca", "health", "version", "supervise", "panel"}
+var order = []string{"status", "update", "rollback", "ensure", "gc", "config", "login", "usage", "orca", "health", "version", "supervise", "panel"}
 
 // Run executes one berth invocation and returns its exit code.
 func Run(ctx context.Context, cfg Config, args []string, stdout, stderr io.Writer) int {

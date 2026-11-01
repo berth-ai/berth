@@ -277,6 +277,8 @@ func (f *fake) verb(name string, in map[string]any) (int, any) {
 		return http.StatusOK, map[string]any{"config": out}
 	case "login.status":
 		return http.StatusOK, f.loginStatus("")
+	case "agents.usage":
+		return http.StatusOK, f.usage(time.Now().UTC())
 	case "login.start":
 		if fakeFlow(str(in["agent"]), str(in["method"])) == "" {
 			return http.StatusBadRequest, apiError("invalid_request", "no such sign-in method")
@@ -971,6 +973,45 @@ func (f *fake) loginStatus(only string) map[string]any {
 		agents[a.pkg] = map[string]any{"name": a.name, "methods": methods}
 	}
 	return map[string]any{"agents": agents, "schema": 1}
+}
+
+// usage answers agents.usage: Example Agent has a busy week, Other Agent
+// has not run yet, and GitHub Copilot CLI's usage is not tracked.
+func (f *fake) usage(now time.Time) map[string]any {
+	y, m, d := now.Date()
+	since := time.Date(y, m, d-6, 0, 0, 0, 0, time.UTC)
+	period := func(in, out, read, wrote, msgs, sessions int) map[string]any {
+		return map[string]any{"input": in, "output": out, "cache_read": read, "cache_write": wrote,
+			"total": in + out + read + wrote, "messages": msgs, "sessions": sessions}
+	}
+	days := func(totals ...int) []map[string]any {
+		out := []map[string]any{}
+		for i, t := range totals {
+			out = append(out, map[string]any{"date": since.AddDate(0, 0, i).Format(time.DateOnly), "total": t})
+		}
+		return out
+	}
+	lastActive := now.Add(-12 * time.Minute)
+	agents := map[string]any{
+		"@example/agent-cli": map[string]any{"name": "Example Agent", "tracked": true,
+			"today": period(4_210, 61_840, 1_204_500, 98_300, 142, 3),
+			"week":  period(23_980, 402_115, 7_310_250, 611_430, 917, 14),
+			"days":  days(812_400, 0, 2_104_220, 1_530_900, 977_130, 1_554_275, 1_368_850),
+			"models": []map[string]any{
+				{"model": "example-large-2", "input": 20_100, "output": 371_200, "cache_read": 6_630_000, "cache_write": 560_000, "total": 7_581_300, "messages": 801},
+				{"model": "example-small-2", "input": 3_880, "output": 30_915, "cache_read": 680_250, "cache_write": 51_430, "total": 766_475, "messages": 116},
+			},
+			"last_active": lastActive, "error": ""},
+		"@example/other-cli": map[string]any{"name": "Other Agent", "tracked": true,
+			"today": period(0, 0, 0, 0, 0, 0), "week": period(0, 0, 0, 0, 0, 0),
+			"days": days(0, 0, 0, 0, 0, 0, 0), "models": []map[string]any{}, "last_active": nil, "error": ""},
+	}
+	if f.added(copilotPkg) {
+		agents[copilotPkg] = map[string]any{"name": "GitHub Copilot CLI", "tracked": false,
+			"today": period(0, 0, 0, 0, 0, 0), "week": period(0, 0, 0, 0, 0, 0),
+			"days": days(0, 0, 0, 0, 0, 0, 0), "models": []map[string]any{}, "last_active": nil, "error": ""}
+	}
+	return map[string]any{"schema": 1, "since": since, "agents": agents}
 }
 
 func (f *fake) findJob(id int) *job {

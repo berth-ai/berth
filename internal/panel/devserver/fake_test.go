@@ -604,3 +604,35 @@ func TestFakeOrcaStatus(t *testing.T) {
 		t.Error("not in Orca after a sync")
 	}
 }
+
+func TestFakeUsage(t *testing.T) {
+	f := newFake("normal")
+	now := time.Date(2026, 11, 1, 15, 0, 0, 0, time.UTC)
+	rep := f.usage(now)
+	agents := rep["agents"].(map[string]any)
+	ex := agents["@example/agent-cli"].(map[string]any)
+	week := ex["week"].(map[string]any)
+	days := ex["days"].([]map[string]any)
+	sum := 0
+	for _, d := range days {
+		sum += d["total"].(int)
+	}
+	// The fixture stays consistent: the days add up to the week.
+	if len(days) != 7 || sum != week["total"] || days[6]["date"] != "2026-11-01" || days[6]["total"] != ex["today"].(map[string]any)["total"] {
+		t.Errorf("days = %v, sum %d, week %v", days, sum, week["total"])
+	}
+	models := 0
+	for _, m := range ex["models"].([]map[string]any) {
+		models += m["total"].(int)
+	}
+	if models != week["total"] {
+		t.Errorf("models add up to %d, week %v", models, week["total"])
+	}
+	if _, ok := agents[copilotPkg]; ok || len(agents) != 2 {
+		t.Errorf("agents = %v", agents)
+	}
+	f.setAdded(copilotPkg, true)
+	if a := f.usage(now)["agents"].(map[string]any)[copilotPkg].(map[string]any); a["tracked"] != false {
+		t.Errorf("copilot = %v", a)
+	}
+}

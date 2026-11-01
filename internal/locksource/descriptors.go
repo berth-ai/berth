@@ -45,6 +45,16 @@ type AgentDescriptor struct {
 	Login        *LoginTarget  `json:"login"`
 	Icon         string        `json:"icon"`         // a panel icon slug; empty means a monogram
 	Instructions string        `json:"instructions"` // its instruction file at a workspace's root; empty means none
+	Usage        *UsageSource  `json:"usage"`        // where the agent records token usage; nil means it is not read
+}
+
+// UsageSource is where an agent CLI records the token usage of its
+// sessions, in a format the usage reader knows by name. A format this
+// build does not know is kept and reported as not tracked, so a lock can
+// name a newer one.
+type UsageSource struct {
+	Format string `json:"format"`
+	Dir    string `json:"dir"` // below ~/, $XDG_CONFIG_HOME/ or $XDG_DATA_HOME/
 }
 
 // LoginTarget lists the ways an agent CLI signs in to its vendor account.
@@ -146,6 +156,7 @@ var (
 	iconPattern         = regexp.MustCompile(`^[a-z0-9-]{1,32}$`)
 	fileKeyPattern      = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$`)
 	instructionsPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,63}\.md$`)
+	usageFormatPattern  = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,31}$`)
 )
 
 // ValidBinName reports whether s may name a bin, and so a wrapper file.
@@ -212,6 +223,14 @@ func ParseDescriptors(pkg []byte, meta map[string]Meta) (Descriptors, error) {
 		}
 		if a.Instructions != "" && !instructionsPattern.MatchString(a.Instructions) {
 			return out, invalid("package.json berthAgents block: %s instructions %q must be a .md file name at the workspace root", name, a.Instructions)
+		}
+		if u := a.Usage; u != nil {
+			if !usageFormatPattern.MatchString(u.Format) {
+				return out, invalid("package.json berthAgents block: %s usage.format %q must match %s", name, u.Format, usageFormatPattern)
+			}
+			if !homePath(u.Dir) {
+				return out, invalid("package.json berthAgents block: %s usage.dir %q must be a path below ~/, $XDG_CONFIG_HOME/ or $XDG_DATA_HOME/", name, u.Dir)
+			}
 		}
 		out.Agents[name] = a
 	}

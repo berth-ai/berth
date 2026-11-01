@@ -433,7 +433,7 @@ func TestVerbAllowlist(t *testing.T) {
 		"tools.list", "tools.versions", "tools.registry", "tools.add", "tools.remove",
 		"preset.install", "git.identity", "forge.status", "forge.login", "forge.token", "forge.logout",
 		"skills.sources.preview", "skills.sources.add", "skills.sources.update", "skills.sources.remove", "config.upgrade",
-		"login.status", "login.start", "login.input", "login.cancel", "login.logout",
+		"login.status", "login.start", "login.input", "login.cancel", "login.logout", "agents.usage",
 	} {
 		resp, body := e.do(c, "POST", "/api/verbs/"+verb, `{}`, nil)
 		if got, _ := e.fb.last(); got != "POST /verbs/"+verb {

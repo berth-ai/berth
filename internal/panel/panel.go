@@ -38,7 +38,7 @@ var browserVerbs = map[string]bool{
 	"preset.install": true, "git.identity": true, "forge.status": true, "forge.login": true, "forge.token": true, "forge.logout": true,
 	"skills.sources.preview": true, "skills.sources.add": true, "skills.sources.update": true, "skills.sources.remove": true,
 	"config.upgrade":  true,
-	"agents.registry": true, "agents.add": true, "agents.remove": true, "agents.rollback": true,
+	"agents.registry": true, "agents.add": true, "agents.remove": true, "agents.rollback": true, "agents.usage": true,
 	"workspaces.add": true, "workspaces.forget": true, "workspaces.status": true, "workspaces.candidates": true, "workspaces.launch": true, "workspaces.restart": true,
 	"workspaces.instructions.read": true, "workspaces.instructions.write": true, "workspaces.instructions.merge": true,
 	"workspaces.report": true, "skills.vendor.resolve": true,

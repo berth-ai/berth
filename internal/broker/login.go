@@ -107,6 +107,25 @@ func (b *Broker) loginStatus(ctx context.Context, body []byte) (int, any) {
 	return http.StatusOK, json.RawMessage(stdout)
 }
 
+// usageTimeout bounds berth usage; it reads a week of session files.
+const usageTimeout = 60 * time.Second
+
+// agentsUsage is berth usage --json, run as agent: the token counts the
+// agents recorded in their session files, never their content.
+func (b *Broker) agentsUsage(ctx context.Context, body []byte) (int, any) {
+	if err := decode(body, &struct{}{}); err != nil {
+		return badRequest(err)
+	}
+	stdout, stderr, exit, err := b.agentRun(ctx, usageTimeout, b.Home.Berth, "usage", "--json")
+	if code, v, failed := syncFailure(err, exit, stderr); failed {
+		return code, v
+	}
+	if !json.Valid([]byte(stdout)) {
+		return fail(http.StatusBadGateway, "bad_output", "berth usage printed no JSON")
+	}
+	return http.StatusOK, json.RawMessage(stdout)
+}
+
 func (b *Broker) loginStart(_ context.Context, body []byte) (int, any) {
 	var in loginTarget
 	if err := decode(body, &in); err != nil {
