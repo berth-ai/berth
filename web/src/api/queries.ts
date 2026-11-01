@@ -14,6 +14,7 @@ import type {
   Session,
   Status,
   ToolsList,
+  UsageReport,
   WorkspaceReport,
   WorkspaceState,
 } from "./types";
@@ -29,6 +30,7 @@ export const keys = {
   tools: ["tools"],
   forges: ["forges"],
   logins: ["logins"],
+  usage: ["usage"],
   registry: ["registry"],
   agentRegistry: ["agent-registry"],
   versions: (tool: string) => ["versions", tool],
@@ -121,6 +123,16 @@ export function useLogins() {
 
 export function refreshLogins() {
   return queryClient.invalidateQueries({ queryKey: keys.logins });
+}
+
+/** useUsage reads the agents' session files, so it refreshes slowly. */
+export function useUsage() {
+  return useQuery({
+    queryKey: keys.usage,
+    queryFn: () => verb<UsageReport>("agents.usage"),
+    staleTime: 60_000,
+    refetchInterval: 120_000,
+  });
 }
 
 export function useAgentRegistry() {

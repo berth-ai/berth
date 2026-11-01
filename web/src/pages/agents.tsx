@@ -1,3 +1,4 @@
+import { Link } from "@tanstack/react-router";
 import { ChevronRight } from "lucide-react";
 import { useId, useState } from "react";
 import { applyConfig } from "@/api/config";
@@ -9,27 +10,40 @@ import {
   useConfig,
   useLogins,
   useStatus,
+  useUsage,
 } from "@/api/queries";
 import { verb } from "@/api/request";
 import { runJob } from "@/api/run-job";
 import type {
   AgentPackage,
+  AgentUsage,
   AgentVersion,
   Job,
-  LoginMethodStatus,
+  LoginStatus,
   Status,
   UpdateCheck,
 } from "@/api/types";
+import { BrandIcon } from "@/components/brand-icon";
 import { BusyButton } from "@/components/busy-button";
 import { useConfirm } from "@/components/confirm";
 import { EmptyState } from "@/components/empty-state";
+import { Facts, Mono } from "@/components/facts";
 import { FormField, fieldProps } from "@/components/form-field";
 import { InlineAlert } from "@/components/inline-alert";
 import { LoadingRows } from "@/components/loading";
-import { Page, PageHeader } from "@/components/page";
+import { CardGrid, Page, PageHeader } from "@/components/page";
 import { PanelCard } from "@/components/panel-card";
-import { Button } from "@/components/ui/button";
+import { StatusBadge } from "@/components/status-badge";
+import { Button, buttonVariants } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import { Skeleton } from "@/components/ui/skeleton";
 import {
   Table,
   TableBody,
@@ -43,102 +57,70 @@ import { describeSource, short, when } from "@/lib/format";
 import { notify, type Tone } from "@/lib/notify";
 import { useTitle } from "@/lib/use-title";
 import { AddAgentDialog } from "./agent-dialog";
-import { addedToast, allAdded, checkResult, removeBody, versionLabel } from "./agents-logic";
-import { PackageSection } from "./package-table";
-import { useSignIn } from "./sign-in";
+import {
+  addedToast,
+  agentSlug,
+  allAdded,
+  checkResult,
+  signInSummary,
+  usageFacts,
+  versionLabel,
+} from "./agents-logic";
 
-// Agents: update source and actions, version history, per-agent toggles and keys.
+// Agents: one card per agent with its status and usage, then the agent
+// set's updates and history. Each agent's settings live on its own page.
 export function AgentsPage() {
   useTitle("Agents");
   const status = useStatus();
-  const pkgs = status.data ? (status.data.packages ?? []) : undefined;
+  const agents = status.data
+    ? (status.data.packages ?? []).filter((p) => p.kind === "agent")
+    : undefined;
   const logins = useLogins();
-  const signIn = useSignIn(logins.data);
-  const [confirmDialog, ask] = useConfirm();
-  const signOut = (p: AgentPackage, m: LoginMethodStatus) =>
-    ask({
-      title: `Sign ${p.name} out of ${m.label}?`,
-      body: "The agent loses access until you sign in again.",
-      confirm: "Sign out",
-      danger: true,
-      action: async () => {
-        try {
-          await verb("login.logout", { agent: p.package, method: m.id });
-          notify(`${p.name} is signed out of ${m.label}.`);
-          void refreshLogins();
-        } catch (err) {
-          notify(errorText(err), "bad");
-          return false;
-        }
-      },
-    });
+  const usage = useUsage();
   const registry = useAgentRegistry();
   const [adding, setAdding] = useState(false);
-  const removeAgent = (p: AgentPackage) =>
-    ask({
-      title: `Remove ${p.name}?`,
-      body: removeBody(p),
-      confirm: "Remove",
-      danger: true,
-      action: async () => {
-        try {
-          await verb("agents.remove", { package: p.package });
-          notify(`${p.name} removed.`);
-          void refreshStatus();
-          void refreshLogins();
-          void refreshAgentRegistry();
-        } catch (err) {
-          notify(errorText(err), "bad");
-          return false;
-        }
-      },
-    });
-  const rollBack = (p: AgentPackage) =>
-    ask({
-      title: `Roll ${p.name} back to ${p.previous}?`,
-      body: "Berth switches back at once. It stays on that version until the image pins a newer one.",
-      confirm: "Roll back",
-      danger: true,
-      action: startJob("agents.rollback", `${p.name} rolled back.`, { package: p.package }),
-    });
   return (
     <Page>
       <PageHeader
         title="Agents"
-        description="Pinned agent CLIs. Updates install a new locked set; the previous one is kept for rollback."
-      />
-      <SourceCard />
-      <History status={status.data} />
-      <PackageSection
-        title="Agents"
-        kind="agent"
-        nameHeader="Agent"
-        noun={["agent", "agents"]}
-        all={pkgs}
-        empty="No agents installed yet."
-        signIn={{
-          data: logins.data,
-          loading: logins.isPending,
-          failed: logins.isError,
-          onSignIn: (p, m) =>
-            signIn.start({
-              agent: p.package,
-              agentName: p.name,
-              method: m.id,
-              label: m.label,
-            }),
-          onSignOut: signOut,
-        }}
+        description="The agent CLIs Berth installs: who is signed in and how much each used. Open one to sign in, set keys or switch it off."
         actions={
           allAdded(registry.data?.agents) ? null : (
-            <Button variant="outline" size="sm" onClick={() => setAdding(true)}>
+            <Button variant="outline" onClick={() => setAdding(true)}>
               Add agent
             </Button>
           )
         }
-        added={{ onRollBack: rollBack, onRemove: removeAgent }}
       />
-      {signIn.dialog}
+      {usage.isError ? (
+        <InlineAlert tone="warn">Usage is unavailable: {errorText(usage.error)}</InlineAlert>
+      ) : null}
+      {!agents ? (
+        <PanelCard>
+          <LoadingRows n={2} />
+        </PanelCard>
+      ) : agents.length ? (
+        <CardGrid>
+          {agents.map((p) => (
+            <AgentCard
+              key={p.package}
+              p={p}
+              slug={agentSlug(p.package, agents)}
+              logins={logins.data}
+              loginsLoading={logins.isPending}
+              loginsFailed={logins.isError}
+              usage={usage.data?.agents?.[p.package] ?? undefined}
+              usageLoading={usage.isPending}
+            />
+          ))}
+        </CardGrid>
+      ) : (
+        <PanelCard>
+          <EmptyState text="No agents installed yet." />
+        </PanelCard>
+      )}
+      <UpdatesCard status={status.data} />
+      <History status={status.data} />
       {adding ? (
         <AddAgentDialog
           entries={registry.data?.agents}
@@ -152,8 +134,58 @@ export function AgentsPage() {
           }}
         />
       ) : null}
-      {confirmDialog}
     </Page>
+  );
+}
+
+/** AgentCard is an agent at a glance: sign-in, version and usage. */
+function AgentCard({
+  p,
+  slug,
+  logins,
+  loginsLoading,
+  loginsFailed,
+  usage,
+  usageLoading,
+}: {
+  p: AgentPackage;
+  slug: string;
+  logins: LoginStatus | undefined;
+  loginsLoading: boolean;
+  loginsFailed: boolean;
+  usage: AgentUsage | undefined;
+  usageLoading: boolean;
+}) {
+  const s = signInSummary(p.enabled, logins?.agents?.[p.package]?.methods, loginsLoading);
+  const badge =
+    s.state === "loading" ? (
+      <Skeleton className="h-4 w-20" />
+    ) : s.state === "none" || (loginsFailed && s.state !== "off") ? null : (
+      <StatusBadge state={s.state} detail={s.account} />
+    );
+  return (
+    <PanelCard
+      title={p.name}
+      icon={<BrandIcon slug={p.icon} name={p.name} id={p.package} />}
+      badge={badge}
+      footer={
+        <Link
+          to="/agents/$id"
+          params={{ id: slug }}
+          className={buttonVariants({ variant: "outline", size: "sm" })}
+          aria-label={`Manage ${p.name}`}
+        >
+          Manage
+        </Link>
+      }
+    >
+      <span className="flex flex-wrap items-center gap-2 font-mono text-xs break-all text-fg-muted">
+        {p.package} {p.version}
+        {p.origin === "added" ? <StatusBadge small state="added" /> : null}
+      </span>
+      {p.error ? <span className="text-xs text-warn">{p.error}</span> : null}
+      {usageLoading ? <LoadingRows n={3} /> : usage ? <Facts rows={usageFacts(usage)} /> : null}
+    </PanelCard>
   );
 }
 
@@ -168,47 +200,25 @@ function finishJob(job: Job | null, okText: string) {
 }
 
 /** startJob is a confirm action that starts a job and reports its outcome. */
-const startJob =
+export const startJob =
   (name: string, okText: string, body: unknown = {}) =>
   async () => {
     void runJob(name, body).then((job) => finishJob(job, okText));
     return true;
   };
 
-function SourceCard() {
+/** UpdatesCard is the agent set: where updates come from, what is
+ * installed, and the actions that change it. */
+function UpdatesCard({ status }: { status: Status | undefined }) {
   const config = useConfig();
-  if (config.isPending) {
-    return (
-      <PanelCard>
-        <LoadingRows n={2} />
-      </PanelCard>
-    );
-  }
-  return <SourceForm initialRef={config.data?.config.agents.ref ?? "main"} />;
-}
-
-function SourceForm({ initialRef }: { initialRef: string }) {
-  const [ref, setRef] = useState(initialRef);
-  const [value, setValue] = useState(initialRef);
-  const [refError, setRefError] = useState("");
-  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState<string | null>(null);
+  const [editing, setEditing] = useState(false);
   const [checking, setChecking] = useState(false);
   const [result, setResult] = useState<{ tone: Tone; text: string } | null>(null);
   const [dialog, confirm] = useConfirm();
-  const id = useId();
-
-  const save = async () => {
-    setSaving(true);
-    try {
-      const r = await applyConfig({ agents: { ref: value.trim() } });
-      setRefError("");
-      setRef(r.config.agents.ref);
-      notify(`Updates now come from ${r.config.agents.ref}.`);
-    } catch (err) {
-      setRefError(fieldErrors(err)["agents.ref"] || errorText(err));
-    }
-    setSaving(false);
-  };
+  const ref = saved ?? config.data?.config.agents.ref ?? "main";
+  const cur = status?.agents?.current;
+  const prev = status?.agents?.previous;
 
   const check = async () => {
     setChecking(true);
@@ -225,16 +235,10 @@ function SourceForm({ initialRef }: { initialRef: string }) {
 
   return (
     <PanelCard
+      title="Updates"
+      badge={status?.check?.update_available ? <StatusBadge state="update" /> : null}
       footer={
         <>
-          <BusyButton
-            variant="outline"
-            busy={checking}
-            busyLabel="Checking…"
-            onClick={() => void check()}
-          >
-            Check for updates
-          </BusyButton>
           <Button
             onClick={() =>
               confirm({
@@ -251,8 +255,17 @@ function SourceForm({ initialRef }: { initialRef: string }) {
           >
             Update
           </Button>
+          <BusyButton
+            variant="outline"
+            busy={checking}
+            busyLabel="Checking…"
+            onClick={() => void check()}
+          >
+            Check for updates
+          </BusyButton>
           <Button
             variant="outline"
+            disabled={!prev}
             onClick={() =>
               confirm({
                 title: "Roll back to the previous agent set?",
@@ -268,39 +281,123 @@ function SourceForm({ initialRef }: { initialRef: string }) {
         </>
       }
     >
-      <div className="flex flex-wrap items-end gap-2">
-        <FormField
-          id={id}
-          label="Update source"
-          hint="A branch, tag or commit of the Berth repository."
-          error={refError}
-          className="flex-1"
-        >
-          <Input
-            {...fieldProps(id, refError)}
-            className="font-mono text-xs"
-            spellCheck={false}
-            autoComplete="off"
-            value={value}
-            onChange={(e) => setValue(e.target.value)}
-          />
-        </FormField>
-        <BusyButton
-          variant="outline"
-          size="sm"
-          busy={saving}
-          busyLabel="Saving…"
-          onClick={() => void save()}
-          className="mb-5.5"
-        >
-          Save
-        </BusyButton>
-      </div>
+      {config.isPending || !status ? (
+        <LoadingRows n={3} />
+      ) : (
+        <Facts
+          rows={[
+            [
+              "Source",
+              <span key="source" className="inline-flex flex-wrap items-center gap-2">
+                <Mono>{ref}</Mono>
+                <Button
+                  variant="ghost"
+                  size="xs"
+                  aria-label="Change the update source"
+                  onClick={() => setEditing(true)}
+                >
+                  Change
+                </Button>
+              </span>,
+            ],
+            [
+              "Current",
+              cur ? (
+                <span key="current">
+                  <Mono>{short(cur.hash)}</Mono> · installed {when(cur.installed_at)}
+                </span>
+              ) : (
+                "No agent set is installed yet."
+              ),
+            ],
+            ["Previous", prev ? <Mono key="previous">{short(prev.hash)}</Mono> : "None"],
+          ]}
+        />
+      )}
       <div aria-live="polite">
         {result ? <InlineAlert tone={result.tone}>{result.text}</InlineAlert> : null}
       </div>
+      {editing ? (
+        <SourceDialog
+          initialRef={ref}
+          onClose={() => setEditing(false)}
+          onSaved={(r) => {
+            setSaved(r);
+            setResult(null);
+          }}
+        />
+      ) : null}
       {dialog}
     </PanelCard>
+  );
+}
+
+function SourceDialog({
+  initialRef,
+  onClose,
+  onSaved,
+}: {
+  initialRef: string;
+  onClose: () => void;
+  onSaved: (ref: string) => void;
+}) {
+  const [value, setValue] = useState(initialRef);
+  const [error, setError] = useState("");
+  const [saving, setSaving] = useState(false);
+  const id = useId();
+
+  const save = async () => {
+    setSaving(true);
+    try {
+      const r = await applyConfig({ agents: { ref: value.trim() } });
+      notify(`Updates now come from ${r.config.agents.ref}.`);
+      onSaved(r.config.agents.ref);
+      onClose();
+    } catch (err) {
+      setError(fieldErrors(err)["agents.ref"] || errorText(err));
+      setSaving(false);
+    }
+  };
+
+  return (
+    <Dialog open onOpenChange={(open) => (open ? undefined : onClose())}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Change the update source</DialogTitle>
+        </DialogHeader>
+        <form
+          className="contents"
+          onSubmit={(e) => {
+            e.preventDefault();
+            void save();
+          }}
+        >
+          <FormField
+            id={id}
+            label="Update source"
+            hint="A branch, tag or commit of the Berth repository."
+            error={error}
+          >
+            <Input
+              {...fieldProps(id, error)}
+              className="font-mono text-xs"
+              spellCheck={false}
+              autoComplete="off"
+              value={value}
+              onChange={(e) => setValue(e.target.value)}
+            />
+          </FormField>
+          <DialogFooter>
+            <Button type="button" variant="outline" onClick={onClose}>
+              Cancel
+            </Button>
+            <BusyButton type="submit" busy={saving} busyLabel="Saving…">
+              Save
+            </BusyButton>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
   );
 }
 

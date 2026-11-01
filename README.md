@@ -110,6 +110,15 @@ docker compose exec berth berth login logout @openai/codex chatgpt
 An API key set on the Agents page or in your shell still wins where the
 agent prefers keys (Claude Code does).
 
+Each agent's card also shows the tokens it used today and over the last 7
+days, read from the agent's own session files; Berth reads only counts,
+models and times. Claude Code is tracked today; other agents show "Not
+tracked". From the command line:
+
+```sh
+docker compose exec berth berth usage                         # tokens per agent, last 7 days
+```
+
 ## Upgrading the image
 
 ```sh

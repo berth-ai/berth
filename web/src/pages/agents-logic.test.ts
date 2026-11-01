@@ -1,13 +1,18 @@
 import { describe, expect, it } from "vitest";
-import type { AgentPackage, RegistryAgent } from "@/api/types";
+import type { AgentPackage, AgentUsage, LoginMethodStatus, RegistryAgent } from "@/api/types";
 import {
   addedToast,
   agentHome,
+  agentSlug,
   allAdded,
   checkResult,
   disabledAfter,
+  findAgent,
   keyBadge,
+  lastActive,
   removeBody,
+  signInSummary,
+  usageFacts,
   versionLabel,
 } from "./agents-logic";
 
@@ -82,10 +87,102 @@ describe("added agents", () => {
 
   it("words the toast and the remove confirmation", () => {
     expect(addedToast("GitHub Copilot CLI")).toBe(
-      "GitHub Copilot CLI added. Sign in from its row.",
+      "GitHub Copilot CLI added. Sign in from its page.",
     );
     expect(removeBody({ skills_dir: "~/.copilot/skills" })).toBe(
       "Berth deletes its install. Its settings and sign-in in ~/.copilot stay.",
     );
+  });
+
+  it("names agents in URLs without their scope, unless two share a name", () => {
+    const all = [
+      pkg("@anthropic-ai/claude-code", true),
+      pkg("opencode-ai", true),
+      pkg("@a/cli", true),
+      pkg("@b/cli", true),
+      { ...pkg("@x/claude-code-mcp", true), kind: "mcp" },
+    ];
+    expect(agentSlug("@anthropic-ai/claude-code", all)).toBe("claude-code");
+    expect(agentSlug("opencode-ai", all)).toBe("opencode-ai");
+    expect(agentSlug("@a/cli", all)).toBe("a~cli");
+    expect(findAgent(all, "claude-code")?.package).toBe("@anthropic-ai/claude-code");
+    expect(findAgent(all, "b~cli")?.package).toBe("@b/cli");
+    expect(findAgent(all, "cli")).toBeUndefined();
+    expect(findAgent(all, "claude-code-mcp")).toBeUndefined();
+  });
+
+  const method = (m: Partial<LoginMethodStatus>): LoginMethodStatus => ({
+    id: "m",
+    label: "M",
+    flow: "device",
+    signed_in: false,
+    account: "",
+    error: "",
+    ...m,
+  });
+
+  it("sums an agent's sign-ins for its card", () => {
+    expect(signInSummary(false, [method({ signed_in: true })], false)).toEqual({ state: "off" });
+    expect(signInSummary(true, undefined, true)).toEqual({ state: "loading" });
+    expect(signInSummary(true, [], false)).toEqual({ state: "none" });
+    expect(
+      signInSummary(
+        true,
+        [method({}), method({ signed_in: true, account: "you@example.org" })],
+        false,
+      ),
+    ).toEqual({ state: "signed_in", account: "you@example.org" });
+    expect(signInSummary(true, [method({ signed_in: true })], false)).toEqual({
+      state: "signed_in",
+      account: undefined,
+    });
+    expect(signInSummary(true, [method({}), method({ error: "timeout" })], false)).toEqual({
+      state: "probe_failed",
+    });
+    expect(signInSummary(true, [method({})], false)).toEqual({ state: "signed_out" });
+  });
+
+  const period = (total: number, sessions: number) => ({
+    input: 0,
+    output: 0,
+    cache_read: 0,
+    cache_write: 0,
+    total,
+    messages: 0,
+    sessions,
+  });
+  const usage = (u: Partial<AgentUsage>): AgentUsage => ({
+    name: "A",
+    tracked: true,
+    today: period(0, 0),
+    week: period(0, 0),
+    days: [],
+    models: [],
+    last_active: null,
+    error: "",
+    ...u,
+  });
+
+  it("words an agent's usage for its card", () => {
+    const now = Date.parse("2026-11-01T15:00:00Z");
+    expect(usageFacts(undefined)).toEqual([]);
+    expect(usageFacts(usage({ tracked: false }))).toEqual([
+      ["Usage", "Not tracked for this agent"],
+    ]);
+    expect(
+      usageFacts(
+        usage({
+          today: period(1_368_850, 1),
+          week: period(8_347_775, 14),
+          last_active: "2026-11-01T14:48:00Z",
+        }),
+        now,
+      ),
+    ).toEqual([
+      ["Today", "1.4M tokens · 1 session"],
+      ["Last 7 days", "8.3M tokens · 14 sessions"],
+      ["Last active", "12 min ago"],
+    ]);
+    expect(lastActive(null)).toBe("Not used in the last 7 days");
   });
 });

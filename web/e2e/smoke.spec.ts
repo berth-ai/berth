@@ -53,6 +53,7 @@ test("every page renders inside the CSP", async ({ page }) => {
     ["#/", "Overview"],
     ["#/workspaces", "Workspaces"],
     ["#/agents", "Agents"],
+    ["#/agents/agent-cli", "Example Agent"],
     ["#/mcp", "MCP servers"],
     ["#/skills", "Skills"],
     ["#/tools", "Tools"],
@@ -164,11 +165,13 @@ test("a user tool upgrades in place and an MCP server switches off", async ({ pa
   await expect(page.getByText(/Files MCP is on\./)).toBeVisible();
 
   await page.goto(`${NORMAL}/#/agents`);
-  const agent = page.getByRole("row").filter({ hasText: "Example Agent" });
-  await agent.getByRole("button", { name: "Manage Example Agent" }).click();
-  await expect(page.getByLabel("EXAMPLE_API_KEY")).toBeVisible();
   await page.getByRole("button", { name: "Package versions for 3f9c2a7d" }).click();
-  await expect(page.getByText("@example/agent-cli").first()).toBeVisible();
+  await expect(
+    page.getByRole("table", { name: "Version history" }).getByText("@example/agent-cli"),
+  ).toBeVisible();
+  await page.getByRole("link", { name: "Manage Example Agent" }).click();
+  await expect(page).toHaveURL(/#\/agents\/agent-cli$/);
+  await expect(page.getByLabel("EXAMPLE_API_KEY")).toBeVisible();
   expect(problems).toEqual([]);
 });
 
@@ -179,6 +182,7 @@ test("nothing scrolls sideways at 400 px", async ({ page }) => {
     ["#/", "Overview"],
     ["#/workspaces", "Workspaces"],
     ["#/agents", "Agents"],
+    ["#/agents/agent-cli", "Usage by model"],
     ["#/mcp", "MCP servers"],
     ["#/skills", "Skills"],
     ["#/tools", "Tools"],
@@ -426,10 +430,13 @@ test("agents sign in with a pasted code and a device code, and sign out", async 
   const problems = await watch(page);
   await signIn(page);
   await page.goto(`${NORMAL}/#/agents`);
-  const example = page.getByRole("row").filter({ hasText: "@example/agent-cli" });
-  await expect(example.getByText("Signed out")).toBeVisible();
+  const card = (name: string) =>
+    page.locator("[data-slot=card]").filter({ has: page.getByText(name, { exact: true }) });
+  await expect(card("Example Agent").getByText("Signed out")).toBeVisible();
 
-  await example.getByRole("button", { name: "Sign in Example Agent with Example account" }).click();
+  await page.getByRole("link", { name: "Manage Example Agent" }).click();
+  await expect(h1(page, "Example Agent")).toBeVisible();
+  await page.getByRole("button", { name: "Sign in Example Agent with Example account" }).click();
   // Toasts are dialogs too; name the sign-in one.
   const dialog = page.getByRole("dialog", { name: /^Sign in to / });
   await expect(dialog.getByText("Sign in to Example Agent · Example account")).toBeVisible();
@@ -442,21 +449,60 @@ test("agents sign in with a pasted code and a device code, and sign out", async 
   await dialog.getByLabel("Code").fill("  good-code ");
   await dialog.getByRole("button", { name: "Submit code" }).click();
   await expect(page.getByText("Example Agent: signed in as you@example.org.")).toBeVisible();
-  await expect(example.getByText("you@example.org")).toBeVisible();
+  await expect(page.getByText("you@example.org", { exact: true })).toBeVisible();
 
-  const other = page.getByRole("row").filter({ hasText: "@example/other-cli" });
-  await other.getByRole("button", { name: "Sign in Other Agent with GitHub Copilot" }).click();
+  await page.goto(`${NORMAL}/#/agents/other-cli`);
+  await expect(h1(page, "Other Agent")).toBeVisible();
+  await page.getByRole("button", { name: "Sign in Other Agent with GitHub Copilot" }).click();
   await expect(dialog.getByText("WXYZ-1234")).toBeVisible();
   await expect(page.getByText("Other Agent: signed in as you@example.org.")).toBeVisible();
 
-  await other.getByRole("button", { name: "Sign in Other Agent with ChatGPT" }).click();
+  await page.getByRole("button", { name: "Sign in Other Agent with ChatGPT" }).click();
   await dialog.getByRole("button", { name: "Cancel" }).click();
   await expect(dialog).toHaveCount(0);
 
-  await example.getByRole("button", { name: "Sign Example Agent out of Example account" }).click();
+  // The cards sum the sign-ins: Other Agent is signed in through one method.
+  await page.goto(`${NORMAL}/#/agents`);
+  await expect(card("Other Agent").getByText("you@example.org")).toBeVisible();
+  await expect(card("Example Agent").getByText("you@example.org")).toBeVisible();
+
+  await page.goto(`${NORMAL}/#/agents/agent-cli`);
+  await page.getByRole("button", { name: "Sign Example Agent out of Example account" }).click();
   await page.getByRole("alertdialog").getByRole("button", { name: "Sign out" }).click();
   await expect(page.getByText("Example Agent is signed out of Example account.")).toBeVisible();
-  await expect(example.getByText("Signed out")).toBeVisible();
+  await expect(page.getByText("Signed out", { exact: true })).toBeVisible();
+  expect(problems).toEqual([]);
+});
+
+test("agents show their usage on the cards and on their page", async ({ page }) => {
+  const problems = await watch(page);
+  await signIn(page);
+  await page.goto(`${NORMAL}/#/agents`);
+  const card = (name: string) =>
+    page.locator("[data-slot=card]").filter({ has: page.getByText(name, { exact: true }) });
+  await expect(card("Example Agent").getByText("1.4M tokens · 3 sessions")).toBeVisible();
+  await expect(card("Example Agent").getByText("8.3M tokens · 14 sessions")).toBeVisible();
+  await expect(card("Example Agent").getByText("12 min ago")).toBeVisible();
+  await expect(card("Other Agent").getByText("Not used in the last 7 days")).toBeVisible();
+
+  await page.getByRole("link", { name: "Manage Example Agent" }).click();
+  const models = page.getByRole("table", { name: "Usage by model" });
+  await expect(models.getByRole("row").filter({ hasText: "example-large-2" })).toContainText(
+    "7.6M",
+  );
+  const days = page.getByRole("list", { name: "Tokens per day" }).getByRole("listitem");
+  await expect(days).toHaveCount(7);
+  await days.last().focus();
+  await expect(page.getByText("· 1.4M tokens")).toBeVisible();
+  // Off: the page says so and hides the sign-in, and the card shows Off.
+  await page.getByRole("switch", { name: "Turn off Example Agent" }).click();
+  await expect(page.getByText(/Example Agent is off\. Turn it on/)).toBeVisible();
+  await expect(page.locator("[data-slot=card-title]", { hasText: /^Sign-in$/ })).toHaveCount(0);
+  await page.getByRole("switch", { name: "Turn on Example Agent" }).click();
+  await expect(page.locator("[data-slot=card-title]", { hasText: /^Sign-in$/ })).toBeVisible();
+
+  await page.goto(`${NORMAL}/#/agents/nope`);
+  await expect(h1(page, "Agent not found")).toBeVisible();
   expect(problems).toEqual([]);
 });
 
@@ -495,7 +541,7 @@ test("code hosts sign in with a device code and a token, and sign out", async ({
   expect(problems).toEqual([]);
 });
 
-test("a registry agent is added, gets a Sign-in column and is removed", async ({ page }) => {
+test("a registry agent is added, gets a sign-in and is removed", async ({ page }) => {
   const problems = await watch(page);
   await signIn(page);
   await page.goto(`${NORMAL}/#/agents`);
@@ -505,22 +551,27 @@ test("a registry agent is added, gets a Sign-in column and is removed", async ({
   const dialog = page.getByRole("dialog", { name: "Add an agent" });
   await expect(dialog.getByText("GitHub Copilot CLI")).toBeVisible();
   await dialog.getByRole("button", { name: "Add GitHub Copilot CLI" }).click();
-  await expect(page.getByText("GitHub Copilot CLI added. Sign in from its row.")).toBeVisible();
+  await expect(page.getByText("GitHub Copilot CLI added. Sign in from its page.")).toBeVisible();
   await expect(dialog).toBeHidden();
-  const row = page
-    .getByRole("table", { name: "Agents" })
-    .getByRole("row")
-    .filter({ hasText: "GitHub Copilot CLI" });
-  await expect(row.getByText("Added")).toBeVisible();
-  await expect(
-    row.getByRole("button", { name: "Sign in GitHub Copilot CLI with GitHub" }),
-  ).toBeVisible();
+  const card = page
+    .locator("[data-slot=card]")
+    .filter({ has: page.getByText("GitHub Copilot CLI", { exact: true }) });
+  await expect(card.getByText("Added")).toBeVisible();
+  await expect(card.getByText("Not tracked for this agent")).toBeVisible();
   await expect(page.getByRole("button", { name: "Add agent" })).toBeHidden();
-  await row.getByRole("button", { name: "Remove GitHub Copilot CLI" }).click();
+
+  await page.getByRole("link", { name: "Manage GitHub Copilot CLI" }).click();
+  await expect(page).toHaveURL(/#\/agents\/copilot$/);
+  await expect(
+    page.getByRole("button", { name: "Sign in GitHub Copilot CLI with GitHub" }),
+  ).toBeVisible();
+  await expect(page.getByText(/Berth can't read GitHub Copilot CLI's usage yet/)).toBeVisible();
+  await page.getByRole("button", { name: "Remove GitHub Copilot CLI" }).click();
   const confirm = page.getByRole("alertdialog", { name: "Remove GitHub Copilot CLI?" });
   await expect(confirm.getByText("~/.copilot")).toBeVisible();
   await confirm.getByRole("button", { name: "Remove" }).click();
-  await expect(row).toBeHidden();
+  await expect(h1(page, "Agents")).toBeVisible();
+  await expect(card).toBeHidden();
   await expect(page.getByRole("button", { name: "Add agent" })).toBeVisible();
   expect(problems).toEqual([]);
 });

@@ -377,6 +377,47 @@ export interface LoginStatus {
   agents: Record<string, { name: string; methods: LoginMethodStatus[] | null }> | null;
 }
 
+/** UsageTokens counts tokens by kind; cache reads are input served from
+ * the prompt cache, cache writes input stored in it. */
+export interface UsageTokens {
+  input: number;
+  output: number;
+  cache_read: number;
+  cache_write: number;
+}
+
+export interface UsagePeriod extends UsageTokens {
+  total: number;
+  messages: number;
+  sessions: number;
+}
+
+export interface UsageModel extends UsageTokens {
+  model: string;
+  total: number;
+  messages: number;
+}
+
+/** AgentUsage is one agent in agents.usage, read from its own session files. */
+export interface AgentUsage {
+  name: string;
+  /** tracked is false when Berth cannot read this agent's usage. */
+  tracked: boolean;
+  today: UsagePeriod;
+  week: UsagePeriod;
+  /** days runs oldest first, one entry per calendar day. */
+  days: { date: string; total: number }[] | null;
+  models: UsageModel[] | null;
+  last_active: string | null;
+  error: string;
+}
+
+export interface UsageReport {
+  schema: number;
+  since: string;
+  agents: Record<string, AgentUsage> | null;
+}
+
 export interface Tool {
   name: string;
   version: string;

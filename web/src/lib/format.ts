@@ -56,7 +56,41 @@ export function describeChanges(ch: Changes | null | undefined): string {
   return `Saved; ${parts.join("; ")}.`;
 }
 
+const UNITS = [
+  [1e3, "k"],
+  [1e6, "M"],
+  [1e9, "B"],
+] as const;
+
+const round = (v: number) => (v >= 100 ? Math.round(v) : Number(v.toFixed(1)));
+
+/** tokens shortens a token count: 950, 12.3k, 4.5M. */
+export function tokens(n: number): string {
+  if (n < 1000) return String(n);
+  let i = n >= 1e9 ? 2 : n >= 1e6 ? 1 : 0;
+  let v = round(n / UNITS[i][0]);
+  // 999,999 rounds up to 1000k: say 1M.
+  if (v >= 1000 && i < UNITS.length - 1) v = round(n / UNITS[++i][0]);
+  return `${v}${UNITS[i][1]}`;
+}
+
 /** count words a number with its noun: "1 agent", "3 agents". */
 export function count(n: number, one: string, many: string): string {
   return `${n} ${n === 1 ? one : many}`;
+}
+
+/** dayLabel is a short weekday for a YYYY-MM-DD date: "Mon". */
+export function dayLabel(date: string): string {
+  const [y, m, d] = date.split("-").map(Number);
+  return new Date(y, m - 1, d).toLocaleDateString(undefined, { weekday: "short" });
+}
+
+/** dayTitle is a full date for a YYYY-MM-DD date: "Monday 26 October". */
+export function dayTitle(date: string): string {
+  const [y, m, d] = date.split("-").map(Number);
+  return new Date(y, m - 1, d).toLocaleDateString(undefined, {
+    weekday: "long",
+    day: "numeric",
+    month: "long",
+  });
 }

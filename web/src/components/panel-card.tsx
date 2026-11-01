@@ -6,6 +6,7 @@ import { cn } from "@/lib/utils";
  * actions, a body, and an optional footer. */
 export function PanelCard({
   title,
+  icon,
   badge,
   actions,
   footer,
@@ -14,6 +15,8 @@ export function PanelCard({
   children,
 }: {
   title?: string;
+  /** icon sits before the title, as an agent's brand mark does. */
+  icon?: ReactNode;
   badge?: ReactNode;
   actions?: ReactNode;
   footer?: ReactNode;
@@ -25,6 +28,7 @@ export function PanelCard({
     <Card className={cn("min-w-0 gap-0 py-0", failed && "border-bad", className)}>
       {title ? (
         <CardHeader className="flex flex-wrap items-center gap-2 border-b px-4 py-3">
+          {icon}
           <CardTitle>{title}</CardTitle>
           {badge}
           <span className="flex-1" />
