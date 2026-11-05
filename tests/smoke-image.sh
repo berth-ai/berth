@@ -253,6 +253,9 @@ verb() {
 }
 rev() { x "$1" berth config get --json | jq -r .config.revision; }
 
+step "runtime libraries"
+x main sh -c 'ldconfig -p | grep -q "libatomic\.so\.1 "' || fail "libatomic.so.1 missing; standalone pnpm cannot start"
+
 step "agent toggles and API keys"
 x main test -L /var/lib/berth/bin || fail "the agent layer is not a symlink"
 for agent in claude codex gemini opencode; do

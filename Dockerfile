@@ -96,17 +96,18 @@ ARG TEA_SHA256_AMD64=9c142c8a0b31485eea2387031c1c404f12b7141075eb4ffbd7ced494415
 ARG TEA_SHA256_ARM64=0e14a036322eeb1fc55e266acafeb8490e523ed99f9232034ae74861e2339879
 # Orca publishes no checksums; hash the release asset with sha256sum.
 # renovate: datasource=github-releases depName=stablyai/orca extractVersion=^v(?<version>.*)$
-ARG ORCA_VERSION=1.4.245
-ARG ORCA_SHA256_AMD64=54420e22d49dda9df66ed4e943b62844c955d4fd9d5c1059bf8f7702b760bc89
+ARG ORCA_VERSION=1.4.250
+ARG ORCA_SHA256_AMD64=ca2322046c2a42cec59c0a57382b2b782f784ed64861deac0154b38e1577810e
 
 SHELL ["/bin/bash", "-euo", "pipefail", "-c"]
 ENV DEBIAN_FRONTEND=noninteractive TZ=UTC
 
 # Core packages. On a failed install, read the first E:/Err: line, not the exit code.
+# libatomic1: standalone Node binaries such as @pnpm/exe link against it.
 RUN apt-get update \
  && apt-get install -y --no-install-recommends \
       passwd tini gosu ca-certificates curl git zsh tmux locales tzdata \
-      openssh-client jq less procps xz-utils \
+      openssh-client jq less procps xz-utils libatomic1 \
  && sed -i 's/^# *en_US.UTF-8/en_US.UTF-8/' /etc/locale.gen && locale-gen \
  && rm -rf /var/lib/apt/lists/*
 
