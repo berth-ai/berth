@@ -1,11 +1,11 @@
-# syntax=docker/dockerfile:1.19
+# syntax=docker/dockerfile:1.28
 
 # renovate: datasource=docker depName=ubuntu
 ARG UBUNTU_IMAGE=ubuntu:24.04@sha256:fe81560990fae86dc4743202b2cb4d3df98d0bcf949173cecef15ce1127ef852
 # renovate: datasource=docker depName=golang
-ARG GO_IMAGE=golang:1.27.3-bookworm@sha256:d9b6a1beb9474adc2a1ce842573639b44b2a0dd49b6669f51d3821baf9ec37c9
+ARG GO_IMAGE=golang:1.27.3-bookworm@sha256:dc0963f32053e4bc451d24d87e3892d42d01021b61f093e98eb95c0352bb84b0
 # renovate: datasource=docker depName=node
-ARG NODE_IMAGE=node:24.22.2-bookworm-slim@sha256:c86ecead9e55a5210ac1727de38a4ca840bf03dcaf34dc9749addbf383b1920c
+ARG NODE_IMAGE=node:24.22.2-bookworm-slim@sha256:01d566e8d94d8c619591d78652babfccd3c6992a3dffa9ed5ab39e11cf6c70e9
 
 # --------------------------------------------------------------- web-build
 # The panel UI. Its output is architecture independent, so it builds once on
@@ -41,9 +41,9 @@ RUN CGO_ENABLED=0 GOOS=linux GOARCH=${TARGETARCH} go build -trimpath \
 FROM ${UBUNTU_IMAGE} AS tools
 ARG TARGETARCH
 # renovate: datasource=github-releases depName=jdx/mise extractVersion=^v(?<version>.*)$
-ARG MISE_VERSION=2026.10.25
-ARG MISE_SHA256_AMD64=5d362ecc578dc7c146679b841dda949d6472cbf86ff5635db7afdca1b6b3fd87
-ARG MISE_SHA256_ARM64=bb09e88b13164ca90691a5cc042726d079f0ba26ab55527344cb173c2e83c998
+ARG MISE_VERSION=2026.11.5
+ARG MISE_SHA256_AMD64=7a5b051d6f17d335c502f8047a5175cf3103f347d91942771c60da4e302ebcb0
+ARG MISE_SHA256_ARM64=3cb907fc1d3f033afab40b4a8efca4fd71440bf91b63bfca3beb3302b0f3a6d5
 SHELL ["/bin/bash", "-euo", "pipefail", "-c"]
 RUN apt-get update \
  && apt-get install -y --no-install-recommends ca-certificates curl git xz-utils bzip2 unzip \
@@ -80,9 +80,9 @@ ARG TTYD_VERSION=1.7.7
 ARG TTYD_SHA256_AMD64=8a217c968aba172e0dbf3f34447218dc015bc4d5e59bf51db2f2cd12b7be4f55
 ARG TTYD_SHA256_ARM64=b38acadd89d1d396a0f5649aa52c539edbad07f4bc7348b27b4f4b7219dd4165
 # renovate: datasource=github-releases depName=coder/code-server extractVersion=^v(?<version>.*)$
-ARG CODE_SERVER_VERSION=4.144.0
-ARG CODE_SERVER_SHA256_AMD64=710f749c40a0f3d0ab3be09c0de65314e5c2907cc50646f5fbc0f24c0e8fba2d
-ARG CODE_SERVER_SHA256_ARM64=4404c784f541bd56a2a8d6e2a9474ed0b4e37bc8502aa3a247898ca933434482
+ARG CODE_SERVER_VERSION=4.145.2
+ARG CODE_SERVER_SHA256_AMD64=2f6db6c3e8b733dd6b3aeee83532e148b2bae2e392353ba85452d03572348962
+ARG CODE_SERVER_SHA256_ARM64=e867a34416e2da4a83496b09580001893e7a4e5bb58a0624c4fcd22819e7d53d
 # renovate: datasource=github-tags depName=tmux-plugins/tmux-resurrect
 ARG TMUX_RESURRECT_VERSION=v4.0.0
 ARG TMUX_RESURRECT_SHA256=f8559d86d81be769054d63b28a268229a09bc6cc311f0623656c3090ec781b76
@@ -96,8 +96,8 @@ ARG TEA_SHA256_AMD64=9c142c8a0b31485eea2387031c1c404f12b7141075eb4ffbd7ced494415
 ARG TEA_SHA256_ARM64=0e14a036322eeb1fc55e266acafeb8490e523ed99f9232034ae74861e2339879
 # Orca publishes no checksums; hash the release asset with sha256sum.
 # renovate: datasource=github-releases depName=stablyai/orca extractVersion=^v(?<version>.*)$
-ARG ORCA_VERSION=1.4.250
-ARG ORCA_SHA256_AMD64=ca2322046c2a42cec59c0a57382b2b782f784ed64861deac0154b38e1577810e
+ARG ORCA_VERSION=1.4.255
+ARG ORCA_SHA256_AMD64=6df53f4f6c919fd1f10dfe3511940934acc940a7754eb1b0e896d2c62e4add5a
 
 SHELL ["/bin/bash", "-euo", "pipefail", "-c"]
 ENV DEBIAN_FRONTEND=noninteractive TZ=UTC
