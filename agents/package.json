@@ -3,11 +3,11 @@
   "private": true,
   "description": "Agent CLIs and MCP servers installed by berth update. Exact versions only.",
   "dependencies": {
-    "@anthropic-ai/claude-code": "2.1.316",
-    "@google/gemini-cli": "0.66.0",
-    "@openai/codex": "0.166.0",
-    "@playwright/mcp": "0.0.84",
-    "@upstash/context7-mcp": "4.4.4",
+    "@anthropic-ai/claude-code": "2.1.321",
+    "@google/gemini-cli": "0.67.0",
+    "@openai/codex": "0.167.0",
+    "@playwright/mcp": "0.0.85",
+    "@upstash/context7-mcp": "4.6.0",
     "opencode-ai": "1.19.5"
   },
   "berth": {
