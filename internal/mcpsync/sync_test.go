@@ -3,6 +3,7 @@ package mcpsync
 import (
 	"bytes"
 	"encoding/json"
+	"maps"
 	"os"
 	"path/filepath"
 	"slices"
@@ -82,6 +83,7 @@ func newFixture(t *testing.T) *fixture {
 	for _, bin := range fixtureDeps {
 		f.enable(bin)
 	}
+	f.settings(config.MCP{})
 	f.load()
 	return f
 }
@@ -441,7 +443,19 @@ func TestOnlyLegacyAgentsAreSeeded(t *testing.T) {
 	}
 }
 
+// settings publishes m with every server it does not narrow, the lock's
+// and the remote ones, available to all agents; rawSettings leaves m as is.
 func (f *fixture) settings(m config.MCP) {
+	avail := map[string][]string{}
+	for _, id := range append([]string{"playwright", "context7"}, slices.Collect(maps.Keys(m.Servers))...) {
+		avail[id] = []string{config.AllAgents}
+	}
+	maps.Copy(avail, m.Available)
+	m.Available = avail
+	f.rawSettings(m)
+}
+
+func (f *fixture) rawSettings(m config.MCP) {
 	if m.Servers == nil {
 		m.Servers = map[string]config.MCPServer{}
 	}
@@ -561,10 +575,31 @@ func TestRemoteClashWithLockIDIsSkipped(t *testing.T) {
 	}
 }
 
+func TestServerWithoutListReachesNoAgent(t *testing.T) {
+	f := newFixture(t)
+	f.rawSettings(config.MCP{Servers: linear, Available: map[string][]string{"context7": {"a-cli"}}})
+	f.sync()
+	if got := f.servers(aFile, "mcpServers"); !slices.Equal(got, []string{"context7"}) {
+		t.Errorf("A servers = %v", got)
+	}
+	if _, err := os.Stat(f.path(oFile)); err == nil {
+		t.Errorf("O config written:\n%s", f.read(oFile))
+	}
+}
+
+func TestSchema1SettingsDropTheirLists(t *testing.T) {
+	f := newFixture(t)
+	must(t, os.WriteFile(f.s.Settings, []byte(`{"schema":1,"available":{"context7":["a-cli"]}}`), 0o644))
+	f.sync()
+	if _, err := os.Stat(f.path(aFile)); err == nil {
+		t.Errorf("A config written:\n%s", f.read(aFile))
+	}
+}
+
 func TestNewerSettingsSchemaFails(t *testing.T) {
 	f := newFixture(t)
-	must(t, os.WriteFile(f.s.Settings, []byte(`{"schema":2}`), 0o644))
-	if err := f.s.Run(); err == nil || !strings.Contains(err.Error(), "schema 2") {
+	must(t, os.WriteFile(f.s.Settings, []byte(`{"schema":3}`), 0o644))
+	if err := f.s.Run(); err == nil || !strings.Contains(err.Error(), "schema 3") {
 		t.Errorf("err = %v", err)
 	}
 }

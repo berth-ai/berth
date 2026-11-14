@@ -7,7 +7,7 @@
     "stopped": []
   },
   "config": {
-    "schema": 6,
+    "schema": 7,
     "revision": 1,
     "frontends": {
       "terminal": {

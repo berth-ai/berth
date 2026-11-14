@@ -90,7 +90,7 @@ func newFake(mode string) *fake {
 
 func defaultConfig(rev int) map[string]any {
 	return map[string]any{
-		"schema": 6, "revision": rev,
+		"schema": 7, "revision": rev,
 		"frontends": map[string]any{"terminal": map[string]any{"enabled": true}, "ide": map[string]any{"enabled": false},
 			"orca": map[string]any{"enabled": false, "pairing_address": ""}},
 		"agents":     map[string]any{"ref": "main", "disabled": []any{}, "added": []any{}, "keep": 2, "boot_timeout": 600, "mcp_timeout": 300},
@@ -1313,9 +1313,16 @@ func forgetRefs(cfg map[string]any, id string) {
 	delete(cfg["workspaces"].(map[string]any), id)
 	for _, s := range sourcesOf(cfg) {
 		attached, _ := s.(map[string]any)["attached"].(map[string]any)
-		for _, a := range attached {
-			if wss, ok := a.(map[string]any)["workspaces"].(map[string]any); ok {
-				delete(wss, id)
+		for name, a := range attached {
+			att := a.(map[string]any)
+			wss, ok := att["workspaces"].(map[string]any)
+			if _, has := wss[id]; !ok || !has {
+				continue
+			}
+			delete(wss, id)
+			// Like the broker, detach a skill that reached only this workspace.
+			if agents, isList := att["agents"].([]any); isList && len(agents) == 0 && len(wss) == 0 {
+				delete(attached, name)
 			}
 		}
 	}

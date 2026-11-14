@@ -10,6 +10,7 @@ import {
   diffOf,
   dropsAttached,
   enabledPatch,
+  filterRows,
   foundRows,
   hasSuggested,
   missingNames,
@@ -217,5 +218,27 @@ describe("previews and results", () => {
     expect(sourceIdError("acme-tools")).toBe("");
     expect(sourceIdError("Acme")).not.toBe("");
     expect(sourceIdError("a".repeat(65))).not.toBe("");
+  });
+});
+
+describe("filterRows", () => {
+  const src: Source = {
+    repo: "https://github.com/o/r",
+    ref: "main",
+    path: "",
+    commit: "0123456789abcdef0123456789abcdef01234567",
+    found: {
+      pdf: { path: "pdf", description: "Read PDF files" },
+      docx: { path: "docx", description: "Word documents" },
+    },
+    attached: { docx: { enabled: true, agents: [] } },
+  };
+  it("matches names and descriptions, and narrows to the attached", () => {
+    const rows = foundRows(src);
+    expect(filterRows(rows, "", "all").map((r) => r.name)).toEqual(["docx", "pdf"]);
+    expect(filterRows(rows, " PDF ", "all").map((r) => r.name)).toEqual(["pdf"]);
+    expect(filterRows(rows, "word", "all").map((r) => r.name)).toEqual(["docx"]);
+    expect(filterRows(rows, "", "attached").map((r) => r.name)).toEqual(["docx"]);
+    expect(filterRows(rows, "pdf", "attached")).toEqual([]);
   });
 });

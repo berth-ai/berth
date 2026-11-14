@@ -14,18 +14,23 @@ export function Page({ narrow, children }: { narrow?: boolean; children: ReactNo
   );
 }
 
+/** PageHeader is a page's title row; back, a link to the parent page, sits
+ * above the title. */
 export function PageHeader({
   title,
   description,
   actions,
+  back,
 }: {
   title: string;
   description?: string;
   actions?: ReactNode;
+  back?: ReactNode;
 }) {
   return (
     <header className="flex flex-wrap items-end gap-3">
       <div className="flex min-w-0 flex-[1_1_280px] flex-col gap-0.5">
+        {back ? <div className="mb-1">{back}</div> : null}
         <h1>{title}</h1>
         {description ? <p className="text-fg-muted">{description}</p> : null}
       </div>

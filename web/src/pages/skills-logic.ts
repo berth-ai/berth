@@ -100,3 +100,51 @@ export function reachLabel(value: string[] | null, agents: AgentPackage[]): stri
 /** SkillView is the Skills table's layout: grouped by source, or one flat list. */
 export type SkillView = "source" | "flat";
 export const parseSkillView = (v: unknown): SkillView => (v === "flat" ? "flat" : "source");
+
+type Forge = "github" | "gitlab" | "gitea";
+
+/** forgeOf guesses a host's web layout; an unknown host gets no deep links. */
+function forgeOf(host: string): Forge | null {
+  if (host === "github.com") return "github";
+  if (host.includes("gitlab")) return "gitlab";
+  if (/gitea|forgejo|codeberg/.test(host)) return "gitea";
+  return null;
+}
+
+/** repoHome is a repository's web page: its URL without a trailing / or .git. */
+export const repoHome = (repo: string) => repo.replace(/\/+$/, "").replace(/\.git$/, "");
+
+/** treeUrl is the web page of folder at commit, or null on an unknown host. */
+export function treeUrl(repo: string, commit: string, folder: string): string | null {
+  let host: string;
+  try {
+    host = new URL(repo).host;
+  } catch {
+    return null;
+  }
+  const p = folder ? `/${folder.split("/").map(encodeURIComponent).join("/")}` : "";
+  const home = repoHome(repo);
+  switch (forgeOf(host)) {
+    case "github":
+      return `${home}/tree/${commit}${p}`;
+    case "gitlab":
+      return `${home}/-/tree/${commit}${p}`;
+    case "gitea":
+      return `${home}/src/commit/${commit}${p}`;
+    default:
+      return null;
+  }
+}
+
+/** commitUrl is the web page of a commit, or null on an unknown host. */
+export function commitUrl(repo: string, commit: string): string | null {
+  let host: string;
+  try {
+    host = new URL(repo).host;
+  } catch {
+    return null;
+  }
+  const forge = forgeOf(host);
+  if (!forge) return null;
+  return `${repoHome(repo)}${forge === "gitlab" ? "/-" : ""}/commit/${commit}`;
+}

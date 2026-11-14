@@ -222,3 +222,17 @@ export const sourceIdError = (id: string) =>
 
 /** exportPath is where the agent's home keeps an attached skill (skills.StoreDir). */
 export const exportPath = (id: string, name: string) => `~/.local/share/berth/skills/${id}/${name}`;
+
+/** SkillFilter narrows a source's skills: every one, or the attached ones. */
+export type SkillFilter = "all" | "attached";
+
+/** filterRows keeps the rows whose name or description matches query and,
+ * for "attached", that are attached. */
+export function filterRows(rows: FoundRow[], query: string, filter: SkillFilter): FoundRow[] {
+  const q = query.trim().toLowerCase();
+  return rows.filter(
+    (r) =>
+      (filter === "all" || r.attachment) &&
+      (!q || r.name.includes(q) || (r.found.description ?? "").toLowerCase().includes(q)),
+  );
+}

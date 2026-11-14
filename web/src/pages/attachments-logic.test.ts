@@ -151,8 +151,10 @@ describe("workspace attachments", () => {
     expect(mcpWorkspacesPatch("c7", ["b", "a"])).toEqual({
       mcp: { workspaces: { c7: ["a", "b"] } },
     });
-    expect(mcpTargetsText(undefined, ["api"], AGENTS)).toBe("All agents · api");
-    expect(mcpTargetsText([], [], AGENTS)).toBe("No installed agent");
+    expect(mcpTargetsText(null, ["api"], AGENTS)).toBe("All agents · api");
+    expect(mcpTargetsText([], ["api"], AGENTS)).toBe("api");
+    expect(mcpTargetsText([], [], AGENTS)).toBe("Not attached");
+    expect(mcpTargetsText(["gone"], [], AGENTS)).toBe("No installed agent");
   });
 
   it("explains each project file", () => {

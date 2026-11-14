@@ -29,7 +29,8 @@ import { AUTH_LABELS, idError, serverPatch, tokenName, urlError } from "./mcp-lo
 export interface Editing {
   id: string;
   server: McpServer;
-  available: string[] | undefined;
+  /** Who the server reaches, as AgentChecklist holds it. */
+  available: string[] | null;
 }
 
 const AUTH_ITEMS = (Object.keys(AUTH_LABELS) as McpAuth[]).map((value) => ({
@@ -53,7 +54,8 @@ export function McpServerDialog({
   const [url, setUrl] = useState(editing?.server.url ?? "");
   const [auth, setAuth] = useState<McpAuth>(editing?.server.auth ?? "none");
   const [token, setToken] = useState("");
-  const [available, setAvailable] = useState<string[] | null>(editing?.available ?? null);
+  // A new server reaches no agent until the user picks some.
+  const [available, setAvailable] = useState<string[] | null>(editing ? editing.available : []);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState(false);
   const ids = { id: useId(), url: useId(), auth: useId(), token: useId() };
@@ -165,6 +167,11 @@ export function McpServerDialog({
           </FormField>
         ) : null}
         <AgentChecklist value={available} agents={agents} onChange={setAvailable} />
+        {available !== null && !available.length ? (
+          <p className="text-xs text-fg-muted">
+            No agent gets it yet. You can also attach it to workspaces from the server list.
+          </p>
+        ) : null}
         {errors.form ? <InlineAlert tone="bad">{errors.form}</InlineAlert> : null}
         <DialogFooter>
           <Button variant="outline" onClick={onClose} disabled={busy}>

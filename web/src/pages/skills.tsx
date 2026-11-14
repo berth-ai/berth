@@ -9,7 +9,7 @@ import { LoadingRows } from "@/components/loading";
 import { Page, PageHeader } from "@/components/page";
 import { PanelCard } from "@/components/panel-card";
 import { Segmented } from "@/components/segmented";
-import { Button, buttonVariants } from "@/components/ui/button";
+import { Button } from "@/components/ui/button";
 import {
   Table,
   TableBody,
@@ -201,17 +201,36 @@ function SourceTable({
   );
 }
 
-/** SourceRow is one source: repository and folder, ref and commit, counts. */
+/** SourceRow is one source: repository and folder, ref and commit, counts.
+ * The repository links to the source's page, and so does a click anywhere
+ * else on the row. */
 function SourceRow({ id, source }: { id: string; source: Source }) {
   const missing = missingNames(source).length;
   const [updating, setUpdating] = useState(false);
+  const navigate = useNavigate();
   return (
-    <TableRow>
+    <TableRow
+      className="cursor-pointer"
+      onClick={(e) => {
+        // Clicks from the Update dialog's portal bubble here too.
+        const target = e.target as HTMLElement;
+        if (!e.currentTarget.contains(target) || target.closest("a, button")) return;
+        if (window.getSelection()?.toString()) return;
+        void navigate({ to: "/skills/$id", params: { id } });
+      }}
+    >
       <TableCell data-label="">
         <div className="flex min-w-0 flex-col gap-0.5">
-          <span className={cn(mono, "font-semibold break-all text-fg")}>
+          <Link
+            to="/skills/$id"
+            params={{ id }}
+            className={cn(
+              mono,
+              "w-fit font-semibold break-all text-accent-text hover:text-accent-hover",
+            )}
+          >
             {repoLabel(source.repo)}
-          </span>
+          </Link>
           <span className={cn(mono, "text-fg-muted")}>
             {id} · {source.path || "/"}
           </span>
@@ -228,24 +247,14 @@ function SourceRow({ id, source }: { id: string; source: Source }) {
         {missing ? <span className="text-warn"> · {missing} missing</span> : null}
       </TableCell>
       <TableCell className="text-right">
-        <div className="inline-flex gap-2">
-          <Button
-            variant="outline"
-            size="sm"
-            aria-label={`Update ${id}`}
-            onClick={() => setUpdating(true)}
-          >
-            Update
-          </Button>
-          <Link
-            to="/skills/$id"
-            params={{ id }}
-            aria-label={`Manage ${id}`}
-            className={buttonVariants({ variant: "outline", size: "sm" })}
-          >
-            Manage
-          </Link>
-        </div>
+        <Button
+          variant="outline"
+          size="sm"
+          aria-label={`Update ${id}`}
+          onClick={() => setUpdating(true)}
+        >
+          Update
+        </Button>
         {updating ? (
           <UpdateDialog
             id={id}
@@ -281,7 +290,17 @@ function AttachedTable({ rows, agents }: { rows: AttachedRow[]; agents: AgentPac
                   !r.attachment.enabled && "opacity-70",
                 )}
               >
-                <span className={cn(mono, "font-semibold text-fg")}>{r.name}</span>
+                <Link
+                  to="/skills/$id"
+                  params={{ id: r.id }}
+                  search={{ q: r.name }}
+                  className={cn(
+                    mono,
+                    "w-fit font-semibold text-accent-text hover:text-accent-hover",
+                  )}
+                >
+                  {r.name}
+                </Link>
                 <span className={cn("text-xs", r.missing ? "text-warn" : "text-fg-muted")}>
                   {r.missing ? "No longer in its source" : r.found?.description}
                 </span>
@@ -291,7 +310,7 @@ function AttachedTable({ rows, agents }: { rows: AttachedRow[]; agents: AgentPac
               <Link
                 to="/skills/$id"
                 params={{ id: r.id }}
-                className={cn(mono, "font-medium text-accent-text")}
+                className={cn(mono, "font-medium text-fg-secondary hover:text-accent-text")}
               >
                 {r.id}
               </Link>

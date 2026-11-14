@@ -100,14 +100,14 @@ func TestUpgrade(t *testing.T) {
 		t.Fatal(err)
 	}
 	s := c.Skills.Sources["anthropics-skills"]
-	if c.Schema != Schema || c.Revision != 3 || s.Commit != goodCommit || s.Attached["pdf"].Agents != nil || !s.Attached["pdf"].Enabled {
+	if c.Schema != Schema || c.Revision != 3 || s.Commit != goodCommit || s.Found["pdf"].Path != "skills/pdf" || len(s.Attached) != 0 {
 		t.Errorf("upgraded = %+v", c)
 	}
 	if c, err := Upgrade([]byte(`{"schema":1,"revision":1}`)); err != nil || c.Schema != Schema || c.Skills.Sources == nil {
 		t.Errorf("schema 1 = %+v, %v", c, err)
 	}
 	for name, raw := range map[string]string{
-		"newer":            `{"schema":7}`,
+		"newer":            `{"schema":8}`,
 		"not an object":    `[1]`,
 		"bad old skill":    `{"schema":5,"skills":{"pdf":{"url":"x"}}}`,
 		"flat skills at 6": `{"schema":6,"skills":{"pdf":{}}}`,
@@ -116,5 +116,33 @@ func TestUpgrade(t *testing.T) {
 		if _, err := Upgrade([]byte(raw)); err == nil {
 			t.Errorf("%s: no error", name)
 		}
+	}
+}
+
+func TestUpgradeDropsAgentReach(t *testing.T) {
+	const six = `{"schema":6,
+	  "mcp":{"servers":{},"available":{"playwright":["a-cli"]},"workspaces":{"playwright":["api"]}},
+	  "skills":{"sources":{"s":{"repo":"https://github.com/o/r","ref":"main","path":"","commit":"` + goodCommit + `",
+	    "found":{"pdf":{"path":"pdf"},"docx":{"path":"docx"}},
+	    "attached":{"pdf":{"enabled":true,"agents":null,"workspaces":{"api":"link"}},"docx":{"enabled":true,"agents":["a-cli"]}}}}}}`
+	c, err := Upgrade([]byte(six))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(c.MCP.Available) != 0 || c.MCP.Workspaces["playwright"][0] != "api" {
+		t.Errorf("mcp = %+v", c.MCP)
+	}
+	att := c.Skills.Sources["s"].Attached
+	if pdf, ok := att["pdf"]; !ok || pdf.Agents == nil || len(pdf.Agents) != 0 || pdf.Workspaces["api"] != ModeLink || !pdf.Enabled {
+		t.Errorf("pdf = %+v", att["pdf"])
+	}
+	if _, ok := att["docx"]; ok {
+		t.Errorf("docx, attached to no workspace, kept: %+v", att["docx"])
+	}
+	const seven = `{"schema":7,"mcp":{"servers":{},"available":{"playwright":["*"]}},
+	  "skills":{"sources":{"s":{"repo":"https://github.com/o/r","ref":"main","path":"","commit":"` + goodCommit + `",
+	    "found":{"pdf":{"path":"pdf"}},"attached":{"pdf":{"enabled":true,"agents":null}}}}}}`
+	if c, err = Upgrade([]byte(seven)); err != nil || c.MCP.Available["playwright"][0] != AllAgents || c.Skills.Sources["s"].Attached["pdf"].Agents != nil {
+		t.Errorf("schema 7 changed: %+v, %v", c, err)
 	}
 }

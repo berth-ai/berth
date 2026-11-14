@@ -81,9 +81,33 @@ func commonParent(paths []string) string {
 // sourcesSchema is the first schema whose skills section holds sources.
 const sourcesSchema = 6
 
+// optInSchema is the first schema where skills and MCP servers reach only
+// the agents picked for them.
+const optInSchema = 7
+
+// dropAgentReach is the schema 7 cleanup: before it, servers reached every
+// agent by default, and so did most skills. Every agent pick is cleared;
+// workspace attachments stay, and a skill attached to no workspace is
+// detached.
+func dropAgentReach(c *Config) {
+	c.MCP.Available = map[string][]string{}
+	for id, src := range c.Skills.Sources {
+		for name, a := range src.Attached {
+			if len(a.Workspaces) == 0 {
+				delete(src.Attached, name)
+				continue
+			}
+			a.Agents = []string{}
+			src.Attached[name] = a
+		}
+		c.Skills.Sources[id] = src
+	}
+}
+
 // Upgrade decodes a config file or export of schema 1 to Schema into the
 // current shape: settings it lacks take their defaults, a schema 2 to 5
-// skills map becomes sources, and the schema becomes Schema. Unknown keys
+// skills map becomes sources, agent picks older than schema 7 are dropped
+// (dropAgentReach), and the schema becomes Schema. Unknown keys
 // and a newer schema are refused. The result is not validated.
 func Upgrade(raw []byte) (Config, error) {
 	var doc map[string]json.RawMessage
@@ -123,6 +147,9 @@ func Upgrade(raw []byte) (Config, error) {
 	dec.DisallowUnknownFields()
 	if err := dec.Decode(&c); err != nil {
 		return Config{}, err
+	}
+	if c.Schema >= 1 && c.Schema < optInSchema {
+		dropAgentReach(&c)
 	}
 	if c.Schema >= 1 && c.Schema < Schema {
 		c.Schema = Schema // older schemas lack only settings whose defaults apply

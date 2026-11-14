@@ -218,12 +218,17 @@ export const mcpWorkspacesPatch = (server: string, list: string[]) => ({
   mcp: { workspaces: { [server]: list.length ? [...list].sort() : null } },
 });
 
-/** mcpTargetsText names a server's agents, then its workspaces. */
-export const mcpTargetsText = (
-  available: string[] | undefined,
+/** mcpTargetsText names a server's agents, then its workspaces; no agent
+ * is left out once a workspace has it. */
+export function mcpTargetsText(
+  reach: string[] | null,
   workspaces: string[] | undefined,
   agents: AgentPackage[],
-) => [availableLabel(available, agents), (workspaces ?? []).join(", ")].filter(Boolean).join(" · ");
+): string {
+  const ws = (workspaces ?? []).join(", ");
+  if (reach !== null && !reach.length) return ws || "Not attached";
+  return [availableLabel(reach, agents), ws].filter(Boolean).join(" · ");
+}
 
 /** mcpFileNote says how a project file relates to git. */
 export function mcpFileNote(f: WorkspaceMcpFile): string {

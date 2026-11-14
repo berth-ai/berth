@@ -146,14 +146,20 @@ func (b *Broker) workspacesAdd(_ context.Context, body []byte) (int, any) {
 const statusTimeout = workspace.StatusBudget + 5*time.Second
 
 // forgetPatch removes workspace id and every reference to it: skill
-// attachments and MCP workspace lists, in one patch.
+// attachments and MCP workspace lists, in one patch. A skill that reached
+// only this workspace is detached.
 func forgetPatch(cur config.Config, id string) map[string]any {
 	patch := map[string]any{"workspaces": map[string]any{id: nil}}
 	sources := map[string]any{}
 	for sid, src := range cur.Skills.Sources {
 		attached := map[string]any{}
 		for name, a := range src.Attached {
-			if _, ok := a.Workspaces[id]; ok {
+			if _, ok := a.Workspaces[id]; !ok {
+				continue
+			}
+			if a.Agents != nil && len(a.Agents) == 0 && len(a.Workspaces) == 1 {
+				attached[name] = nil
+			} else {
 				attached[name] = map[string]any{"workspaces": map[string]any{id: nil}}
 			}
 		}

@@ -1,6 +1,6 @@
 import { Link, useNavigate } from "@tanstack/react-router";
-import { TriangleAlert } from "lucide-react";
-import { useEffect, useEffectEvent, useId, useRef, useState } from "react";
+import { ChevronLeft, ExternalLink, TriangleAlert } from "lucide-react";
+import { type ReactNode, useEffect, useEffectEvent, useId, useRef, useState } from "react";
 import { keys, queryClient, useConfig, useStatus } from "@/api/queries";
 import { verb } from "@/api/request";
 import { runJob } from "@/api/run-job";
@@ -15,7 +15,8 @@ import { LoadingRows } from "@/components/loading";
 import { LogViewer } from "@/components/log-viewer";
 import { Page, PageHeader } from "@/components/page";
 import { PanelCard } from "@/components/panel-card";
-import { Button } from "@/components/ui/button";
+import { Segmented } from "@/components/segmented";
+import { Button, buttonVariants } from "@/components/ui/button";
 import {
   Dialog,
   DialogContent,
@@ -41,7 +42,16 @@ import { applyAndNotify, BG } from "./apply-notify";
 import { AttachPicker } from "./attach-picker";
 import { AttachedSwitch } from "./attached-switch";
 import { targetsText, wsConflicts } from "./attachments-logic";
-import { refError, repoLabel, shortCommit, skillAgents, unsupportedAgents } from "./skills-logic";
+import {
+  commitUrl,
+  refError,
+  repoHome,
+  repoLabel,
+  shortCommit,
+  skillAgents,
+  treeUrl,
+  unsupportedAgents,
+} from "./skills-logic";
 import {
   attachPatch,
   conflicts,
@@ -49,8 +59,10 @@ import {
   diffOf,
   dropsAttached,
   exportPath,
+  filterRows,
   foundRows,
   missingNames,
+  type SkillFilter,
   sourceResult,
   sourceSummary,
   updatedText,
@@ -74,10 +86,36 @@ function attachedText(
   return `${name} is attached to ${whoText({ enabled: true, agents: next }, agents)}${where ? ` and ${where}` : ""}.`;
 }
 
+/** ExternalAnchor opens href in a new tab, marked with an icon. */
+function ExternalAnchor({ href, children }: { href: string; children: ReactNode }) {
+  return (
+    <a
+      href={href}
+      target="_blank"
+      rel="noopener noreferrer"
+      className="inline-flex items-center gap-1 font-medium break-all text-accent-text hover:text-accent-hover"
+    >
+      {children}
+      <ExternalLink aria-hidden className="size-3 shrink-0" strokeWidth={1.8} />
+    </a>
+  );
+}
+
+const BackToSkills = () => (
+  <Link
+    to="/skills"
+    className={buttonVariants({ variant: "ghost", size: "sm", className: "-ml-2" })}
+  >
+    <ChevronLeft aria-hidden className="size-3.25" strokeWidth={1.6} />
+    Skills
+  </Link>
+);
+
 /** SourcePage is one skill source: its facts, its last scan with who gets
- * each skill, the attachments an update left missing, and Update, Change
- * ref and Remove (DESIGN.md §4). */
-export function SourcePage({ id }: { id: string }) {
+ * each skill, searchable and narrowed to the attached ones, the
+ * attachments an update left missing, and Update, Change ref and Remove
+ * (DESIGN.md §4). query prefills the search. */
+export function SourcePage({ id, query: initialQuery = "" }: { id: string; query?: string }) {
   const config = useConfig();
   const status = useStatus();
   const navigate = useNavigate();
@@ -85,6 +123,8 @@ export function SourcePage({ id }: { id: string }) {
   const [updating, setUpdating] = useState<"update" | "ref" | null>(null);
   const [removing, setRemoving] = useState(false);
   const [confirmDialog, confirm] = useConfirm();
+  const [query, setQuery] = useState(initialQuery);
+  const [filter, setFilter] = useState<SkillFilter>("all");
   const sources = config.data?.config.skills?.sources;
   const source = sources?.[id];
   useTitle(source ? repoLabel(source.repo) : "Skill source");
@@ -101,7 +141,7 @@ export function SourcePage({ id }: { id: string }) {
   if (!source)
     return (
       <Page>
-        <PageHeader title="Skill source" />
+        <PageHeader title="Skill source" back={<BackToSkills />} />
         <EmptyState
           text={`There is no source named ${id}.`}
           action={
@@ -114,7 +154,13 @@ export function SourcePage({ id }: { id: string }) {
     );
 
   const missing = missingNames(source);
-  const rows = foundRows(source).filter((r) => !missing.includes(r.name));
+  const all = foundRows(source).filter((r) => !missing.includes(r.name));
+  const rows = filterRows(all, query, filter);
+  const q = query.trim().toLowerCase();
+  const missingShown = missing.filter((n) => !q || n.includes(q));
+  const attachedCount = all.filter((r) => r.attachment).length;
+  const folderUrl = treeUrl(source.repo, source.commit, source.path);
+  const commitLink = commitUrl(source.repo, source.commit);
   const detach = (name: string) =>
     confirm({
       title: `Detach ${name}?`,
@@ -129,6 +175,7 @@ export function SourcePage({ id }: { id: string }) {
       <PageHeader
         title={repoLabel(source.repo)}
         description={`${id} · ${source.path || "the whole repository"} at ${source.ref}`}
+        back={<BackToSkills />}
         actions={
           <>
             <Button onClick={() => setUpdating("update")}>Update</Button>
@@ -144,10 +191,33 @@ export function SourcePage({ id }: { id: string }) {
       <PanelCard title="Source">
         <Facts
           rows={[
-            ["Repository", <Mono key="repo">{source.repo}</Mono>],
+            [
+              "Repository",
+              <ExternalAnchor key="repo" href={repoHome(source.repo)}>
+                <Mono>{source.repo}</Mono>
+              </ExternalAnchor>,
+            ],
             ["Ref", <Mono key="ref">{source.ref}</Mono>],
-            ["Commit", <Mono key="commit">{source.commit}</Mono>],
-            ["Folder", <Mono key="folder">{source.path || "/"}</Mono>],
+            [
+              "Commit",
+              commitLink ? (
+                <ExternalAnchor key="commit" href={commitLink}>
+                  <Mono>{source.commit}</Mono>
+                </ExternalAnchor>
+              ) : (
+                <Mono key="commit">{source.commit}</Mono>
+              ),
+            ],
+            [
+              "Folder",
+              folderUrl ? (
+                <ExternalAnchor key="folder" href={folderUrl}>
+                  <Mono>{source.path || "/"}</Mono>
+                </ExternalAnchor>
+              ) : (
+                <Mono key="folder">{source.path || "/"}</Mono>
+              ),
+            ],
             ["Store", <Mono key="store">{exportPath(id, "<skill>")}</Mono>],
           ]}
         />
@@ -162,107 +232,175 @@ export function SourcePage({ id }: { id: string }) {
       <PanelCard
         title="Skills"
         badge={<span className="text-xs text-fg-muted">{sourceSummary(source)}</span>}
+        actions={
+          <div className="flex flex-wrap items-center gap-2.5">
+            <Input
+              type="search"
+              aria-label="Search skills"
+              placeholder="Search skills"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              className="h-7 w-48 max-sm:w-full"
+            />
+            <Segmented
+              size="sm"
+              label="Show"
+              value={filter}
+              onChange={setFilter}
+              options={[
+                { value: "all", label: `All ${all.length}` },
+                { value: "attached", label: `Attached ${attachedCount}` },
+              ]}
+              className="w-44"
+            />
+          </div>
+        }
       >
-        <Table aria-label="Skills in this source">
-          <TableHeader>
-            <TableRow>
-              <TableHead>Skill</TableHead>
-              <TableHead>Attached to</TableHead>
-              <TableHead>Enabled</TableHead>
-              <TableHead>
-                <span className="sr-only">Actions</span>
-              </TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {missing.map((name) => {
-              const attachment = source.attached?.[name] ?? { enabled: false };
-              return (
-                <TableRow key={`missing-${name}`}>
-                  <TableCell data-label="">
-                    <div className="flex min-w-0 flex-col gap-0.5">
-                      <span className={cn(mono, "font-semibold text-fg")}>{name}</span>
-                      <span className="inline-flex items-center gap-1 text-xs font-medium text-warn">
-                        <TriangleAlert aria-hidden className="size-3" strokeWidth={2} />
-                        Missing from {shortCommit(source.commit)}
-                      </span>
-                    </div>
-                  </TableCell>
-                  <TableCell data-label="Attached to" className="text-xs text-fg-secondary">
-                    {targetsText(attachment, agents)}
-                  </TableCell>
-                  <TableCell data-label="Enabled">
-                    <AttachedSwitch
-                      id={id}
-                      name={name}
-                      attachment={attachment}
-                      onApply={applyAndNotify}
-                    />
-                  </TableCell>
-                  <TableCell className="text-right">
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      aria-label={`Detach ${name}`}
-                      onClick={() => detach(name)}
-                    >
-                      Detach
-                    </Button>
-                  </TableCell>
-                </TableRow>
-              );
-            })}
-            {rows.map(({ name, found, attachment }) => (
-              <TableRow key={name}>
-                <TableCell data-label="">
-                  <div
-                    className={cn(
-                      "flex min-w-0 flex-col gap-0.5",
-                      attachment && !attachment.enabled && "opacity-70",
-                    )}
-                  >
-                    <span className={cn(mono, "font-semibold text-fg")}>{name}</span>
-                    <span className={cn("text-xs", found.error ? "text-warn" : "text-fg-muted")}>
-                      {found.error ?? found.description}
-                    </span>
-                  </div>
-                </TableCell>
-                <TableCell
-                  data-label="Attached to"
-                  className={cn("text-xs", attachment ? "text-fg-secondary" : "text-fg-muted")}
+        {missingShown.length === 0 && rows.length === 0 ? (
+          <EmptyState
+            text={
+              query.trim()
+                ? `No skill matches "${query.trim()}".`
+                : filter === "attached"
+                  ? "No skill from this source is attached yet."
+                  : "This source holds no skills at its commit."
+            }
+            action={
+              query.trim() || filter === "attached" ? (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    setQuery("");
+                    setFilter("all");
+                  }}
                 >
-                  {found.error
-                    ? "Can't be attached"
-                    : attachment
-                      ? targetsText(attachment, agents)
-                      : "Not attached"}
-                </TableCell>
-                <TableCell data-label="Enabled">
-                  {attachment ? (
-                    <AttachedSwitch
-                      id={id}
-                      name={name}
-                      attachment={attachment}
-                      onApply={applyAndNotify}
-                    />
-                  ) : null}
-                </TableCell>
-                <TableCell className="text-right">
-                  {found.error ? null : (
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      aria-label={`${attachment ? "Change who gets" : "Attach"} ${name}`}
-                      onClick={() => setPicking(name)}
-                    >
-                      {attachment ? "Edit…" : "Attach…"}
-                    </Button>
-                  )}
-                </TableCell>
+                  Show all skills
+                </Button>
+              ) : undefined
+            }
+          />
+        ) : (
+          <Table aria-label="Skills in this source">
+            <TableHeader>
+              <TableRow>
+                <TableHead>Skill</TableHead>
+                <TableHead>Attached to</TableHead>
+                <TableHead>Enabled</TableHead>
+                <TableHead>
+                  <span className="sr-only">Actions</span>
+                </TableHead>
               </TableRow>
-            ))}
-          </TableBody>
-        </Table>
+            </TableHeader>
+            <TableBody>
+              {missingShown.map((name) => {
+                const attachment = source.attached?.[name] ?? { enabled: false };
+                return (
+                  <TableRow key={`missing-${name}`}>
+                    <TableCell data-label="">
+                      <div className="flex min-w-0 flex-col gap-0.5">
+                        <span className={cn(mono, "font-semibold text-fg")}>{name}</span>
+                        <span className="inline-flex items-center gap-1 text-xs font-medium text-warn">
+                          <TriangleAlert aria-hidden className="size-3" strokeWidth={2} />
+                          Missing from {shortCommit(source.commit)}
+                        </span>
+                      </div>
+                    </TableCell>
+                    <TableCell data-label="Attached to" className="text-xs text-fg-secondary">
+                      {targetsText(attachment, agents)}
+                    </TableCell>
+                    <TableCell data-label="Enabled">
+                      <AttachedSwitch
+                        id={id}
+                        name={name}
+                        attachment={attachment}
+                        onApply={applyAndNotify}
+                      />
+                    </TableCell>
+                    <TableCell className="text-right">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        aria-label={`Detach ${name}`}
+                        onClick={() => detach(name)}
+                      >
+                        Detach
+                      </Button>
+                    </TableCell>
+                  </TableRow>
+                );
+              })}
+              {rows.map(({ name, found, attachment }) => {
+                const filesUrl = treeUrl(source.repo, source.commit, found.path);
+                return (
+                  <TableRow key={name}>
+                    <TableCell data-label="">
+                      <div
+                        className={cn(
+                          "flex min-w-0 flex-col gap-0.5",
+                          attachment && !attachment.enabled && "opacity-70",
+                        )}
+                      >
+                        <span className="inline-flex items-center gap-1.5">
+                          <span className={cn(mono, "font-semibold text-fg")}>{name}</span>
+                          {filesUrl ? (
+                            <a
+                              href={filesUrl}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              aria-label={`View ${name}'s files`}
+                              title="View its files"
+                              className="text-fg-muted hover:text-accent-text"
+                            >
+                              <ExternalLink aria-hidden className="size-3" strokeWidth={1.8} />
+                            </a>
+                          ) : null}
+                        </span>
+                        <span
+                          className={cn("text-xs", found.error ? "text-warn" : "text-fg-muted")}
+                        >
+                          {found.error ?? found.description}
+                        </span>
+                      </div>
+                    </TableCell>
+                    <TableCell
+                      data-label="Attached to"
+                      className={cn("text-xs", attachment ? "text-fg-secondary" : "text-fg-muted")}
+                    >
+                      {found.error
+                        ? "Can't be attached"
+                        : attachment
+                          ? targetsText(attachment, agents)
+                          : "Not attached"}
+                    </TableCell>
+                    <TableCell data-label="Enabled">
+                      {attachment ? (
+                        <AttachedSwitch
+                          id={id}
+                          name={name}
+                          attachment={attachment}
+                          onApply={applyAndNotify}
+                        />
+                      ) : null}
+                    </TableCell>
+                    <TableCell className="text-right">
+                      {found.error ? null : (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          aria-label={`${attachment ? "Change who gets" : "Attach"} ${name}`}
+                          onClick={() => setPicking(name)}
+                        >
+                          {attachment ? "Edit…" : "Attach…"}
+                        </Button>
+                      )}
+                    </TableCell>
+                  </TableRow>
+                );
+              })}
+            </TableBody>
+          </Table>
+        )}
       </PanelCard>
       {picking ? (
         <AttachPicker

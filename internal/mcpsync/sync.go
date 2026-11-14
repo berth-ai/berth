@@ -174,15 +174,14 @@ func (s Syncer) desired(d locksource.Descriptors, m config.MCP, keys map[string]
 	return out
 }
 
-// availableTo keeps the servers that reach agent dep: those without a list,
-// and those whose list names dep.
+// availableTo keeps the servers that reach agent dep: those whose list
+// names dep or every agent. A server without a list reaches no agent.
 func availableTo(servers []server, avail map[string][]string, dep string) []server {
 	var out []server
 	for _, sv := range servers {
-		if list, ok := avail[sv.ID]; ok && !slices.Contains(list, dep) {
-			continue
+		if list := avail[sv.ID]; slices.Contains(list, dep) || slices.Contains(list, config.AllAgents) {
+			out = append(out, sv)
 		}
-		out = append(out, sv)
 	}
 	return out
 }

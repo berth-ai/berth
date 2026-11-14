@@ -11,7 +11,10 @@ import (
 
 // MCPFileSchema is the schema of mcp.json, the copy of the mcp section that
 // berth mcp sync reads: it runs as agent, which cannot read config.json.
-const MCPFileSchema = 1
+// Schema 1 meant all agents for a server missing from available; schema 2
+// means none, as config schema 7 does, so a schema 1 file's lists are
+// dropped as Upgrade drops them.
+const MCPFileSchema = 2
 
 type mcpFile struct {
 	Schema int `json:"schema"`
@@ -48,7 +51,7 @@ func ReadMCPFile(path string) (MCP, error) {
 	if f.Servers != nil {
 		m.Servers = f.Servers
 	}
-	if f.Available != nil {
+	if f.Available != nil && f.Schema >= MCPFileSchema {
 		m.Available = f.Available
 	}
 	if f.Workspaces != nil {

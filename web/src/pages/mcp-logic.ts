@@ -77,32 +77,31 @@ export function mcpRows(
   return [...lock, ...user];
 }
 
-export function availableLabel(list: string[] | undefined, agents: AgentPackage[]): string {
-  if (!list) return "All agents";
-  const names = agents.filter((a) => list.includes(a.package)).map((a) => a.name);
+/** ALL_AGENTS, alone in a config list, makes a server reach every agent,
+ * including ones added later (config.AllAgents in Go). */
+export const ALL_AGENTS = "*";
+
+/** reachOf reads a server's config list as the pickers hold it: null is
+ * every agent, and a missing list is no agent. */
+export const reachOf = (list: string[] | null | undefined): string[] | null =>
+  list?.includes(ALL_AGENTS) ? null : (list ?? []);
+
+/** reachValue is the config list for a picker value; no agent removes it. */
+export const reachValue = (v: string[] | null): string[] | null =>
+  v === null ? [ALL_AGENTS] : v.length ? [...v].sort() : null;
+
+export function availableLabel(value: string[] | null, agents: AgentPackage[]): string {
+  if (value === null) return "All agents";
+  if (!value.length) return "No agent";
+  const names = agents.filter((a) => value.includes(a.package)).map((a) => a.name);
   return names.length ? names.join(", ") : "No installed agent";
 }
 
-/** pickedAfter toggles one agent; every agent ticked means all agents (null). It never empties the list. */
-export function pickedAfter(
-  cur: string[] | null,
-  all: string[],
-  pkg: string,
-  on: boolean,
-): string[] | null {
-  const set = new Set(cur ?? all);
-  if (on) set.add(pkg);
-  else set.delete(pkg);
-  if (set.size === 0) return cur;
-  if (all.every((a) => set.has(a))) return null;
-  return [...set].sort();
-}
-
-export const serverPatch = (id: string, server: McpServer, available: string[] | null) => ({
-  mcp: { servers: { [id]: server }, available: { [id]: available } },
+export const serverPatch = (id: string, server: McpServer, reach: string[] | null) => ({
+  mcp: { servers: { [id]: server }, available: { [id]: reachValue(reach) } },
 });
-export const availablePatch = (id: string, available: string[] | null) => ({
-  mcp: { available: { [id]: available } },
+export const availablePatch = (id: string, reach: string[] | null) => ({
+  mcp: { available: { [id]: reachValue(reach) } },
 });
 export const enabledPatch = (id: string, on: boolean) => ({
   mcp: { servers: { [id]: { enabled: on } } },

@@ -12,7 +12,7 @@ func TestDefaultsAreValid(t *testing.T) {
 	if err := d.Validate(); err != nil {
 		t.Fatalf("defaults invalid: %v", err)
 	}
-	if d.Schema != 6 || d.Agents.Added == nil || d.Revision != 0 || !d.Frontends.Terminal.Enabled || d.Frontends.IDE.Enabled ||
+	if d.Schema != 7 || d.Agents.Added == nil || d.Revision != 0 || !d.Frontends.Terminal.Enabled || d.Frontends.IDE.Enabled ||
 		d.Agents.Ref != "main" || d.Agents.Keep != 3 || d.Agents.BootTimeout != 600 ||
 		d.Agents.MCPTimeout != 120 || d.Runtime.TZ != "UTC" || d.Agents.Disabled == nil {
 		t.Errorf("defaults = %+v", d)
@@ -21,7 +21,7 @@ func TestDefaultsAreValid(t *testing.T) {
 
 func TestValidateReportsEveryField(t *testing.T) {
 	c := Defaults()
-	c.Schema = 7
+	c.Schema = 8
 	c.Agents.Ref = "../x"
 	c.Agents.Disabled = []string{"Bad Name", "opencode-ai", "opencode-ai"}
 	c.Agents.Keep = 51
@@ -106,6 +106,8 @@ func TestValidateMCP(t *testing.T) {
 	}
 	c.MCP.Available = map[string][]string{
 		"ok":      {"@anthropic-ai/claude-code"},
+		"all":     {AllAgents},
+		"mixed":   {AllAgents, "x"},
 		"empty":   {},
 		"bad-pkg": {"Not A Package"},
 		"Bad_ID":  {"x"},
@@ -124,12 +126,13 @@ func TestValidateMCP(t *testing.T) {
 		"mcp.servers.relative.url", "mcp.servers.ftp.url", "mcp.servers.badauth.auth",
 		"mcp.servers." + strings.Repeat("a", 49),
 		"mcp.available.empty", "mcp.available.bad-pkg[0]", "mcp.available.Bad_ID",
+		"mcp.available.mixed[0]",
 	} {
 		if !got[want] {
 			t.Errorf("missing error for %s; got %v", want, ve.Fields)
 		}
 	}
-	for _, ok := range []string{"mcp.servers.ok", "mcp.servers.ok.url", "mcp.servers.local.url", "mcp.available.ok"} {
+	for _, ok := range []string{"mcp.servers.ok", "mcp.servers.ok.url", "mcp.servers.local.url", "mcp.available.ok", "mcp.available.all"} {
 		if got[ok] {
 			t.Errorf("unexpected error for %s", ok)
 		}

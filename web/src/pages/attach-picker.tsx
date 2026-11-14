@@ -19,7 +19,8 @@ import { viaNotes } from "./skills-logic";
 import { agentsOf, pickAgent } from "./sources-logic";
 
 /** AttachPicker chooses who gets one skill of a source (DESIGN.md §4).
- * "All agents, including ones added later" is null; unticking it lists
+ * A new attachment starts with no agent and no workspace ticked. "All
+ * agents, including ones added later" is null; unticking it lists
  * today's agents. An agent another source already gives the skill to is
  * locked with that source's name; one that sees the skill through another
  * agent's folder shows ticked and locked. Saving no agent and no
@@ -50,10 +51,9 @@ export function AttachPicker({
 }) {
   const all = agents.map((a) => a.package);
   const blocked = Object.keys(taken).length > 0;
-  const [value, setValue] = useState<string[] | null>(() => {
-    if (attachment) return agentsOf(attachment);
-    return blocked ? all.filter((p) => !taken[p]) : null;
-  });
+  const [value, setValue] = useState<string[] | null>(() =>
+    attachment ? agentsOf(attachment) : [],
+  );
   const [busy, setBusy] = useState(false);
   const [ws, setWs] = useState<Record<string, SkillMode>>(() => ({ ...workspacesOf(attachment) }));
   const ticked = new Set(value ?? all);
@@ -155,6 +155,9 @@ export function AttachPicker({
           )}
           note="Link keeps the skill in Berth's store and hides the link from git; it works only inside the container. Vendor copies the files into the repository for you to commit."
         />
+        {!attachment && none ? (
+          <p className="text-xs text-fg-muted">Tick the agents or workspaces that get {name}.</p>
+        ) : null}
         <DialogFooter>
           <Button variant="outline" disabled={busy} onClick={onClose}>
             Cancel

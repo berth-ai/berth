@@ -388,7 +388,9 @@ func TestForgetPatch(t *testing.T) {
 		Attached: map[string]config.Attachment{
 			"pdf":  {Enabled: true, Agents: []string{}, Workspaces: map[string]string{"a": config.ModeLink, "b": config.ModeVendor}},
 			"docx": {Enabled: true, Agents: []string{}, Workspaces: map[string]string{"a": config.ModeLink}},
+			"xlsx": {Enabled: true, Agents: nil, Workspaces: map[string]string{"a": config.ModeLink}},
 		}}
+	cur.Skills.Sources["x"].Found["xlsx"] = config.Found{Path: "skills/xlsx", Description: "d"}
 	cur.MCP.Workspaces = map[string][]string{"context7": {"a"}, "linear": {"a", "b"}}
 	if err := cur.Validate(); err != nil {
 		t.Fatal(err)
@@ -402,8 +404,14 @@ func TestForgetPatch(t *testing.T) {
 		t.Fatalf("forgetting a leaves references: %v", err)
 	}
 	x := next.Skills.Sources["x"]
-	if _, ok := next.Workspaces["a"]; ok || len(x.Attached["docx"].Workspaces) != 0 || x.Attached["pdf"].Workspaces["b"] != config.ModeVendor {
+	if _, ok := next.Workspaces["a"]; ok || x.Attached["pdf"].Workspaces["b"] != config.ModeVendor {
 		t.Errorf("skills after = %+v", x.Attached)
+	}
+	if _, ok := x.Attached["docx"]; ok {
+		t.Errorf("docx reached only a and stays attached: %+v", x.Attached["docx"])
+	}
+	if xlsx, ok := x.Attached["xlsx"]; !ok || len(xlsx.Workspaces) != 0 || xlsx.Agents != nil {
+		t.Errorf("xlsx, attached to every agent, = %+v", xlsx)
 	}
 	if _, ok := next.MCP.Workspaces["context7"]; ok || !slices.Equal(next.MCP.Workspaces["linear"], []string{"b"}) {
 		t.Errorf("mcp.workspaces after = %v", next.MCP.Workspaces)

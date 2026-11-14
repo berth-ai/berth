@@ -19,7 +19,7 @@ describe("AvailablePicker", () => {
     render(
       <AvailablePicker
         server="files"
-        value={undefined}
+        value={null}
         agents={[agent]}
         onChange={vi.fn(async () => {})}
         workspaces={{

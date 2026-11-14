@@ -290,11 +290,17 @@ test("an MCP server is added, narrowed, edited and removed", async ({ page }) =>
   const row = page.getByRole("row").filter({ hasText: "mcp.example.com" });
   await expect(row.getByText("HTTP", { exact: true })).toBeVisible();
   await expect(row.getByText("Set", { exact: true })).toBeVisible();
-  await row.getByRole("button", { name: "Choose agents for linear" }).click();
+  // A new server reaches no agent until one is picked.
+  const choose = row.getByRole("button", { name: "Choose agents for linear" });
+  await expect(choose).toHaveText("Not attached");
+  await choose.click();
+  await page.getByRole("checkbox", { name: "Example Agent" }).click();
+  await expect(choose).toHaveText("Example Agent");
+  await page.getByRole("checkbox", { name: /^All agents/ }).click();
+  await expect(choose).toHaveText("All agents");
+  await page.getByRole("checkbox", { name: /^All agents/ }).click();
   await page.getByRole("checkbox", { name: "Other Agent" }).click();
-  await expect(row.getByRole("button", { name: "Choose agents for linear" })).toHaveText(
-    "Example Agent",
-  );
+  await expect(choose).toHaveText("Example Agent");
   await page.keyboard.press("Escape");
 
   await row.getByRole("button", { name: "Edit linear" }).click();
@@ -347,20 +353,22 @@ test("a skill source is added, attached, updated and removed", async ({ page }) 
   await expect(page).toHaveURL(/#\/skills\/acme-eng-skills$/);
 
   // changelog for Example Agent only (Other Agent reads its folder); release-notes for all.
+  // The picker starts with nothing ticked.
   await page.getByRole("button", { name: "Attach changelog" }).click();
   const picker = page.getByRole("dialog", { name: "Attach changelog" });
-  await picker.getByRole("checkbox", { name: /^All agents, including ones added later/ }).click();
-  await picker.getByRole("checkbox", { name: /^Other Agent/ }).click();
+  await expect(picker.getByRole("button", { name: "Attach" })).toBeDisabled();
+  await picker.getByRole("checkbox", { name: /^Example Agent/ }).click();
   await expect(picker.getByText("Through Example Agent")).toBeVisible();
   await picker.getByRole("button", { name: "Attach" }).click();
   await expect(page.getByText(/changelog is attached to Example Agent, Other Agent/)).toBeVisible();
   const changelog = page.getByRole("row").filter({ hasText: "Keep CHANGELOG.md" });
   await expect(changelog.getByText(/^Example Agent, Other Agent/)).toBeVisible();
   await page.getByRole("button", { name: "Attach release-notes" }).click();
-  await page
-    .getByRole("dialog", { name: "Attach release-notes" })
-    .getByRole("button", { name: "Attach" })
+  const notesPicker = page.getByRole("dialog", { name: "Attach release-notes" });
+  await notesPicker
+    .getByRole("checkbox", { name: /^All agents, including ones added later/ })
     .click();
+  await notesPicker.getByRole("button", { name: "Attach" }).click();
   await expect(page.getByText(/release-notes is attached to all agents\./)).toBeVisible();
   await page.getByRole("switch", { name: "Turn off release-notes" }).click();
   await expect(page.getByText(/release-notes is off\./)).toBeVisible();
@@ -396,6 +404,27 @@ test("a skill source is added, attached, updated and removed", async ({ page }) 
   // The footer's Close, not the dialog's own close button.
   await again.getByRole("button", { name: "Close" }).and(again.getByText("Close")).click();
 
+  // The source page links to the repository and narrows its skills.
+  await expect(
+    page.getByRole("link", { name: /^https:\/\/github\.com\/acme\/eng-skills/ }),
+  ).toHaveAttribute("href", "https://github.com/acme/eng-skills");
+  await page.getByLabel("Search skills").fill("triage");
+  await expect(page.getByRole("row").filter({ hasText: "release-notes" })).toHaveCount(0);
+  await page.getByRole("button", { name: /^Attached \d/ }).click();
+  await expect(page.getByText('No skill matches "triage".')).toBeVisible();
+  await page.getByRole("button", { name: "Show all skills" }).click();
+  await expect(page.getByRole("row").filter({ hasText: "release-notes" })).toBeVisible();
+
+  // Back to Skills; a click on a source's row opens it.
+  await page.getByRole("link", { name: "Skills", exact: true }).first().click();
+  await expect(page).toHaveURL(/#\/skills$/);
+  await page
+    .getByRole("row")
+    .filter({ hasText: "acme-eng-skills" })
+    .getByText(/^\d+ skills? ·/)
+    .click();
+  await expect(page).toHaveURL(/#\/skills\/acme-eng-skills$/);
+
   // All skills lists attachments across sources and links to them.
   await page.goto(`${NORMAL}/#/skills?view=flat`);
   await expect(
@@ -410,6 +439,10 @@ test("a skill source is added, attached, updated and removed", async ({ page }) 
       .filter({ hasText: "xlsx" })
       .getByRole("link", { name: "anthropics-skills" }),
   ).toBeVisible();
+  // A skill's name opens its source, searched for it.
+  await page.getByRole("link", { name: "release-notes", exact: true }).click();
+  await expect(page).toHaveURL(/#\/skills\/acme-eng-skills\?q=release-notes/);
+  await expect(page.getByLabel("Search skills")).toHaveValue("release-notes");
 
   // Remove both; with skills attached, the id is typed first.
   for (const id of ["acme-eng-skills", "anthropics-skills"]) {
@@ -646,7 +679,7 @@ test("skills and MCP servers are attached to a workspace", async ({ page }) => {
   await addWs.getByRole("button", { name: "Clone", exact: true }).click();
   await expect(h1(page, "acme-api")).toBeVisible();
 
-  // A source; changelog goes to all agents and, linked, to the workspace.
+  // A source; changelog goes, linked, to the workspace only.
   await page.goto(`${NORMAL}/#/skills`);
   await page.getByRole("button", { name: "Add source" }).click();
   const addSrc = page.getByRole("dialog", { name: "Add a skill source" });
@@ -659,12 +692,9 @@ test("skills and MCP servers are attached to a workspace", async ({ page }) => {
   await picker.getByRole("checkbox", { name: /^acme-api/ }).click();
   await expect(picker.getByRole("group", { name: "How acme-api gets changelog" })).toBeVisible();
   await picker.getByRole("button", { name: "Attach" }).click();
-  await expect(page.getByText(/changelog is attached to all agents and acme-api\./)).toBeVisible();
+  await expect(page.getByText(/changelog is attached to acme-api\./)).toBeVisible();
   await expect(
-    page
-      .getByRole("row")
-      .filter({ hasText: "Keep CHANGELOG.md" })
-      .getByText("All agents · acme-api"),
+    page.getByRole("row").filter({ hasText: "Keep CHANGELOG.md" }).getByText("acme-api"),
   ).toBeVisible();
 
   // The workspace's Skills tab; release-notes, vendored, has local edits in the fake.
@@ -710,7 +740,7 @@ test("skills and MCP servers are attached to a workspace", async ({ page }) => {
   ).toBeVisible();
   await page.goto(`${NORMAL}/#/mcp`);
   await expect(page.getByRole("button", { name: "Choose agents for Files MCP" })).toHaveText(
-    "All agents · acme-api",
+    "acme-api",
   );
 
   // Forget drops every reference; then remove the source.
@@ -720,18 +750,19 @@ test("skills and MCP servers are attached to a workspace", async ({ page }) => {
   await expect(page.getByText(/acme-api forgotten; its folder stays\./)).toBeVisible();
   await page.goto(`${NORMAL}/#/mcp`);
   await expect(page.getByRole("button", { name: "Choose agents for Files MCP" })).toHaveText(
-    "All agents",
+    "Not attached",
   );
+  // changelog reached only acme-api, so forgetting it detached the skill.
   await page.goto(`${NORMAL}/#/skills/acme-eng-skills`);
   await expect(
-    page
-      .getByRole("row")
-      .filter({ hasText: "Keep CHANGELOG.md" })
-      .getByText("All agents", { exact: true }),
+    page.getByRole("row").filter({ hasText: "Keep CHANGELOG.md" }).getByText("Not attached"),
   ).toBeVisible();
   await page.getByRole("button", { name: "Remove", exact: true }).click();
+  // Nothing is attached any more, so Remove does not ask for the id.
   const remove = page.getByRole("dialog", { name: "Remove acme-eng-skills?" });
-  await remove.getByLabel("Type acme-eng-skills to confirm").fill("acme-eng-skills");
+  await expect(
+    remove.getByText("Nothing from it is attached; Berth forgets the source."),
+  ).toBeVisible();
   await remove.getByRole("button", { name: "Remove source" }).click();
   await expect(page).toHaveURL(/#\/skills$/);
   expect(problems).toEqual([]);

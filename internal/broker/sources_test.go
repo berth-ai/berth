@@ -366,7 +366,7 @@ func TestConfigUpgrade(t *testing.T) {
 	if _, rev := sourcesNow(t, tb); rev != 0 {
 		t.Error("config.upgrade changed the config")
 	}
-	for _, body := range []string{`{"config":{"schema":7}}`, `{"config":[1]}`, `{}`} {
+	for _, body := range []string{`{"config":{"schema":8}}`, `{"config":[1]}`, `{}`} {
 		if code, out := tb.verb(t, "config.upgrade", body); code != 400 {
 			t.Errorf("%s = %d %v", body, code, out)
 		}

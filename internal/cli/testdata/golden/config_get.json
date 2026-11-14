@@ -1,6 +1,6 @@
 {
   "config": {
-    "schema": 6,
+    "schema": 7,
     "revision": 0,
     "frontends": {
       "terminal": {

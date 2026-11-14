@@ -1,14 +1,17 @@
 import { describe, expect, it } from "vitest";
 import type { AgentPackage } from "@/api/types";
 import {
+  commitUrl,
   normalizeRepo,
   parseSkillView,
   pathError,
   reachLabel,
   refError,
   repoError,
+  repoHome,
   repoLabel,
   skillAgents,
+  treeUrl,
   unsupportedAgents,
   viaNotes,
 } from "./skills-logic";
@@ -90,5 +93,34 @@ describe("skill views", () => {
     expect(parseSkillView("source")).toBe("source");
     expect(parseSkillView("nope")).toBe("source");
     expect(parseSkillView(undefined)).toBe("source");
+  });
+});
+
+describe("repository links", () => {
+  const C = "0123456789abcdef0123456789abcdef01234567";
+  it("links GitHub, GitLab and Forgejo folders and commits", () => {
+    expect(repoHome("https://github.com/cursor/plugins/")).toBe(
+      "https://github.com/cursor/plugins",
+    );
+    expect(repoHome("https://example.com/o/r.git")).toBe("https://example.com/o/r");
+    expect(treeUrl("https://github.com/o/r", C, "skills/pdf")).toBe(
+      `https://github.com/o/r/tree/${C}/skills/pdf`,
+    );
+    expect(treeUrl("https://github.com/o/r.git", C, "")).toBe(`https://github.com/o/r/tree/${C}`);
+    expect(treeUrl("https://gitlab.com/g/r", C, "a b")).toBe(
+      `https://gitlab.com/g/r/-/tree/${C}/a%20b`,
+    );
+    expect(treeUrl("https://codeberg.org/o/r", C, "x")).toBe(
+      `https://codeberg.org/o/r/src/commit/${C}/x`,
+    );
+    expect(commitUrl("https://github.com/o/r", C)).toBe(`https://github.com/o/r/commit/${C}`);
+    expect(commitUrl("https://gitlab.example.com/o/r", C)).toBe(
+      `https://gitlab.example.com/o/r/-/commit/${C}`,
+    );
+  });
+  it("gives no deep link on an unknown host", () => {
+    expect(treeUrl("https://git.example.com/o/r", C, "x")).toBeNull();
+    expect(commitUrl("https://git.example.com/o/r", C)).toBeNull();
+    expect(commitUrl("not a url", C)).toBeNull();
   });
 });

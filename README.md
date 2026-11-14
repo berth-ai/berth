@@ -84,7 +84,8 @@ on is instant.
 Berth registers its MCP servers in each agent's own configuration
 (`~/.claude.json`, `~/.gemini/settings.json`, OpenCode's `opencode.json`,
 and a marked block in `~/.codex/config.toml`) and only changes the entries
-it wrote: servers you add yourself stay as they are.
+it wrote: servers you add yourself stay as they are. A server reaches only
+the agents and workspaces you pick for it on the MCP page; none by default.
 
 Skills come from any git repository over HTTPS (private ones through your
 `gh`, `glab` or `tea` sign-in) or from a short catalog on the panel's Skills page.

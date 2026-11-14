@@ -17,9 +17,10 @@ import (
 
 // Schema is the config schema this binary understands. Schema 1 had no mcp
 // section, schema 2 no skills section, schema 3 no agents.added, schema 4
-// no workspaces, and schemas 2 to 5 held skills as a flat map; Upgrade
+// no workspaces, schemas 2 to 5 held skills as a flat map, and before
+// schema 7 a server missing from mcp.available reached every agent; Upgrade
 // reads them all.
-const Schema = 6
+const Schema = 7
 
 // Config is the content of /var/lib/berth/config.json.
 type Config struct {
@@ -71,9 +72,13 @@ type Runtime struct {
 // MCP holds the MCP servers users add and the agents each server reaches.
 type MCP struct {
 	Servers    map[string]MCPServer `json:"servers"`
-	Available  map[string][]string  `json:"available"`  // server id → agent packages; missing means all agents
+	Available  map[string][]string  `json:"available"`  // server id → agent packages, or ["*"] for all agents; missing means none
 	Workspaces map[string][]string  `json:"workspaces"` // server id → workspace ids; missing means none
 }
+
+// AllAgents, alone in an mcp.available list, makes a server reach every
+// agent, including ones added later.
+const AllAgents = "*"
 
 // MCPServer is a remote MCP server reached over streamable HTTP.
 type MCPServer struct {
@@ -212,10 +217,17 @@ func (m MCP) validate(v *validator) {
 			v.add(field, "%q is not a server id", id)
 			continue
 		}
-		if len(m.Available[id]) == 0 {
-			v.add(field, "must name at least one agent; remove it to make the server available to all agents")
+		list := m.Available[id]
+		if len(list) == 0 {
+			v.add(field, "must name at least one agent; remove it to make the server available to no agent")
 		}
-		for i, p := range m.Available[id] {
+		for i, p := range list {
+			if p == AllAgents {
+				if len(list) > 1 {
+					v.add(fmt.Sprintf("%s[%d]", field, i), "%q must be the only entry", AllAgents)
+				}
+				continue
+			}
 			if !packagePattern.MatchString(p) {
 				v.add(fmt.Sprintf("%s[%d]", field, i), "%q is not an npm package name", p)
 			}

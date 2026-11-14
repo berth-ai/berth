@@ -29,10 +29,12 @@ import { mcpWorkspacesPatch, trustNote } from "./attachments-logic";
 import { AvailablePicker } from "./available-picker";
 import {
   AUTH_LABELS,
+  availableLabel,
   availablePatch,
   enabledPatch,
   type McpRow,
   mcpRows,
+  reachOf,
   removePatch,
   tokenName,
 } from "./mcp-logic";
@@ -70,7 +72,7 @@ export function McpPage() {
     <Page>
       <PageHeader
         title="MCP servers"
-        description="Tools your agents can call. Choose which agents and workspaces get each server."
+        description="Tools your agents can call. A server reaches only the agents and workspaces you pick for it."
       />
       <PanelCard
         title="Servers"
@@ -108,7 +110,7 @@ export function McpPage() {
                   row={r}
                   agents={agents}
                   all={packages ?? []}
-                  available={r.id ? available[r.id] : undefined}
+                  available={reachOf(r.id ? available[r.id] : undefined)}
                   wsAll={wsAll}
                   wsList={r.id ? wsLists[r.id] : undefined}
                   trust={note}
@@ -159,7 +161,7 @@ function ServerRows({
   row: McpRow;
   agents: AgentPackage[];
   all: AgentPackage[];
-  available: string[] | undefined;
+  available: string[] | null;
   wsAll: string[];
   wsList: string[] | undefined;
   trust: string;
@@ -273,7 +275,9 @@ function ServerRows({
               onChange={(next) =>
                 onApply(
                   availablePatch(row.id, next),
-                  `${row.name} is available to ${next ? "the chosen agents" : "all agents"}.`,
+                  next !== null && !next.length
+                    ? `${row.name} is available to no agent.`
+                    : `${row.name} is available to ${availableLabel(next, agents)}.`,
                 )
               }
             />

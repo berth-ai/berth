@@ -91,7 +91,7 @@ func TestApplyInvalidWritesNothing(t *testing.T) {
 func TestLoadCorrupt(t *testing.T) {
 	for name, content := range map[string]string{
 		"not json":     `{"schema":`,
-		"newer schema": `{"schema":7}`,
+		"newer schema": `{"schema":8}`,
 		"unknown key":  `{"schema":1,"revision":1,"surprise":true}`,
 	} {
 		t.Run(name, func(t *testing.T) {

@@ -21,7 +21,7 @@ func TestMCPFileRoundTrip(t *testing.T) {
 		t.Errorf("mode = %v", fi.Mode().Perm())
 	}
 	raw, _ := os.ReadFile(path)
-	if !strings.Contains(string(raw), `"schema": 1`) {
+	if !strings.Contains(string(raw), `"schema": 2`) {
 		t.Errorf("file = %s", raw)
 	}
 	got, err := ReadMCPFile(path)
@@ -39,11 +39,22 @@ func TestReadMCPFileMissingIsDefaults(t *testing.T) {
 
 func TestReadMCPFileNewerSchema(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "mcp.json")
-	if err := os.WriteFile(path, []byte(`{"schema":2}`), 0o644); err != nil {
+	if err := os.WriteFile(path, []byte(`{"schema":3}`), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := ReadMCPFile(path); err == nil || !strings.Contains(err.Error(), "schema 2") {
+	if _, err := ReadMCPFile(path); err == nil || !strings.Contains(err.Error(), "schema 3") {
 		t.Errorf("err = %v", err)
+	}
+}
+
+func TestReadMCPFileSchema1DropsAvailable(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "mcp.json")
+	if err := os.WriteFile(path, []byte(`{"schema":1,"available":{"playwright":["a-cli"]},"workspaces":{"playwright":["api"]}}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	m, err := ReadMCPFile(path)
+	if err != nil || len(m.Available) != 0 || m.Workspaces["playwright"][0] != "api" {
+		t.Errorf("m = %+v, %v", m, err)
 	}
 }
 

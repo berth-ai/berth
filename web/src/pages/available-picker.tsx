@@ -6,10 +6,13 @@ import { Label } from "@/components/ui/label";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { WorkspaceChecklist } from "@/components/workspace-checklist";
 import { mcpTargetsText, toggled } from "./attachments-logic";
-import { availableLabel, pickedAfter } from "./mcp-logic";
+import { availableLabel } from "./mcp-logic";
+import { pickAgent } from "./sources-logic";
 
-/** AgentChecklist picks the agents a server or skill reaches; null means all
- * agents. An agent with a note is reached anyway (shown ticked and locked);
+/** AgentChecklist picks the agents a server reaches: null is every agent,
+ * including ones added later, and an empty list is none. Unticking All
+ * agents lists today's agents; ticking every agent keeps that list. An
+ * agent with a note is reached anyway (shown ticked and locked);
  * unsupported agents are listed but cannot be picked. */
 export function AgentChecklist({
   value,
@@ -30,14 +33,14 @@ export function AgentChecklist({
   const ticked = new Set(value ?? all);
   return (
     <fieldset className="flex flex-col gap-2" disabled={disabled}>
-      <legend className="mb-1 font-medium">Available to</legend>
+      <legend className="mb-1 font-medium">Agents</legend>
       <Label className="flex items-center gap-2 font-normal leading-[inherit]">
         <Checkbox
           checked={value === null}
-          disabled={disabled || value === null}
-          onCheckedChange={(on) => (on ? onChange(null) : undefined)}
+          disabled={disabled}
+          onCheckedChange={(on) => onChange(on ? null : all)}
         />
-        All agents
+        All agents, including ones added later
       </Label>
       {agents.map((a) => {
         const note = notes[a.package];
@@ -46,8 +49,8 @@ export function AgentChecklist({
           <Label key={a.package} className="flex items-center gap-2 font-normal leading-[inherit]">
             <Checkbox
               checked={on}
-              disabled={disabled || Boolean(note) || (on && ticked.size === 1)}
-              onCheckedChange={(c) => onChange(pickedAfter(value, all, a.package, c))}
+              disabled={disabled || Boolean(note)}
+              onCheckedChange={(c) => onChange(pickAgent(value, all, a.package, c))}
             />
             {a.name}
             {note ? <span className="text-xs text-fg-muted">{note}</span> : null}
@@ -76,9 +79,10 @@ export interface WorkspaceTargets {
   onChange: (next: string[]) => Promise<void>;
 }
 
-/** AvailablePicker shows who gets a server or skill and saves each change as
- * it is made. label replaces the default list of agents. With workspaces, a
- * server also picks the workspaces whose project files list it. */
+/** AvailablePicker shows who gets a server and saves each change as it is
+ * made; value is as AgentChecklist holds it. label replaces the default
+ * list of agents. With workspaces, a server also picks the workspaces
+ * whose project files list it. */
 export function AvailablePicker({
   server,
   value,
@@ -90,7 +94,7 @@ export function AvailablePicker({
   onChange,
 }: {
   server: string;
-  value: string[] | undefined;
+  value: string[] | null;
   agents: AgentPackage[];
   notes?: Record<string, string>;
   unsupported?: AgentPackage[];
@@ -121,7 +125,7 @@ export function AvailablePicker({
       </PopoverTrigger>
       <PopoverContent align="start" className="flex w-72 flex-col gap-4">
         <AgentChecklist
-          value={value ?? null}
+          value={value}
           agents={agents}
           notes={notes}
           unsupported={unsupported}

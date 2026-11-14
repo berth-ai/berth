@@ -46,12 +46,21 @@ function picker(
 }
 
 describe("AttachPicker", () => {
-  it("attaches to every agent, including later ones, by default", async () => {
-    const { onSave, onClose } = picker();
+  it("starts with nothing ticked, and Attach waits for a pick", () => {
+    picker();
     expect(box(/^All agents, including ones added later/).getAttribute("aria-checked")).toBe(
-      "true",
+      "false",
     );
+    for (const name of [/^Alpha/, /^Gamma/, /^api/])
+      expect(box(name).getAttribute("aria-checked")).toBe("false");
     expect(box(/^Xeno/).hasAttribute("data-disabled")).toBe(true);
+    expect(button("Attach").disabled).toBe(true);
+    expect(screen.getByText("Tick the agents or workspaces that get notes.")).toBeTruthy();
+  });
+
+  it("attaches to every agent, including later ones", async () => {
+    const { onSave, onClose } = picker();
+    fireEvent.click(box(/^All agents/));
     fireEvent.click(button("Attach"));
     await vi.waitFor(() => expect(onClose).toHaveBeenCalled());
     expect(onSave).toHaveBeenCalledWith(null, {});
@@ -59,6 +68,7 @@ describe("AttachPicker", () => {
 
   it("lists today's agents once All is unticked", async () => {
     const { onSave } = picker();
+    fireEvent.click(box(/^All agents/));
     fireEvent.click(box(/^All agents/));
     fireEvent.click(box(/^Gamma/));
     fireEvent.click(button("Attach"));
@@ -71,7 +81,7 @@ describe("AttachPicker", () => {
     expect(box(/^Alpha/).hasAttribute("data-disabled")).toBe(true);
     expect(box(/^Alpha/).getAttribute("aria-checked")).toBe("false");
     expect(screen.getAllByText("Gets notes from other")).toHaveLength(2);
-    expect(box(/^Gamma/).getAttribute("aria-checked")).toBe("true");
+    expect(box(/^Gamma/).getAttribute("aria-checked")).toBe("false");
   });
 
   it("shows an agent reached through another's folder as ticked and locked", () => {
@@ -99,7 +109,7 @@ describe("AttachPicker", () => {
     fireEvent.click(box(/^api/));
     fireEvent.click(screen.getByRole("button", { name: "Vendor" }));
     fireEvent.click(button("Attach"));
-    await vi.waitFor(() => expect(onSave).toHaveBeenCalledWith(null, { api: "vendor" }));
+    await vi.waitFor(() => expect(onSave).toHaveBeenCalledWith([], { api: "vendor" }));
   });
 
   it("locks a workspace another source provides", () => {

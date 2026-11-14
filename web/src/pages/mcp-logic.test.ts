@@ -2,9 +2,10 @@ import { describe, expect, it } from "vitest";
 import type { AgentPackage, Config } from "@/api/types";
 import {
   availableLabel,
+  availablePatch,
+  reachOf,
   idError,
   mcpRows,
-  pickedAfter,
   removePatch,
   serverPatch,
   tokenName,
@@ -73,23 +74,26 @@ describe("rows and labels", () => {
     expect(mcpRows([files], {} as Config, {}).map((r) => r.id)).toEqual(["files"]);
   });
   it("labels who gets a server", () => {
-    expect(availableLabel(undefined, agents)).toBe("All agents");
+    expect(availableLabel(null, agents)).toBe("All agents");
+    expect(availableLabel([], agents)).toBe("No agent");
     expect(availableLabel(["codex"], agents)).toBe("Codex");
     expect(availableLabel(["gone"], agents)).toBe("No installed agent");
   });
-  it("collapses a full pick to all agents and never empties it", () => {
-    const all = agents.map((a) => a.package);
-    expect(pickedAfter(null, all, "codex", false)).toEqual(["@a/claude"]);
-    expect(pickedAfter(["@a/claude"], all, "codex", true)).toBeNull();
-    expect(pickedAfter(["@a/claude"], all, "@a/claude", false)).toEqual(["@a/claude"]);
+  it("reads a missing list as no agent and * as every agent", () => {
+    expect(reachOf(undefined)).toEqual([]);
+    expect(reachOf(null)).toEqual([]);
+    expect(reachOf(["*"])).toBeNull();
+    expect(reachOf(["codex"])).toEqual(["codex"]);
   });
 });
 
 describe("patches", () => {
   it("adds and removes", () => {
-    expect(serverPatch("l", { url: "u", auth: "none", enabled: true }, null)).toEqual({
+    expect(serverPatch("l", { url: "u", auth: "none", enabled: true }, [])).toEqual({
       mcp: { servers: { l: { url: "u", auth: "none", enabled: true } }, available: { l: null } },
     });
+    expect(availablePatch("l", null)).toEqual({ mcp: { available: { l: ["*"] } } });
+    expect(availablePatch("l", ["b", "a"])).toEqual({ mcp: { available: { l: ["a", "b"] } } });
     expect(removePatch("l")).toEqual({
       mcp: { servers: { l: null }, available: { l: null }, workspaces: { l: null } },
     });
