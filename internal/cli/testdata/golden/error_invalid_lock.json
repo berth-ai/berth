@@ -4,5 +4,5 @@
     "message": "invalid agent lock: package.json: fake-agent@^1.0.0 is not an exact version",
     "step": "validate"
   },
-  "schema": 1
+  "schema": 2
 }

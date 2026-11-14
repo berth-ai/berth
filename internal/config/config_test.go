@@ -12,8 +12,8 @@ func TestDefaultsAreValid(t *testing.T) {
 	if err := d.Validate(); err != nil {
 		t.Fatalf("defaults invalid: %v", err)
 	}
-	if d.Schema != 7 || d.Agents.Added == nil || d.Revision != 0 || !d.Frontends.Terminal.Enabled || d.Frontends.IDE.Enabled ||
-		d.Agents.Ref != "main" || d.Agents.Keep != 3 || d.Agents.BootTimeout != 600 ||
+	if d.Schema != 8 || d.Agents.Added == nil || d.Revision != 0 || !d.Frontends.Terminal.Enabled || d.Frontends.IDE.Enabled ||
+		d.Agents.Keep != 3 || d.Agents.BootTimeout != 600 ||
 		d.Agents.MCPTimeout != 120 || d.Runtime.TZ != "UTC" || d.Agents.Disabled == nil {
 		t.Errorf("defaults = %+v", d)
 	}
@@ -21,8 +21,7 @@ func TestDefaultsAreValid(t *testing.T) {
 
 func TestValidateReportsEveryField(t *testing.T) {
 	c := Defaults()
-	c.Schema = 8
-	c.Agents.Ref = "../x"
+	c.Schema = 9
 	c.Agents.Disabled = []string{"Bad Name", "opencode-ai", "opencode-ai"}
 	c.Agents.Keep = 51
 	c.Agents.BootTimeout = 29
@@ -37,7 +36,7 @@ func TestValidateReportsEveryField(t *testing.T) {
 	for _, f := range ve.Fields {
 		got = append(got, f.Field)
 	}
-	want := "schema agents.ref agents.disabled[0] agents.disabled[2] agents.keep agents.boot_timeout agents.mcp_timeout runtime.tz"
+	want := "schema agents.disabled[0] agents.disabled[2] agents.keep agents.boot_timeout agents.mcp_timeout runtime.tz"
 	if strings.Join(got, " ") != want {
 		t.Errorf("fields = %v\nwant     %s", got, want)
 	}
@@ -55,17 +54,6 @@ func TestZones(t *testing.T) {
 		c.Runtime.TZ = tz
 		if (c.Validate() == nil) != ok {
 			t.Errorf("tz %q: valid = %v, want %v", tz, !ok, ok)
-		}
-	}
-}
-
-func TestValidRef(t *testing.T) {
-	for ref, ok := range map[string]bool{
-		"main": true, "v1.2.3": true, "feature/x_y-1": true,
-		"": false, "-x": false, "a/../b": false, "a b": false, strings.Repeat("a", 201): false,
-	} {
-		if ValidRef(ref) != ok {
-			t.Errorf("ValidRef(%q) = %v", ref, !ok)
 		}
 	}
 }

@@ -85,6 +85,10 @@ const sourcesSchema = 6
 // the agents picked for them.
 const optInSchema = 7
 
+// noRefSchema is the first schema without agents.ref: versions come from
+// upstream, not from a ref of the Berth repository.
+const noRefSchema = 8
+
 // dropAgentReach is the schema 7 cleanup: before it, servers reached every
 // agent by default, and so did most skills. Every agent pick is cleared;
 // workspace attachments stay, and a skill attached to no workspace is
@@ -107,7 +111,8 @@ func dropAgentReach(c *Config) {
 // Upgrade decodes a config file or export of schema 1 to Schema into the
 // current shape: settings it lacks take their defaults, a schema 2 to 5
 // skills map becomes sources, agent picks older than schema 7 are dropped
-// (dropAgentReach), and the schema becomes Schema. Unknown keys
+// (dropAgentReach), agents.ref older than schema 8 is dropped, and the
+// schema becomes Schema. Unknown keys
 // and a newer schema are refused. The result is not validated.
 func Upgrade(raw []byte) (Config, error) {
 	var doc map[string]json.RawMessage
@@ -140,6 +145,22 @@ func Upgrade(raw []byte) (Config, error) {
 		doc["skills"] = migrated
 		if raw, err = json.Marshal(doc); err != nil {
 			return Config{}, err
+		}
+	}
+	if old, ok := doc["agents"]; ok && schema >= 1 && schema < noRefSchema {
+		var agents map[string]json.RawMessage
+		if err := json.Unmarshal(old, &agents); err != nil {
+			return Config{}, fmt.Errorf("agents: %w", err)
+		}
+		if _, had := agents["ref"]; had {
+			delete(agents, "ref")
+			var err error
+			if doc["agents"], err = json.Marshal(agents); err != nil {
+				return Config{}, err
+			}
+			if raw, err = json.Marshal(doc); err != nil {
+				return Config{}, err
+			}
 		}
 	}
 	c := Defaults()

@@ -2,7 +2,6 @@ package broker
 
 import (
 	"bytes"
-	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -11,9 +10,13 @@ import (
 	"net/http"
 	"regexp"
 	"slices"
+	"strings"
 
 	"github.com/berth-ai/berth/internal/config"
+	"github.com/berth-ai/berth/internal/pins"
+	"github.com/berth-ai/berth/internal/status"
 	"github.com/berth-ai/berth/internal/supervisor"
+	"github.com/berth-ai/berth/internal/tools"
 )
 
 // agentsGroup serializes the jobs that change the agent store.
@@ -29,6 +32,7 @@ func (b *Broker) verbs() map[string]verbFunc {
 		"rollback":                      b.rollback,
 		"gc":                            b.gc,
 		"update.check":                  b.updateCheck,
+		"update.versions":               b.updateVersions,
 		"service.restart":               b.serviceRestart,
 		"config.get":                    b.configGet,
 		"config.export":                 b.configExport,
@@ -108,39 +112,61 @@ func badRequest(err error) (int, any) {
 	return fail(http.StatusBadRequest, "invalid_request", "%v", err)
 }
 
+// maxUpdateNames bounds the entities one update names.
+const maxUpdateNames = 100
+
 func (b *Broker) update(_ context.Context, body []byte) (int, any) {
 	var in struct {
-		Ref   string `json:"ref"`
-		Image bool   `json:"image"`
+		Names []string `json:"names"`
+		Image bool     `json:"image"`
+		Major bool     `json:"major"`
 	}
 	if err := decode(body, &in); err != nil {
 		return badRequest(err)
 	}
+	if in.Image && in.Major {
+		return badRequest(errors.New("image and major are exclusive"))
+	}
+	if len(in.Names) > maxUpdateNames {
+		return badRequest(fmt.Errorf("at most %d names", maxUpdateNames))
+	}
 	args := []string{"update", "--json"}
-	switch {
-	case in.Ref != "" && in.Image:
-		return badRequest(errors.New("ref and image are exclusive"))
-	case in.Image:
+	if in.Image {
 		args = append(args, "--image")
-	default:
-		cfg, _, _ := b.snapshot()
-		ref := cmp.Or(in.Ref, cfg.Agents.Ref)
-		if !config.ValidRef(ref) {
-			return badRequest(fmt.Errorf("invalid ref %q", ref))
+	}
+	if in.Major {
+		args = append(args, "--major")
+	}
+	for _, n := range in.Names {
+		name, version := splitTarget(n)
+		if !tools.ValidTool(name) || strings.HasPrefix(name, "-") || (version != "" && (!pins.ValidVersion(version) || in.Image)) {
+			return badRequest(fmt.Errorf("invalid name %q", n))
 		}
-		args = append(args, "--ref", ref)
+		args = append(args, n)
 	}
 	return b.startJob("update", args)
 }
 
+// splitTarget splits NAME[@VERSION]; a scoped npm name keeps its leading @.
+func splitTarget(s string) (name, version string) {
+	if i := strings.LastIndex(s, "@"); i > 0 {
+		return s[:i], s[i+1:]
+	}
+	return s, ""
+}
+
 func (b *Broker) rollback(_ context.Context, body []byte) (int, any) {
 	var in struct {
-		Hash string `json:"hash"`
+		Hash  string `json:"hash"`
+		Tools bool   `json:"tools"`
 	}
 	if err := decode(body, &in); err != nil {
 		return badRequest(err)
 	}
 	args := []string{"rollback", "--json"}
+	if in.Tools {
+		args = append(args, "--tools")
+	}
 	if in.Hash != "" {
 		if !hashPattern.MatchString(in.Hash) {
 			return badRequest(fmt.Errorf("invalid hash %q", in.Hash))
@@ -148,6 +174,51 @@ func (b *Broker) rollback(_ context.Context, body []byte) (int, any) {
 		args = append(args, in.Hash)
 	}
 	return b.startJob("rollback", args)
+}
+
+// updateVersions lists the versions upstream has of one pinned entity,
+// oldest first, for the panel's version picker.
+func (b *Broker) updateVersions(ctx context.Context, body []byte) (int, any) {
+	var in struct {
+		Name  string `json:"name"`
+		Track string `json:"track"`
+	}
+	if err := decode(body, &in); err != nil {
+		return badRequest(err)
+	}
+	if !tools.ValidTool(in.Name) || strings.HasPrefix(in.Name, "-") {
+		return badRequest(fmt.Errorf("invalid name %q", in.Name))
+	}
+	var versions []string
+	switch in.Track {
+	case status.TrackAgents:
+		ctx, cancel := context.WithTimeout(ctx, b.syncTimeout())
+		defer cancel()
+		vs, err := b.NPM.Versions(ctx, in.Name)
+		if err != nil {
+			return fail(http.StatusBadGateway, "lookup_failed", "%v", err)
+		}
+		versions = vs
+	case status.TrackTools:
+		stdout, stderr, exit, err := b.agentRun(ctx, b.syncTimeout(), b.Home.Mise, "ls-remote", in.Name)
+		if code, v, failed := syncFailure(err, exit, stderr); failed {
+			return code, v
+		}
+		for _, v := range strings.Fields(stdout) {
+			if pins.ValidVersion(v) {
+				versions = append(versions, v)
+			}
+		}
+	default:
+		return badRequest(fmt.Errorf("track must be %s or %s", status.TrackAgents, status.TrackTools))
+	}
+	if len(versions) > maxVersions {
+		versions = versions[len(versions)-maxVersions:]
+	}
+	if versions == nil {
+		versions = []string{}
+	}
+	return http.StatusOK, map[string]any{"name": in.Name, "track": in.Track, "versions": versions}
 }
 
 func (b *Broker) gc(_ context.Context, body []byte) (int, any) {

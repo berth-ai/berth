@@ -19,6 +19,8 @@ import (
 	"github.com/berth-ai/berth/internal/runner"
 	"github.com/berth-ai/berth/internal/smoke"
 	"github.com/berth-ai/berth/internal/status"
+	"github.com/berth-ai/berth/internal/toolstore"
+	"github.com/berth-ai/berth/internal/upstream"
 )
 
 // Config holds every path and dependency the commands use. Tests build it
@@ -38,7 +40,11 @@ type Config struct {
 	Stdin          io.Reader     // what hidden commands read input from; nil reads nothing
 	RegistryDir    string        // the image's registry of addable agents
 	AgentsCmd      []string      // argv prefix of berth agents, the added-agent converger; empty skips added agents
-	GitHub         locksource.GitHub
+	ToolsDir       string        // the base-tools store; empty leaves base tools alone
+	BaseTools      string        // the image's base-track mise.toml
+	Mise           string        // the mise binary
+	NPM            upstream.NPM  // where agent package versions come from
+	Repo           string        // the GitHub repository images are released from
 	Keep           int
 	LockTimeout    time.Duration
 	IsRoot         bool
@@ -99,7 +105,10 @@ func defaultConfig(getenv func(string) string, b Build, isRoot bool, lookup func
 		Stdin:          os.Stdin,
 		RegistryDir:    registry.DefaultRoot,
 		AgentsCmd:      []string{"/usr/local/bin/berth", "agents"},
-		GitHub:         locksource.GitHub{Repo: repo, Token: getenv("GITHUB_TOKEN")},
+		ToolsDir:       toolstore.Root,
+		BaseTools:      "/usr/share/berth/mise.toml",
+		Mise:           "/usr/local/bin/mise",
+		Repo:           repo,
 		LockTimeout:    30 * time.Second,
 		IsRoot:         isRoot,
 		Now:            time.Now,
@@ -160,10 +169,10 @@ type command struct {
 }
 
 var commands = map[string]command{
-	"status":     {"status [--check] [--json]            show installed agent sets", runStatus},
-	"update":     {"update [--ref R | --image | --lock-dir D] [--json]  install and activate an agent set", runUpdate},
-	"rollback":   {"rollback [HASH] [--json]             return to the previous (or named) agent set", runRollback},
-	"ensure":     {"ensure [--json]                      boot-time install of the image seed", runEnsure},
+	"status":     {"status [--check] [--json]            show the agent sets and pinned versions, and with --check the newest ones", runStatus},
+	"update":     {"update [NAME[@VERSION]...] [--major | --image] [--json]  move agent CLIs, MCP servers and base tools to newer (or the image's) versions", runUpdate},
+	"rollback":   {"rollback [HASH] [--tools] [--json]   return to the previous (or named) agent or tool set", runRollback},
+	"ensure":     {"ensure [--json]                      boot-time install of the image seed and kept overrides", runEnsure},
 	"gc":         {"gc [--json]                          remove unused agent sets", runGC},
 	"config":     {"config get|set K=V...|revert|reset|export|import FILE|reset-login [--json]  read or change settings", runConfig},
 	"login":      {"login status|logout AGENT METHOD [--json]  the agents' own sign-ins", runLogin},

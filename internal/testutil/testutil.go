@@ -31,13 +31,15 @@ func RunFakeToolIfRequested() {
 		code = fakeNPM(os.Args[1:])
 	case "node":
 		code = fakeNode(os.Args[1:])
+	case "mise":
+		code = fakeMise(os.Args[1:])
 	default:
 		fmt.Fprintf(os.Stderr, "unknown fake tool %q\n", tool)
 	}
 	os.Exit(code)
 }
 
-// FakeTools puts fake npm and node first on PATH for the rest of the test.
+// FakeTools puts fake npm, node and mise first on PATH for the rest of the test.
 func FakeTools(t *testing.T) {
 	t.Helper()
 	exe, err := os.Executable()
@@ -45,7 +47,7 @@ func FakeTools(t *testing.T) {
 		t.Fatal(err)
 	}
 	dir := t.TempDir()
-	for _, tool := range []string{"npm", "node"} {
+	for _, tool := range []string{"npm", "node", "mise"} {
 		script := fmt.Sprintf("#!/bin/sh\n%s=%s exec %s \"$@\"\n", fakeToolEnv, tool, shellQuote(exe))
 		if err := os.WriteFile(filepath.Join(dir, tool), []byte(script), 0o755); err != nil {
 			t.Fatal(err)
@@ -102,6 +104,9 @@ func fakeNPM(args []string) int {
 		fmt.Fprintln(os.Stderr, "fake npm: failing on request")
 		return 1
 	}
+	if len(args) >= 2 && args[0] == "install" && args[1] == "--package-lock-only" {
+		return fakeResolve()
+	}
 	if len(args) == 0 || args[0] != "ci" {
 		fmt.Fprintf(os.Stderr, "fake npm: unsupported arguments %q\n", args)
 		return 2
@@ -134,6 +139,40 @@ func fakeNPM(args []string) int {
 		if err := writePackage(nested, "playwright-core", "0.0.1", false); err != nil {
 			return 1
 		}
+	}
+	return 0
+}
+
+// fakeResolve implements `npm install --package-lock-only`: it writes a
+// package-lock.json whose root dependencies match package.json.
+func fakeResolve() int {
+	if os.Getenv("BERTH_FAKE_NPM_RESOLVE_FAIL") != "" {
+		fmt.Fprintln(os.Stderr, "fake npm: registry unreachable")
+		return 1
+	}
+	raw, err := os.ReadFile("package.json")
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return 1
+	}
+	var pkg struct {
+		Name         string            `json:"name"`
+		Dependencies map[string]string `json:"dependencies"`
+	}
+	if err := json.Unmarshal(raw, &pkg); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return 1
+	}
+	lock, err := json.MarshalIndent(map[string]any{
+		"name": pkg.Name, "lockfileVersion": 3, "requires": true,
+		"packages": map[string]any{"": map[string]any{"name": pkg.Name, "dependencies": pkg.Dependencies}},
+	}, "", "  ")
+	if err != nil {
+		return 1
+	}
+	if err := os.WriteFile("package-lock.json", lock, 0o644); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return 1
 	}
 	return 0
 }
@@ -178,6 +217,59 @@ func fakeNode(args []string) int {
 		return 0
 	}
 	fmt.Fprintf(os.Stderr, "fake node: unsupported arguments %q\n", args)
+	return 2
+}
+
+// fakeMise implements `mise latest TOOL` from BERTH_FAKE_MISE_LATEST
+// (tool=version,...), and `mise install` and `mise bin-paths` for the
+// [tools] of MISE_GLOBAL_CONFIG_FILE: one executable per tool, named after
+// it, under MISE_DATA_DIR. BERTH_FAKE_MISE_FAIL fails install.
+func fakeMise(args []string) int {
+	if len(args) == 0 {
+		return 2
+	}
+	switch args[0] {
+	case "latest":
+		for kv := range strings.SplitSeq(os.Getenv("BERTH_FAKE_MISE_LATEST"), ",") {
+			if name, v, ok := strings.Cut(kv, "="); ok && len(args) > 1 && name == args[1] {
+				fmt.Println(v)
+				return 0
+			}
+		}
+		fmt.Fprintf(os.Stderr, "mise: no versions of %q\n", args[1:])
+		return 1
+	case "install", "bin-paths":
+		if args[0] == "install" && os.Getenv("BERTH_FAKE_MISE_FAIL") != "" {
+			fmt.Fprintln(os.Stderr, "mise: download failed")
+			return 1
+		}
+		raw, err := os.ReadFile(os.Getenv("MISE_GLOBAL_CONFIG_FILE"))
+		if err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			return 1
+		}
+		data := os.Getenv("MISE_DATA_DIR")
+		for line := range strings.SplitSeq(string(raw), "\n") {
+			name, v, ok := strings.Cut(line, " = ")
+			if !ok {
+				continue
+			}
+			name, v = strings.Trim(name, `"`), strings.Trim(v, `"`)
+			bin := filepath.Join(data, "installs", name, v, "bin")
+			if args[0] == "bin-paths" {
+				fmt.Println(bin)
+				continue
+			}
+			if err := os.MkdirAll(bin, 0o755); err != nil {
+				return 1
+			}
+			if err := os.WriteFile(filepath.Join(bin, name), []byte("#!/bin/sh\necho "+name+" "+v+"\n"), 0o755); err != nil {
+				return 1
+			}
+		}
+		return 0
+	}
+	fmt.Fprintf(os.Stderr, "fake mise: unsupported arguments %q\n", args)
 	return 2
 }
 

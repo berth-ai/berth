@@ -200,6 +200,20 @@ seed=$(x main jq -r .seed_hash /usr/share/berth/build-info.json)
 x main berth rollback --json | jq -e --arg seed "$seed" '.current.hash == $seed' >/dev/null || fail "rollback"
 x main berth update --image --json | jq -e '.follow_image' >/dev/null || fail "update --image"
 
+step "a base tool moves off the image's pin and back"
+# An older release than the image's: it exists for sure, and a pick may go down.
+x main berth update hyperfine@1.19.0 --json | jq -e '.tools.current.packages.hyperfine == "1.19.0"' >/dev/null ||
+  fail "tool update"
+[[ $(xa main zsh -c 'hyperfine --version') == "hyperfine 1.19.0" ]] || fail "picked tool not first on PATH"
+[[ $(x main stat -c '%U' /opt/agents/tools/current/wrappers/hyperfine) == root ]] || fail "tool set not sealed"
+if xa main touch /opt/agents/tools/current/wrappers/hyperfine 2>/dev/null; then
+  fail "agent can write the tool set"
+fi
+x main berth status --json | jq -e '.pins[] | select(.name == "hyperfine") | .current == "1.19.0"' >/dev/null ||
+  fail "status pins"
+x main berth update --image hyperfine --json | jq -e '.tools.current == null' >/dev/null || fail "tool back to the image"
+[[ $(xa main zsh -c 'hyperfine --version') != "hyperfine 1.19.0" ]] || fail "image tool not back on PATH"
+
 step "shell defaults"
 # shellcheck disable=SC2016  # expanded by zsh inside the container
 [[ $(xa main zsh -ic 'print -r -- "$EDITOR|$HISTFILE"' </dev/null 2>/dev/null) == "nvim|/home/agent/.local/state/zsh/history" ]] ||
@@ -208,7 +222,7 @@ step "shell defaults"
 [[ $(xa main tmux -L smoke new-session -d \; show-options -gv history-limit \; kill-server) == 50000 ]] ||
   fail "tmux defaults"
 # shellcheck disable=SC2016  # expanded by zsh inside the container
-[[ $(xa main zsh -c 'print -l $path | head -n 2 | paste -sd,') == /var/lib/berth/bin,/opt/mise/wrappers ]] ||
+[[ $(xa main zsh -c 'print -l $path | head -n 3 | paste -sd,') == /var/lib/berth/bin,/opt/agents/tools/current/wrappers,/opt/mise/wrappers ]] ||
   fail "PATH order"
 
 step "login, sessions and proxies"
@@ -336,7 +350,7 @@ xa main jq -e '.mcpServers | has("remote-demo") | not' /home/agent/.claude.json 
 if x main grep -q MCP_REMOTE_DEMO_TOKEN /var/lib/berth/secrets/agents.env; then
   fail "removed server's token kept"
 fi
-verb main update.check '{}' | jq -e '.check.ref == "main" and (.check.update_available != null or .check.error != null)' >/dev/null ||
+verb main update.check '{}' | jq -e '(.check.pins | length > 0) or .check.error != null' >/dev/null ||
   fail "update.check"
 x main berth status --json | jq -e '.versions | length >= 1' >/dev/null || fail "status lacks versions"
 

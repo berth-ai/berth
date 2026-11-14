@@ -2,8 +2,6 @@ package cli
 
 import (
 	"encoding/json"
-	"net/http"
-	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -182,37 +180,18 @@ func TestEnsureRespectsRollback(t *testing.T) {
 	}
 }
 
-func TestUpdateFromRef(t *testing.T) {
-	cfg := testConfig(t)
-	sha := strings.Repeat("ab", 20)
-	pkg, _ := os.ReadFile(filepath.Join(testutil.LockDir("lock-v2"), "package.json"))
-	lock, _ := os.ReadFile(filepath.Join(testutil.LockDir("lock-v2"), "package-lock.json"))
-	mux := http.NewServeMux()
-	mux.HandleFunc("GET /repos/example/berth/commits/main", func(w http.ResponseWriter, _ *http.Request) { w.Write([]byte(sha)) })
-	mux.HandleFunc("GET /example/berth/"+sha+"/agents/package.json", func(w http.ResponseWriter, _ *http.Request) { w.Write(pkg) })
-	mux.HandleFunc("GET /example/berth/"+sha+"/agents/package-lock.json", func(w http.ResponseWriter, _ *http.Request) { w.Write(lock) })
-	srv := httptest.NewServer(mux)
-	defer srv.Close()
-	cfg.GitHub.APIBase, cfg.GitHub.RawBase = srv.URL, srv.URL
-
-	out, errOut, code := run(t, cfg, "update", "--json")
-	if code != 0 {
-		t.Fatalf("exit %d: %s", code, errOut)
-	}
-	src := decode(t, out)["current"].(map[string]any)["source"].(map[string]any)
-	if src["origin"] != "ref" || src["ref"] != "main" || src["commit"] != sha {
-		t.Fatalf("source %v", src)
-	}
-	out, _, _ = run(t, cfg, "status", "--check", "--json")
-	if chk := decode(t, out)["check"].(map[string]any); chk["update_available"] != false {
-		t.Fatalf("check %v", chk)
-	}
-}
-
 func TestExclusiveSourceFlags(t *testing.T) {
-	out, _, code := run(t, testConfig(t), "update", "--ref", "x", "--image", "--json")
-	if code != 2 || !strings.Contains(out, "mutually exclusive") {
-		t.Fatalf("exit %d %s", code, out)
+	for _, args := range [][]string{
+		{"update", "--lock-dir", "x", "--image", "--json"},
+		{"update", "--lock-dir", "x", "gh", "--json"},
+		{"update", "--image", "--major", "--json"},
+		{"update", "--image", "gh@1.0.0", "--json"},
+		{"update", "gh@bad version", "--json"},
+	} {
+		out, _, code := run(t, testConfig(t), args...)
+		if code != 2 || !strings.Contains(out, `"usage"`) {
+			t.Fatalf("%v: exit %d %s", args, code, out)
+		}
 	}
 }
 

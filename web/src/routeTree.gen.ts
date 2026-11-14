@@ -17,6 +17,7 @@ import { Route as OrcaRouteImport } from './routes/orca'
 import { Route as SettingsRouteImport } from './routes/settings'
 import { Route as TerminalRouteImport } from './routes/terminal'
 import { Route as ToolsRouteImport } from './routes/tools'
+import { Route as UpdatesRouteImport } from './routes/updates'
 import { Route as ActivityIndexRouteImport } from './routes/activity.index'
 import { Route as ActivityIdRouteImport } from './routes/activity.$id'
 import { Route as AgentsIndexRouteImport } from './routes/agents.index'
@@ -64,6 +65,11 @@ const TerminalRoute = TerminalRouteImport.update({
 const ToolsRoute = ToolsRouteImport.update({
   id: '/tools',
   path: '/tools',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const UpdatesRoute = UpdatesRouteImport.update({
+  id: '/updates',
+  path: '/updates',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ActivityIndexRoute = ActivityIndexRouteImport.update({
@@ -116,6 +122,7 @@ export interface FileRoutesByFullPath {
   '/settings': typeof SettingsRoute
   '/terminal': typeof TerminalRoute
   '/tools': typeof ToolsRoute
+  '/updates': typeof UpdatesRoute
   '/activity/$id': typeof ActivityIdRoute
   '/agents/$id': typeof AgentsIdRoute
   '/skills/$id': typeof SkillsIdRoute
@@ -134,6 +141,7 @@ export interface FileRoutesByTo {
   '/settings': typeof SettingsRoute
   '/terminal': typeof TerminalRoute
   '/tools': typeof ToolsRoute
+  '/updates': typeof UpdatesRoute
   '/activity/$id': typeof ActivityIdRoute
   '/agents/$id': typeof AgentsIdRoute
   '/skills/$id': typeof SkillsIdRoute
@@ -153,6 +161,7 @@ export interface FileRoutesById {
   '/settings': typeof SettingsRoute
   '/terminal': typeof TerminalRoute
   '/tools': typeof ToolsRoute
+  '/updates': typeof UpdatesRoute
   '/activity/$id': typeof ActivityIdRoute
   '/agents/$id': typeof AgentsIdRoute
   '/skills/$id': typeof SkillsIdRoute
@@ -173,6 +182,7 @@ export interface FileRouteTypes {
     | '/settings'
     | '/terminal'
     | '/tools'
+    | '/updates'
     | '/activity/$id'
     | '/agents/$id'
     | '/skills/$id'
@@ -191,6 +201,7 @@ export interface FileRouteTypes {
     | '/settings'
     | '/terminal'
     | '/tools'
+    | '/updates'
     | '/activity/$id'
     | '/agents/$id'
     | '/skills/$id'
@@ -209,6 +220,7 @@ export interface FileRouteTypes {
     | '/settings'
     | '/terminal'
     | '/tools'
+    | '/updates'
     | '/activity/$id'
     | '/agents/$id'
     | '/skills/$id'
@@ -228,6 +240,7 @@ export interface RootRouteChildren {
   SettingsRoute: typeof SettingsRoute
   TerminalRoute: typeof TerminalRoute
   ToolsRoute: typeof ToolsRoute
+  UpdatesRoute: typeof UpdatesRoute
   ActivityIdRoute: typeof ActivityIdRoute
   AgentsIdRoute: typeof AgentsIdRoute
   SkillsIdRoute: typeof SkillsIdRoute
@@ -294,6 +307,13 @@ declare module '@tanstack/react-router' {
       path: '/tools'
       fullPath: '/tools'
       preLoaderRoute: typeof ToolsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/updates': {
+      id: '/updates'
+      path: '/updates'
+      fullPath: '/updates'
+      preLoaderRoute: typeof UpdatesRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/activity/': {
@@ -364,6 +384,7 @@ const rootRouteChildren: RootRouteChildren = {
   SettingsRoute: SettingsRoute,
   TerminalRoute: TerminalRoute,
   ToolsRoute: ToolsRoute,
+  UpdatesRoute: UpdatesRoute,
   ActivityIdRoute: ActivityIdRoute,
   AgentsIdRoute: AgentsIdRoute,
   SkillsIdRoute: SkillsIdRoute,

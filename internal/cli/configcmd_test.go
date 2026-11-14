@@ -170,10 +170,10 @@ func TestImportPatch(t *testing.T) {
 	if err != nil || !strings.Contains(string(got), `"sources":{"anthropics-skills":{`) || strings.Contains(string(got), `"skills":{"pdf"`) {
 		t.Errorf("schema 5 skills = %s %v", got, err)
 	}
-	if _, err := importPatch(write("e.json", `{"schema":8}`)); err == nil || !strings.Contains(err.Error(), "config schema 8") {
+	if _, err := importPatch(write("e.json", `{"schema":9}`)); err == nil || !strings.Contains(err.Error(), "config schema 9") {
 		t.Errorf("schema 8: %v", err)
 	}
-	for _, body := range []string{`{"schema":8}`, `[]`, `{"agents":{}}`, `nope`} {
+	for _, body := range []string{`{"schema":9}`, `[]`, `{"agents":{}}`, `nope`} {
 		if _, err := importPatch(write("c.json", body)); err == nil {
 			t.Errorf("%s accepted", body)
 		}

@@ -48,25 +48,42 @@ If the config file becomes unreadable, Berth starts only the panel and
 Forgot the panel login? `docker compose exec berth berth config reset-login`
 deletes it and prints a new setup link.
 
-## Agents
+## Updates
+
+The image pins a version of every agent CLI, MCP server and base tool. Berth
+starts from those, and you can move any of them to a newer version without
+waiting for a new image. Versions come straight from upstream: the npm
+registry for agents and MCP servers, mise for base tools.
 
 ```sh
-docker compose exec berth berth status          # what is installed, and from where
-docker compose exec berth berth status --check  # is a newer agent set on main?
-docker compose exec berth berth update          # install the agent set from main, no restart
-docker compose exec berth berth rollback        # back to the previous set, offline
-docker compose exec berth berth update --image  # return to the set shipped with the image
+docker compose exec berth berth status --check        # what runs, what the image pins, what is newest
+docker compose exec berth berth update                # every minor and patch update; majors wait
+docker compose exec berth berth update @openai/codex  # one entity to its newest version, major or not
+docker compose exec berth berth update gh@2.104.0     # or to a version you pick
+docker compose exec berth berth update --image gh     # back to the image's version (all, without a name)
+docker compose exec berth berth rollback              # the previous agent set, offline
+docker compose exec berth berth rollback --tools      # the previous base tools
 ```
 
 Updates install into a new directory and switch atomically. Running agent
-sessions keep working on the version they started with. After `update` or
-`rollback`, restarts keep your choice. Only `update --image` makes Berth
-follow the image again. Every command accepts `--json`.
+sessions keep working on the version they started with. Your picks survive
+restarts. When you pull a newer image, a pick stays only while it is newer
+than what that image ships; once the image catches up, it follows the image
+again. Every command accepts `--json`.
 
-The web panel does the same from a browser: it shows the current and previous
-agent sets, checks the configured ref (`main` by default) for a newer lock,
-and runs `update` (from that ref, another git ref or the image) or
-`rollback` while showing the log. It cannot run anything else.
+The panel's Updates page does the same from a browser: it lists every pinned
+entity with the image's version, the running one and the newest upstream,
+and offers Update all, per-entity updates, a version picker, rollback and a
+return to the image. A banner announces minor and patch updates; majors are
+picked one by one.
+
+npm records each package's integrity and `npm ci` checks it. Base tools are
+installed by mise as the `agent` user, then sealed read-only and owned by
+root; mise verifies checksums where the tool's backend publishes them. A
+version the image did not ship has not been tested with Berth, so roll back
+if one misbehaves.
+
+## Agents
 
 Each agent and MCP server can be switched off on its own, and agents take
 their API keys from the panel. A key set in your own shell wins over the
@@ -74,7 +91,6 @@ panel's. From the command line:
 
 ```sh
 docker compose exec berth berth config set 'agents.disabled=["opencode-ai"]'
-docker compose exec berth berth config set agents.ref=v1.4.0   # where updates come from
 ```
 
 Switching a package off removes it from `PATH` for new shells and
@@ -127,16 +143,17 @@ docker compose exec berth berth usage                         # tokens per agent
 docker compose pull && docker compose up -d
 ```
 
-Your home (agent logins, `gh`/`glab`/`tea` auth, dotfiles, your own tools) and the
-agent store and Berth's settings live in the `berth-home`, `berth-agents` and
+Your home (agent logins, `gh`/`glab`/`tea` auth, dotfiles, your own tools), the
+agent store with the versions you picked, and Berth's settings live in the `berth-home`, `berth-agents` and
 `berth-config` volumes and survive recreation. Never run
 `docker compose down -v` to upgrade: it deletes all three volumes.
 
 ## Tools and shell
 
 - The pinned toolchain lives in `/opt/mise`: Node, Neovim, gh, glab, uv,
-  ripgrep, fd, fzf, lazygit, starship, chezmoi, atuin and more. The Gitea
-  and Forgejo CLI, `tea`, is in `/usr/local/bin`.
+  ripgrep, fd, fzf, lazygit, starship, chezmoi, atuin and more. Newer
+  versions you pick (see Updates) live in `/opt/agents/tools` and come
+  first on `PATH`. The Gitea and Forgejo CLI, `tea`, is in `/usr/local/bin`.
 - The panel's Accounts page signs `gh` and `glab` in with a one-time code
   and `tea` in with an access token, to any number of Gitea or Forgejo
   servers. Each one also signs git in over HTTPS.
@@ -163,7 +180,6 @@ defaults in `compose.yaml`; `.env.example` lists them:
 | `PANEL_PORT` | 7690 | Host port mapped to the panel |
 | `PUID` / `PGID` | 1000 / 1000 | Identity of the `agent` user |
 | `WORKSPACES_DIR` | `./workspaces` | Host path mounted at `/workspaces` |
-| `GITHUB_TOKEN` | unset | Raises GitHub's rate limit for agent update checks |
 
 The panel shows these values but cannot change them.
 
@@ -174,7 +190,6 @@ Every other setting is changed with `berth config` and kept in the
 | --- | --- | --- |
 | `frontends.terminal.enabled` | `true` | Run the browser terminal |
 | `frontends.ide.enabled` | `false` | Run the browser IDE |
-| `agents.ref` | `main` | Git ref `berth update` installs from by default |
 | `agents.keep` | 3 | Old agent sets kept besides current and previous |
 | `agents.boot_timeout` | 600 | Seconds allowed for installing agents at boot |
 | `agents.mcp_timeout` | 120 | Seconds allowed for MCP registration |
@@ -192,8 +207,8 @@ Every other setting is changed with `berth config` and kept in the
 - The panel runs as its own `berth-panel` user. Privileged work goes through
   a root broker inside `berth supervise`, on a unix socket only `berth-panel`
   can reach. The broker runs a fixed set of verbs.
-- The agent store and base toolchain are read-only to `agent`, and agent
-  auto-updaters are disabled.
+- The agent store, the base toolchain and the base tools picked over the
+  image's are read-only to `agent`, and agent auto-updaters are disabled.
 - Playwright's Chromium runs with `--no-sandbox`, because the kernel sandbox
   is unavailable under `no-new-privileges`. It is used only for agent-driven
   browsing.

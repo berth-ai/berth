@@ -1,85 +1,138 @@
 package broker
 
 import (
-	"cmp"
 	"context"
-	"fmt"
+	"encoding/json"
+	"errors"
 	"net/http"
+	"strings"
 	"time"
 
-	"github.com/berth-ai/berth/internal/config"
+	"github.com/berth-ai/berth/internal/pins"
+	"github.com/berth-ai/berth/internal/status"
 )
 
 const (
-	checkTTL          = time.Hour
-	checkFetchTimeout = 30 * time.Second
+	checkTTL     = time.Hour
+	checkTimeout = 3 * time.Minute
 )
 
-// Check compares the current agent set with the lock on a ref.
-// UpdateAvailable is nil when the ref could not be read.
+// Check is the last look upstream: every pinned entity with the newest
+// version there. Updates counts minor and patch updates, Majors the rest;
+// UpdateAvailable is nil when the check failed.
 type Check struct {
-	Ref             string    `json:"ref"`
-	Commit          string    `json:"commit,omitempty"`
-	Hash            string    `json:"hash,omitempty"`
-	UpdateAvailable *bool     `json:"update_available"`
-	CheckedAt       time.Time `json:"checked_at"`
-	Error           string    `json:"error,omitempty"`
+	CheckedAt       time.Time    `json:"checked_at"`
+	Pins            []status.Pin `json:"pins"`
+	Updates         int          `json:"updates"`
+	Majors          int          `json:"majors"`
+	UpdateAvailable *bool        `json:"update_available"`
+	Error           string       `json:"error,omitempty"`
 }
 
-type cachedLock struct {
-	commit, hash string
-	at           time.Time
+type cachedCheck struct {
+	pins []status.Pin
+	at   time.Time
 }
 
 func (b *Broker) updateCheck(ctx context.Context, body []byte) (int, any) {
 	var in struct {
-		Ref   string `json:"ref"`
-		Force bool   `json:"force"`
+		Force bool `json:"force"`
 	}
 	if err := decode(body, &in); err != nil {
 		return badRequest(err)
 	}
-	cfg, _, _ := b.snapshot()
-	ref := cmp.Or(in.Ref, cfg.Agents.Ref)
-	if !config.ValidRef(ref) {
-		return badRequest(fmt.Errorf("invalid ref %q", ref))
-	}
 	b.checkMu.Lock()
-	cached, ok := b.checks[ref]
+	cached := b.lastCheck
 	b.checkMu.Unlock()
 	now := b.now()
-	if !ok || in.Force || now.Sub(cached.at) >= checkTTL {
-		ctx, cancel := context.WithTimeout(ctx, checkFetchTimeout)
-		defer cancel()
-		lock, err := b.Fetch(ctx, ref)
+	if cached == nil || in.Force || now.Sub(cached.at) >= checkTTL {
+		got, err := b.checkPins(ctx)
 		if err != nil {
-			return http.StatusOK, map[string]any{"check": Check{Ref: ref, CheckedAt: now.UTC(), Error: err.Error()}}
+			return http.StatusOK, map[string]any{"check": Check{CheckedAt: now.UTC(), Pins: []status.Pin{}, Error: err.Error()}}
 		}
-		cached = cachedLock{commit: lock.Source.Commit, hash: lock.Hash, at: now}
+		cached = &cachedCheck{pins: got, at: now}
 		b.checkMu.Lock()
-		b.checks[ref] = cached
+		b.lastCheck = cached
 		b.checkMu.Unlock()
 	}
-	return http.StatusOK, map[string]any{"check": b.compare(ref, cached)}
+	return http.StatusOK, map[string]any{"check": b.compare(*cached)}
 }
 
-// compare answers from a cached lock against the current set now, so a
-// rollback after a check is reflected without fetching again.
-func (b *Broker) compare(ref string, c cachedLock) Check {
-	avail := b.currentHash() != c.hash
-	return Check{Ref: ref, Commit: c.commit, Hash: c.hash, UpdateAvailable: &avail, CheckedAt: c.at.UTC()}
+// compare answers from a cached check against what runs now, so an update
+// or a rollback after a check is reflected without asking upstream again.
+func (b *Broker) compare(c cachedCheck) Check {
+	live := map[string]status.Pin{}
+	if b.Agents != nil {
+		if rep, err := b.Agents(); err == nil {
+			for _, p := range rep.Pins {
+				live[p.Name] = p
+			}
+		}
+	}
+	out := Check{CheckedAt: c.at.UTC(), Pins: make([]status.Pin, 0, len(c.pins))}
+	for _, p := range c.pins {
+		if l, ok := live[p.Name]; ok {
+			p.Image, p.Current = l.Image, l.Current
+		}
+		p.Update = ""
+		if p.Latest != "" {
+			p.Update = pins.Bump(p.Current, p.Latest)
+		}
+		switch p.Update {
+		case "":
+		case pins.BumpMajor:
+			out.Majors++
+		default:
+			out.Updates++
+		}
+		out.Pins = append(out.Pins, p)
+	}
+	avail := out.Updates+out.Majors > 0
+	out.UpdateAvailable = &avail
+	return out
 }
 
-// cachedCheck is the last check of ref, without fetching; nil if none.
-func (b *Broker) cachedCheck(ref string) *Check {
+// cachedCheckNow is the last check, without asking upstream; nil if none.
+func (b *Broker) cachedCheckNow() *Check {
 	b.checkMu.Lock()
-	c, ok := b.checks[ref]
+	c := b.lastCheck
 	b.checkMu.Unlock()
-	if !ok {
+	if c == nil {
 		return nil
 	}
-	check := b.compare(ref, c)
+	check := b.compare(*c)
 	return &check
+}
+
+// checkPins asks upstream through berth status --check, run as agent: the
+// version lookups run mise, and nothing of that needs root.
+func (b *Broker) checkPins(ctx context.Context) ([]status.Pin, error) {
+	if b.CheckPins != nil {
+		return b.CheckPins(ctx)
+	}
+	stdout, stderr, exit, err := b.agentRun(ctx, checkTimeout, b.Home.Berth, "status", "--check", "--json")
+	if errors.Is(err, errTimeout) {
+		return nil, errors.New("the check did not finish in time; try again")
+	}
+	if err != nil {
+		return nil, err
+	}
+	var rep struct {
+		Pins  []status.Pin `json:"pins"`
+		Error *struct {
+			Message string `json:"message"`
+		} `json:"error"`
+	}
+	if jerr := json.Unmarshal([]byte(stdout), &rep); jerr != nil || exit != 0 {
+		if rep.Error != nil {
+			return nil, errors.New(rep.Error.Message)
+		}
+		return nil, errors.New(strings.TrimSpace(lastLine(stderr)))
+	}
+	if rep.Pins == nil {
+		rep.Pins = []status.Pin{}
+	}
+	return rep.Pins, nil
 }
 
 func (b *Broker) now() time.Time {
@@ -87,16 +140,4 @@ func (b *Broker) now() time.Time {
 		return b.Now()
 	}
 	return time.Now()
-}
-
-func (b *Broker) currentHash() string {
-	if b.CurrentHash != nil {
-		return b.CurrentHash()
-	}
-	if b.Layer != nil {
-		if cur, err := b.Layer.Store.Current(); err == nil && cur != nil {
-			return cur.Hash
-		}
-	}
-	return ""
 }

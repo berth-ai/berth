@@ -61,7 +61,7 @@ export function exportedConfig(text: string): Exported {
     return { ok: false, error: "That file is not JSON." };
   }
   const cfg = isObject(doc) && isObject(doc.config) ? doc.config : doc;
-  if (!isObject(cfg) || ![1, 2, 3, 4, 5, 6].includes(cfg.schema as number))
+  if (!isObject(cfg) || ![1, 2, 3, 4, 5, 6, 7, 8].includes(cfg.schema as number))
     return { ok: false, error: "That file is not a Berth config export." };
   return { ok: true, cfg };
 }
@@ -76,7 +76,6 @@ export function readImport(text: string, base: Config): ParsedImport {
   delete patch.revision;
   const rows = [
     ...PATHS,
-    "agents.ref",
     "agents.disabled",
     "agents.added",
     "mcp.servers",

@@ -194,7 +194,7 @@ class DockerfileTest(unittest.TestCase):
         self.assertIn('ENTRYPOINT ["tini", "--", "berth-entrypoint"]', text)
         self.assertIn('CMD ["serve"]', text)
         self.assertIn("DISABLE_AUTOUPDATER=1", text)
-        self.assertIn("PATH=/var/lib/berth/bin:/opt/mise/wrappers:", text)
+        self.assertIn("PATH=/var/lib/berth/bin:/opt/agents/tools/current/wrappers:/opt/mise/wrappers:", text)
         self.assertIn("/usr/sbin:/usr/bin:/sbin:/bin", text)
         self.assertNotIn("VOLUME", text)
         self.assertIn("passwd", text)
@@ -241,9 +241,9 @@ class ComposeTest(unittest.TestCase):
     def test_env_example_is_optional(self):
         env = read(".env.example")
         self.assertNotRegex(env, r"(?m)^[A-Z_]+=", "every override is commented out")
-        for var in ("BERTH_VERSION", "BIND_ADDRESS", "PANEL_PORT", "PUID", "PGID", "WORKSPACES_DIR", "GITHUB_TOKEN", "ORCA_PORT"):
+        for var in ("BERTH_VERSION", "BIND_ADDRESS", "PANEL_PORT", "PUID", "PGID", "WORKSPACES_DIR", "ORCA_PORT"):
             self.assertRegex(env, rf"(?m)^# {var}=", var)
-        for gone in ("PANEL_CREDENTIAL", "WEB_TERMINAL_CREDENTIAL", "CODE_SERVER_PASSWORD"):
+        for gone in ("PANEL_CREDENTIAL", "WEB_TERMINAL_CREDENTIAL", "CODE_SERVER_PASSWORD", "GITHUB_TOKEN"):
             self.assertNotIn(gone, env)
 
 

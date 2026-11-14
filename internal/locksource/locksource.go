@@ -29,9 +29,10 @@ var exactVersion = regexp.MustCompile(`^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0
 type Origin string
 
 const (
-	OriginImage Origin = "image"
-	OriginRef   Origin = "ref"
-	OriginDir   Origin = "dir"
+	OriginImage    Origin = "image"
+	OriginUpstream Origin = "upstream" // resolved against the package registry
+	OriginRef      Origin = "ref"      // fetched from a git ref by an older berth
+	OriginDir      Origin = "dir"
 )
 
 // Source is recorded as source.json in every installed version.
@@ -107,6 +108,25 @@ func Parse(pkg, lock []byte, src Source) (*Lock, error) {
 		return nil, err
 	}
 	return &Lock{PackageJSON: pkg, PackageLock: lock, Deps: p.Dependencies, Hash: Hash(lock), Source: src, Meta: meta, Descriptors: desc}, nil
+}
+
+// WithDeps is package.json pkg with its dependencies replaced by deps. The
+// result is deterministic for the same input, so it can name a set.
+func WithDeps(pkg []byte, deps map[string]string) ([]byte, error) {
+	var doc map[string]json.RawMessage
+	if err := json.Unmarshal(pkg, &doc); err != nil {
+		return nil, invalid("package.json: %v", err)
+	}
+	raw, err := json.Marshal(deps)
+	if err != nil {
+		return nil, err
+	}
+	doc["dependencies"] = raw
+	out, err := json.MarshalIndent(doc, "", "  ")
+	if err != nil {
+		return nil, err
+	}
+	return append(out, '\n'), nil
 }
 
 // FromDir reads package.json and package-lock.json from dir.

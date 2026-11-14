@@ -17,7 +17,7 @@ func TestResultJSONAddsSchema(t *testing.T) {
 	}{"abc"}, nil); err != nil {
 		t.Fatal(err)
 	}
-	want := "{\n  \"hash\": \"abc\",\n  \"schema\": 1\n}\n"
+	want := "{\n  \"hash\": \"abc\",\n  \"schema\": 2\n}\n"
 	if out.String() != want {
 		t.Fatalf("got %q, want %q", out.String(), want)
 	}
@@ -39,7 +39,7 @@ func TestFailJSON(t *testing.T) {
 	if code != ExitLockBusy {
 		t.Fatalf("exit %d", code)
 	}
-	want := "{\n  \"error\": {\n    \"code\": \"lock_busy\",\n    \"message\": \"busy for 30s\",\n    \"step\": \"lock\"\n  },\n  \"schema\": 1\n}\n"
+	want := "{\n  \"error\": {\n    \"code\": \"lock_busy\",\n    \"message\": \"busy for 30s\",\n    \"step\": \"lock\"\n  },\n  \"schema\": 2\n}\n"
 	if out.String() != want {
 		t.Fatalf("got %q", out.String())
 	}

@@ -12,7 +12,7 @@ import (
 
 // Schema is the version of the --json contract. Additive fields keep it;
 // removals and renames bump it.
-const Schema = 1
+const Schema = 2
 
 // Exit codes.
 const (

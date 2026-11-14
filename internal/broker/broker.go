@@ -18,12 +18,12 @@ import (
 	"github.com/berth-ai/berth/internal/agentlayer"
 	"github.com/berth-ai/berth/internal/agentset"
 	"github.com/berth-ai/berth/internal/config"
-	"github.com/berth-ai/berth/internal/locksource"
 	"github.com/berth-ai/berth/internal/login"
 	"github.com/berth-ai/berth/internal/registry"
 	"github.com/berth-ai/berth/internal/runner"
 	"github.com/berth-ai/berth/internal/status"
 	"github.com/berth-ai/berth/internal/supervisor"
+	"github.com/berth-ai/berth/internal/upstream"
 )
 
 const maxBodyBytes = 64 << 10
@@ -110,8 +110,11 @@ type Broker struct {
 	// WorkspaceSecrets holds each workspace's secret variables,
 	// /var/lib/berth/secrets/workspaces; empty refuses them.
 	WorkspaceSecrets string
-	// Fetch reads the agent lock on a ref for update.check.
-	Fetch func(ctx context.Context, ref string) (*locksource.Lock, error)
+	// CheckPins looks up the newest version of every pinned entity for
+	// update.check; nil runs berth status --check as agent.
+	CheckPins func(ctx context.Context) ([]status.Pin, error)
+	// NPM lists agent package versions for update.versions.
+	NPM upstream.NPM
 	// Home holds the programs home-side verbs run as agent.
 	Home HomeCommands
 	// BaseTools and PresetsDir are the pins shipped in the image.
@@ -133,9 +136,8 @@ type Broker struct {
 	// OrcaHome is the home whose .config/orca holds Orca's paired devices; empty
 	// means agent's.
 	OrcaHome string
-	// Now and CurrentHash default to the clock and the current agent set.
-	Now         func() time.Time
-	CurrentHash func() string
+	// Now defaults to the clock.
+	Now func() time.Time
 
 	change  sync.Mutex // serializes config changes and service restarts
 	mu      sync.Mutex // guards the fields below
@@ -147,8 +149,8 @@ type Broker struct {
 	verifyMu   sync.Mutex
 	lastVerify time.Time
 
-	checkMu sync.Mutex
-	checks  map[string]cachedLock // update.check results by ref
+	checkMu   sync.Mutex
+	lastCheck *cachedCheck // the last update.check
 
 	mcpRuns    serialJob // mcp.setup
 	skillsRuns serialJob // skills.sync
@@ -176,7 +178,7 @@ func New(store *config.Store, logins login.Store, services Services, jobs *Jobs,
 	}
 	return &Broker{Store: store, Logins: logins, Services: services, Jobs: jobs, Exec: exec,
 		Host: HostFromEnv(func(string) string { return "" }),
-		cfg:  config.Defaults(), mode: ModeNormal, PeerUID: peerFromContext, checks: map[string]cachedLock{}}
+		cfg:  config.Defaults(), mode: ModeNormal, PeerUID: peerFromContext}
 }
 
 // Load reads the login and the config and picks the mode: setup without a
@@ -271,7 +273,7 @@ func (b *Broker) Status() StatusReport {
 			st.Agents = &rep
 		}
 	}
-	st.Check = b.cachedCheck(cfg.Agents.Ref)
+	st.Check = b.cachedCheckNow()
 	st.Packages = []agentlayer.Package{}
 	if b.Layer != nil {
 		// An error here already shows as agents_error.

@@ -197,7 +197,7 @@ ENV BERTH_REPO=${BERTH_REPO} \
     EDITOR=nvim \
     VISUAL=nvim \
     XDG_CONFIG_DIRS=/etc/berth/defaults/xdg:/etc/xdg \
-    PATH=/var/lib/berth/bin:/opt/mise/wrappers:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+    PATH=/var/lib/berth/bin:/opt/agents/tools/current/wrappers:/opt/mise/wrappers:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 
 EXPOSE 7690 6768
 HEALTHCHECK --interval=30s --timeout=10s --start-period=600s --start-interval=2s --retries=3 \

@@ -4,5 +4,5 @@
     "message": "another berth command held the agent store for 200ms",
     "step": "lock"
   },
-  "schema": 1
+  "schema": 2
 }

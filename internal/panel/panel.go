@@ -31,7 +31,7 @@ const (
 // setup.complete and auth.reset never appear: the panel calls the first two
 // itself, and the last is root's alone.
 var browserVerbs = map[string]bool{
-	"update": true, "rollback": true, "gc": true, "update.check": true,
+	"update": true, "rollback": true, "gc": true, "update.check": true, "update.versions": true,
 	"service.restart": true, "auth.change": true,
 	"config.get": true, "config.export": true, "config.apply": true, "config.revert": true, "config.reset": true,
 	"tools.list": true, "tools.versions": true, "tools.registry": true, "tools.add": true, "tools.remove": true,

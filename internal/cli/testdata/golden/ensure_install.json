@@ -12,7 +12,13 @@
     },
     "installed_at": "2026-09-30T12:00:00Z"
   },
+  "dropped": [],
   "reason": "no-current",
-  "schema": 1,
-  "seed_hash": "5b6cfd748b55"
+  "schema": 2,
+  "seed_hash": "5b6cfd748b55",
+  "tools": {
+    "action": "none",
+    "reason": "up-to-date",
+    "dropped": []
+  }
 }

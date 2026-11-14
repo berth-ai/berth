@@ -25,7 +25,7 @@ func TestPatchMerges(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.Agents.Keep != 5 || got.Agents.Ref != "main" || len(got.Agents.Disabled) != 1 ||
+	if got.Agents.Keep != 5 || len(got.Agents.Disabled) != 1 ||
 		!got.Frontends.IDE.Enabled || !got.Frontends.Terminal.Enabled || got.Revision != 4 || got.Runtime.TZ != "UTC" {
 		t.Errorf("got %+v", got)
 	}
@@ -35,12 +35,11 @@ func TestPatchNullResetsToDefault(t *testing.T) {
 	base := Defaults()
 	base.Runtime.TZ = "Europe/Rome"
 	base.Agents.Keep = 9
-	base.Agents.Ref = "v1"
 	got, err := Patch(base, json.RawMessage(`{"runtime":{"tz":null},"agents":null}`))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.Runtime.TZ != "UTC" || got.Agents.Keep != 3 || got.Agents.Ref != "main" {
+	if got.Runtime.TZ != "UTC" || got.Agents.Keep != 3 {
 		t.Errorf("got %+v", got)
 	}
 }

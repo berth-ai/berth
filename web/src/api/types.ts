@@ -29,12 +29,32 @@ export interface AgentVersion {
   installed_at: string;
 }
 
+export type Track = "agents" | "tools";
+export type Bump = "major" | "minor" | "patch";
+
+/** Pin is one entity the image pins: an agent CLI, an MCP server or a base
+ * tool, with its version in the image, what runs, and after a check the
+ * newest version upstream. */
+export interface Pin {
+  name: string;
+  track: Track;
+  kind: string;
+  title: string;
+  image: string;
+  current: string;
+  latest?: string;
+  update?: Bump;
+  error?: string;
+}
+
+/** UpdateCheck is the last look upstream. updates counts minor and patch
+ * updates, majors the rest; update_available is null when it failed. */
 export interface UpdateCheck {
-  ref: string;
-  commit?: string;
-  hash?: string;
-  update_available: boolean | null;
   checked_at: string;
+  pins: Pin[] | null;
+  updates: number;
+  majors: number;
+  update_available: boolean | null;
   error?: string;
 }
 
@@ -43,6 +63,9 @@ export interface AgentsReport {
   previous: AgentVersion | null;
   versions: AgentVersion[] | null;
   follow_image: boolean;
+  // An older broker omits these.
+  pins?: Pin[] | null;
+  tools?: { current: AgentVersion | null; previous: AgentVersion | null } | null;
   build: { version?: string; commit?: string; arch?: string } | null;
   warnings: string[] | null;
 }
@@ -276,7 +299,6 @@ export interface Config {
     orca?: { enabled: boolean; pairing_address: string };
   };
   agents: {
-    ref: string;
     disabled: string[] | null;
     // An older broker omits it.
     added?: string[] | null;

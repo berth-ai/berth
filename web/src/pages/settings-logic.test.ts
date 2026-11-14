@@ -6,7 +6,7 @@ const base: Config = {
   schema: 1,
   revision: 4,
   frontends: { terminal: { enabled: true }, ide: { enabled: false } },
-  agents: { ref: "main", disabled: [], keep: 2, boot_timeout: 600, mcp_timeout: 300 },
+  agents: { disabled: [], keep: 2, boot_timeout: 600, mcp_timeout: 300 },
   runtime: { tz: "Etc/UTC" },
 };
 
@@ -91,7 +91,7 @@ describe("predict", () => {
 describe("readImport", () => {
   it("rejects files that are not exports", () => {
     expect(readImport("not json", base)).toEqual({ ok: false, error: "That file is not JSON." });
-    expect(readImport('{"schema":7}', base)).toEqual({
+    expect(readImport('{"schema":9}', base)).toEqual({
       ok: false,
       error: "That file is not a Berth config export.",
     });
@@ -169,6 +169,6 @@ describe("readImport", () => {
     };
     const file = JSON.stringify({ ...base5, workspaces: { api: { path: "acme/api", repo: "" } } });
     expect(readImport(file, base5)).toMatchObject({ ok: true, rows: [{ path: "workspaces" }] });
-    expect(readImport(JSON.stringify({ ...base5, schema: 7 }), base5)).toMatchObject({ ok: false });
+    expect(readImport(JSON.stringify({ ...base5, schema: 9 }), base5)).toMatchObject({ ok: false });
   });
 });

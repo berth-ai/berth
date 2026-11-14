@@ -1,6 +1,6 @@
 {
   "config": {
-    "schema": 7,
+    "schema": 8,
     "revision": 0,
     "frontends": {
       "terminal": {
@@ -15,7 +15,6 @@
       }
     },
     "agents": {
-      "ref": "main",
       "disabled": [],
       "added": [],
       "keep": 3,
@@ -36,6 +35,6 @@
     "workspaces": {}
   },
   "mode": "normal",
-  "schema": 1,
+  "schema": 2,
   "secrets": {}
 }

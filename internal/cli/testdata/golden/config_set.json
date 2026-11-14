@@ -7,7 +7,7 @@
     "stopped": []
   },
   "config": {
-    "schema": 7,
+    "schema": 8,
     "revision": 1,
     "frontends": {
       "terminal": {
@@ -22,7 +22,6 @@
       }
     },
     "agents": {
-      "ref": "main",
       "disabled": [
         "opencode-ai"
       ],
@@ -44,5 +43,5 @@
     },
     "workspaces": {}
   },
-  "schema": 1
+  "schema": 2
 }

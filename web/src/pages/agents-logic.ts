@@ -4,18 +4,8 @@ import type {
   LoginMethodStatus,
   PackageKey,
   RegistryAgent,
-  UpdateCheck,
 } from "@/api/types";
-import { short, since } from "@/lib/format";
-import type { Tone } from "@/lib/notify";
-
-export function checkResult(c: UpdateCheck): { tone: Tone; text: string } {
-  if (c.update_available === null)
-    return { tone: "warn", text: `Could not reach ${c.ref}: ${c.error}` };
-  if (c.update_available)
-    return { tone: "warn", text: `Update available on ${c.ref}: ${short(c.hash)}.` };
-  return { tone: "ok", text: `Up to date with ${c.ref}.` };
-}
+import { since } from "@/lib/format";
 
 /** disabledAfter is agents.disabled once pkg is switched on or off. */
 export function disabledAfter(all: AgentPackage[], pkg: string, on: boolean): string[] {

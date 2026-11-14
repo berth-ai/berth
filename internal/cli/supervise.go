@@ -18,7 +18,6 @@ import (
 	"github.com/berth-ai/berth/internal/agentlayer"
 	"github.com/berth-ai/berth/internal/broker"
 	"github.com/berth-ai/berth/internal/config"
-	"github.com/berth-ai/berth/internal/locksource"
 	"github.com/berth-ai/berth/internal/login"
 	"github.com/berth-ai/berth/internal/output"
 	"github.com/berth-ai/berth/internal/status"
@@ -106,9 +105,6 @@ func runSupervise(ctx context.Context, a *app, args []string) error {
 	b.PresetsDir = "/usr/share/berth/presets"
 	b.OrcaInstalled = func() bool { _, err := exec.LookPath("orca-ide"); return err == nil }
 	b.OrcaRunDir = cmp.Or(a.cfg.Getenv("BERTH_ORCA_RUN_DIR"), "/run/berth/orca")
-	b.Fetch = func(ctx context.Context, ref string) (*locksource.Lock, error) {
-		return a.cfg.GitHub.Fetch(ctx, ref, a.cfg.Now())
-	}
 	cfg := b.Load()
 
 	if err := os.MkdirAll(dirOf(a.cfg.BrokerSocket), 0o755); err != nil {
@@ -216,7 +212,7 @@ func (a *app) workspaceSecretsDir() string {
 // file the agent user owns: as root, that would let agent point a symlink at
 // a secret and read it back in an error message.
 func (a *app) agentsReport() (status.Report, error) {
-	return status.Collect(status.Inputs{Store: a.store, SeedDir: a.cfg.SeedDir, BuildInfo: a.cfg.BuildInfo})
+	return status.Collect(a.statusInputs(""))
 }
 
 // exitForCause maps the signal that stopped berth to the conventional exit code.

@@ -25,11 +25,13 @@ describe("banners", () => {
     expect(failedCount(undefined)).toBe(0);
   });
 
-  it("offers an update everywhere but on the agents page", () => {
-    const check = { ref: "main", hash: "9e8d7c6b5a", update_available: true, checked_at: "" };
-    expect(updateBanner(status({ check }), "/")).toEqual(check);
-    expect(updateBanner(status({ check }), "/agents")).toBeNull();
-    expect(updateBanner(status({ check: { ...check, update_available: false } }), "/")).toBeNull();
+  it("offers minor and patch updates everywhere but on the updates page", () => {
+    const check = { checked_at: "", pins: [], updates: 2, majors: 1, update_available: true };
+    expect(updateBanner(status({ check }), "/")).toBe(
+      "2 newer versions are available for your agents and tools.",
+    );
+    expect(updateBanner(status({ check }), "/updates")).toBeNull();
+    expect(updateBanner(status({ check: { ...check, updates: 0 } }), "/")).toBeNull();
     expect(updateBanner(undefined, "/")).toBeNull();
   });
 });

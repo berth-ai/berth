@@ -166,11 +166,12 @@ func (tb *testBroker) waitIdle(t *testing.T) {
 func TestUpdateArgs(t *testing.T) {
 	tb := newTestBroker(t)
 	for body, want := range map[string][]string{
-		`{}`:                  {"update", "--json", "--ref", "main"},
-		``:                    {"update", "--json", "--ref", "main"},
-		`{"ref":"v1.2.3"}`:    {"update", "--json", "--ref", "v1.2.3"},
-		`{"image":true}`:      {"update", "--json", "--image"},
-		`{"ref":"feature/x"}`: {"update", "--json", "--ref", "feature/x"},
+		`{}`:             {"update", "--json"},
+		``:               {"update", "--json"},
+		`{"major":true}`: {"update", "--json", "--major"},
+		`{"image":true}`: {"update", "--json", "--image"},
+		`{"names":["@openai/codex@0.170.0","gh"]}`: {"update", "--json", "@openai/codex@0.170.0", "gh"},
+		`{"image":true,"names":["@openai/codex"]}`: {"update", "--json", "--image", "@openai/codex"},
 	} {
 		code, out := tb.verb(t, "update", body)
 		if code != http.StatusAccepted {
@@ -180,12 +181,6 @@ func TestUpdateArgs(t *testing.T) {
 		if got := tb.exec.last(); !slices.Equal(got, want) {
 			t.Errorf("%s: args %q, want %q", body, got, want)
 		}
-	}
-	tb.verb(t, "config.apply", `{"base_revision":0,"patch":{"agents":{"ref":"stable"}}}`)
-	tb.verb(t, "update", `{}`)
-	tb.waitIdle(t)
-	if got := tb.exec.last(); !slices.Equal(got, []string{"update", "--json", "--ref", "stable"}) {
-		t.Errorf("configured ref not used: %q", got)
 	}
 }
 
@@ -197,6 +192,7 @@ func TestRollbackAndGCArgs(t *testing.T) {
 	}{
 		{"rollback", `{}`, []string{"rollback", "--json"}},
 		{"rollback", `{"hash":"0123456789ab"}`, []string{"rollback", "--json", "0123456789ab"}},
+		{"rollback", `{"tools":true}`, []string{"rollback", "--json", "--tools"}},
 		{"gc", `{}`, []string{"gc", "--json"}},
 	} {
 		if code, out := tb.verb(t, c.verb, c.body); code != http.StatusAccepted {
@@ -218,17 +214,21 @@ func TestVerbRejects(t *testing.T) {
 	}{
 		{"frobnicate", `{}`, 404, "unknown_verb"},
 		{"update", `{"lock_dir":"/tmp"}`, 400, "invalid_request"},
-		{"update", `{"ref":"main","image":true}`, 400, "invalid_request"},
-		{"update", `{"ref":"-x"}`, 400, "invalid_request"},
-		{"update", `{"ref":"a/../b"}`, 400, "invalid_request"},
-		{"update", `{"ref":"a b"}`, 400, "invalid_request"},
+		{"update", `{"ref":"main"}`, 400, "invalid_request"},
+		{"update", `{"image":true,"major":true}`, 400, "invalid_request"},
+		{"update", `{"names":["-x"]}`, 400, "invalid_request"},
+		{"update", `{"names":["--lock-dir=/tmp"]}`, 400, "invalid_request"},
+		{"update", `{"names":["a/../b"]}`, 400, "invalid_request"},
+		{"update", `{"names":["a b"]}`, 400, "invalid_request"},
+		{"update", `{"names":["gh@1 2"]}`, 400, "invalid_request"},
+		{"update", `{"image":true,"names":["gh@1.0.0"]}`, 400, "invalid_request"},
 		{"update", `{} {}`, 400, "invalid_request"},
 		{"update", `[]`, 400, "invalid_request"},
 		{"rollback", `{"hash":"0123"}`, 400, "invalid_request"},
 		{"rollback", `{"hash":"../../etc/xx"}`, 400, "invalid_request"},
 		{"gc", `{"keep":1}`, 400, "invalid_request"},
 		{"config.get", `{"x":1}`, 400, "invalid_request"},
-		{"update", `{"ref":"` + strings.Repeat("a", maxBodyBytes) + `"}`, 413, "too_large"},
+		{"update", `{"names":["` + strings.Repeat("a", maxBodyBytes) + `"]}`, 413, "too_large"},
 	} {
 		code, out := tb.verb(t, c.verb, c.body)
 		if code != c.code || errCode(out) != c.errCode {

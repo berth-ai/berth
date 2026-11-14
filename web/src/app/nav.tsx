@@ -2,6 +2,7 @@ import { Link } from "@tanstack/react-router";
 import {
   Activity,
   Bot,
+  CircleArrowUp,
   CircleUser,
   CircleX,
   Code,
@@ -35,6 +36,7 @@ const NAV = [
   { to: "/mcp", label: "MCP servers", icon: Plug },
   { to: "/skills", label: "Skills", icon: Sparkles },
   { to: "/tools", label: "Tools", icon: Wrench },
+  { to: "/updates", label: "Updates", icon: CircleArrowUp },
   { to: "/accounts", label: "Accounts", icon: CircleUser },
   { to: "/settings", label: "Settings", icon: SlidersHorizontal },
   { to: "/activity", label: "Activity", icon: Activity },

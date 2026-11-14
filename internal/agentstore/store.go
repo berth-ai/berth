@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/berth-ai/berth/internal/locksource"
+	"github.com/berth-ai/berth/internal/pins"
 )
 
 var (
@@ -46,10 +47,14 @@ type Version struct {
 
 // State records whether boot-time ensure follows the image seed. ImageHash
 // is the image's hash when a rollback stepped away from it: an added agent
-// stays rolled back until the image pins a different hash.
+// stays rolled back until the image pins a different hash. Overrides are
+// the versions picked over the image's pins; FollowImage means there are
+// none. A state written before overrides existed has FollowImage false and
+// no Overrides, and the caller derives them from the current version.
 type State struct {
-	FollowImage bool   `json:"follow_image"`
-	ImageHash   string `json:"image_hash,omitempty"`
+	FollowImage bool           `json:"follow_image"`
+	ImageHash   string         `json:"image_hash,omitempty"`
+	Overrides   pins.Overrides `json:"overrides,omitempty"`
 }
 
 // Store is the agent store rooted at Root.
@@ -165,6 +170,19 @@ func (s Store) swapLink(name, hash string) error {
 		return err
 	}
 	return os.Rename(tmp, filepath.Join(s.Root, name))
+}
+
+// Clear makes the old current previous and leaves no current version. It
+// reports whether anything changed.
+func (s Store) Clear() (bool, error) {
+	cur, err := s.Current()
+	if err != nil || cur == nil {
+		return false, err
+	}
+	if err := s.swapLink("previous", cur.Hash); err != nil {
+		return false, err
+	}
+	return true, os.Remove(filepath.Join(s.Root, "current"))
 }
 
 // Rollback flips to hash, or to previous when hash is empty.

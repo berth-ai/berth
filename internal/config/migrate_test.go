@@ -107,7 +107,7 @@ func TestUpgrade(t *testing.T) {
 		t.Errorf("schema 1 = %+v, %v", c, err)
 	}
 	for name, raw := range map[string]string{
-		"newer":            `{"schema":8}`,
+		"newer":            `{"schema":9}`,
 		"not an object":    `[1]`,
 		"bad old skill":    `{"schema":5,"skills":{"pdf":{"url":"x"}}}`,
 		"flat skills at 6": `{"schema":6,"skills":{"pdf":{}}}`,

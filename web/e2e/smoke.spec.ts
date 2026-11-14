@@ -59,6 +59,7 @@ test("every page renders inside the CSP", async ({ page }) => {
     ["#/tools", "Tools"],
     ["#/tools?tab=yours", "Tools"],
     ["#/tools?tab=presets", "Tools"],
+    ["#/updates", "Updates"],
     ["#/orca", "Orca"],
     ["#/accounts", "Accounts"],
     ["#/settings", "Settings"],
@@ -98,16 +99,87 @@ test("a job runs to completion and shows its log", async ({ page }) => {
   await signIn(page);
   await page
     .getByRole("status")
-    .filter({ hasText: "Agent update available" })
-    .getByRole("button", { name: "Update" })
+    .filter({ hasText: "Update available" })
+    .getByRole("link", { name: "Review" })
     .click();
+  await expect(h1(page, "Updates")).toBeVisible();
+  await page.getByRole("button", { name: "Update all" }).click();
+  const dialog = page.getByRole("alertdialog", { name: "Install 3 updates?" });
+  await expect(
+    dialog.getByText(
+      /Example Agent 2\.1\.0 → 2\.2\.0, node 24\.21\.0 → 24\.22\.2, gh 2\.101\.0 → 2\.103\.3/,
+    ),
+  ).toBeVisible();
+  await dialog.getByRole("button", { name: "Update all" }).click();
   await expect(page.getByRole("link", { name: /Agent update…/ })).toBeVisible();
-  await expect(page.getByText("Agents updated.")).toBeVisible({ timeout: 15_000 });
+  await expect(page.getByText("Updates installed.")).toBeVisible({ timeout: 15_000 });
+  // Majors are left for the operator to pick, so the banner is gone.
+  const agents = page.getByRole("table", { name: "Agent packages" });
+  await expect(agents.getByRole("row").filter({ hasText: "Example Agent" })).toContainText(
+    "your pick",
+  );
+  await expect(agents.getByRole("row").filter({ hasText: "Files MCP" })).toContainText(
+    "Major update",
+  );
+  await page.goto(`${NORMAL}/#/`);
+  await expect(page.getByRole("status").filter({ hasText: "Update available" })).toHaveCount(0);
   await page.getByRole("link", { name: "Activity", exact: true }).click();
   await page.getByRole("link", { name: "Agent update", exact: true }).first().click();
   await expect(h1(page, "Agent update")).toBeVisible();
   await expect(page.getByRole("log")).toContainText("done");
   await expect(page.getByText("Succeeded")).toBeVisible();
+  expect(problems).toEqual([]);
+});
+
+test("one pinned entity moves to a picked version and back to the image", async ({ page }) => {
+  const problems = await watch(page);
+  await signIn(page);
+  await page.goto(`${NORMAL}/#/updates`);
+  // An earlier test updated everything: start again from the image.
+  const back = page.getByRole("button", { name: "Use the image's versions" });
+  if (await back.isEnabled()) {
+    await back.click();
+    await page
+      .getByRole("alertdialog", { name: "Return everything to the image?" })
+      .getByRole("button", { name: "Use the image's versions" })
+      .click();
+    await expect(page.getByText("Everything follows the image.")).toBeVisible({ timeout: 15_000 });
+  }
+  const tools = page.getByRole("table", { name: "Base tools" });
+  const node = tools.getByRole("row").filter({ hasText: "node" });
+  await expect(node).not.toContainText("your pick");
+  await expect(node).toContainText("24.22.2");
+  await node.getByRole("button", { name: "More for node" }).click();
+  await page.getByRole("menuitem", { name: "Pick a version…" }).click();
+  const pick = page.getByRole("dialog", { name: "Pick a version of node" });
+  await expect(pick.getByRole("combobox", { name: "Version" })).toContainText("24.22.2");
+  await pick.getByRole("button", { name: "Continue" }).click();
+  await page
+    .getByRole("alertdialog", { name: "Move node to 24.22.2?" })
+    .getByRole("button", { name: "Install" })
+    .click();
+  await expect(page.getByText("node is at 24.22.2.")).toBeVisible({ timeout: 15_000 });
+  await expect(node).toContainText("your pick");
+  await expect(page.getByText("node 24.22.2 · installed")).toBeVisible();
+
+  const mcp = page
+    .getByRole("table", { name: "Agent packages" })
+    .getByRole("row")
+    .filter({ hasText: "Files MCP" });
+  await mcp.getByRole("button", { name: "Update Files MCP to 1.0.0" }).click();
+  const major = page.getByRole("alertdialog", { name: "Move Files MCP to 1.0.0?" });
+  await expect(major.getByText(/This is a major version/)).toBeVisible();
+  await major.getByRole("button", { name: "Install" }).click();
+  await expect(page.getByText("Files MCP is at 1.0.0.")).toBeVisible({ timeout: 15_000 });
+
+  await node.getByRole("button", { name: "More for node" }).click();
+  await page.getByRole("menuitem", { name: "Use the image's version" }).click();
+  await page
+    .getByRole("alertdialog", { name: "Use the image's node?" })
+    .getByRole("button", { name: "Use the image's" })
+    .click();
+  await expect(page.getByText("node follows the image.")).toBeVisible({ timeout: 15_000 });
+  await expect(node).not.toContainText("your pick");
   expect(problems).toEqual([]);
 });
 
@@ -164,11 +236,12 @@ test("a user tool upgrades in place and an MCP server switches off", async ({ pa
   await mcp.getByRole("switch", { name: "Turn on Files MCP" }).click();
   await expect(page.getByText(/Files MCP is on\./)).toBeVisible();
 
-  await page.goto(`${NORMAL}/#/agents`);
+  await page.goto(`${NORMAL}/#/updates`);
   await page.getByRole("button", { name: "Package versions for 3f9c2a7d" }).click();
   await expect(
-    page.getByRole("table", { name: "Version history" }).getByText("@example/agent-cli"),
+    page.getByRole("table", { name: "Agent set history" }).getByText("@example/agent-cli"),
   ).toBeVisible();
+  await page.goto(`${NORMAL}/#/agents`);
   await page.getByRole("link", { name: "Manage Example Agent" }).click();
   await expect(page).toHaveURL(/#\/agents\/agent-cli$/);
   await expect(page.getByLabel("EXAMPLE_API_KEY")).toBeVisible();

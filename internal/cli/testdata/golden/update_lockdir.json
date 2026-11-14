@@ -12,8 +12,10 @@
     },
     "installed_at": "2026-09-30T12:00:00Z"
   },
-  "follow_image": false,
+  "follow_image": true,
+  "held": [],
   "installed": true,
+  "picked": [],
   "previous": null,
-  "schema": 1
+  "schema": 2
 }

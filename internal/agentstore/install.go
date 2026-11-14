@@ -5,7 +5,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io/fs"
 	"maps"
 	"os"
 	"path/filepath"
@@ -43,7 +42,7 @@ type Installer struct {
 func (in Installer) Install(ctx context.Context, lock *locksource.Lock) (*Version, bool, error) {
 	v, err := in.Store.Get(lock.Hash)
 	if err == nil {
-		if err := in.refresh(v, lock.PackageJSON); err != nil {
+		if err := in.Refresh(v, lock.PackageJSON); err != nil {
 			return nil, false, &StepError{Step: "publish", Err: err}
 		}
 		return v, false, nil
@@ -142,16 +141,7 @@ func (in Installer) prepare(final, tmp string, lock *locksource.Lock) error {
 	if err := writeJSON(filepath.Join(tmp, sourceFile), lock.Source); err != nil {
 		return err
 	}
-	if in.Agent == nil {
-		return nil
-	}
-	uid, gid := int(in.Agent.UID), int(in.Agent.GID)
-	return filepath.WalkDir(tmp, func(p string, _ fs.DirEntry, err error) error {
-		if err != nil {
-			return err
-		}
-		return os.Lchown(p, uid, gid)
-	})
+	return in.ownAll(tmp)
 }
 
 func installedVersions(dir string, deps []string) (map[string]string, error) {
@@ -176,9 +166,9 @@ func PackageJSONStale(dir string, pkg []byte) bool {
 	return err != nil || !bytes.Equal(raw, pkg)
 }
 
-// refresh replaces a stale package.json in v; node_modules is unchanged,
+// Refresh replaces a stale package.json in v; node_modules is unchanged,
 // since the package-lock.json that built it is the same.
-func (in Installer) refresh(v *Version, pkg []byte) error {
+func (in Installer) Refresh(v *Version, pkg []byte) error {
 	if !PackageJSONStale(v.Dir, pkg) {
 		return nil
 	}

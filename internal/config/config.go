@@ -20,7 +20,7 @@ import (
 // no workspaces, schemas 2 to 5 held skills as a flat map, and before
 // schema 7 a server missing from mcp.available reached every agent; Upgrade
 // reads them all.
-const Schema = 7
+const Schema = 8
 
 // Config is the content of /var/lib/berth/config.json.
 type Config struct {
@@ -56,7 +56,6 @@ type Toggle struct {
 // Agents holds the agent track's settings. Added lists the npm packages a
 // user added from the image's registry.
 type Agents struct {
-	Ref         string   `json:"ref"`
 	Disabled    []string `json:"disabled"`
 	Added       []string `json:"added"`
 	Keep        int      `json:"keep"`
@@ -99,7 +98,7 @@ func Defaults() Config {
 	return Config{
 		Schema:     Schema,
 		Frontends:  Frontends{Terminal: Toggle{Enabled: true}},
-		Agents:     Agents{Ref: "main", Disabled: []string{}, Added: []string{}, Keep: 3, BootTimeout: 600, MCPTimeout: 120},
+		Agents:     Agents{Disabled: []string{}, Added: []string{}, Keep: 3, BootTimeout: 600, MCPTimeout: 120},
 		Runtime:    Runtime{TZ: "UTC"},
 		MCP:        MCP{Servers: map[string]MCPServer{}, Available: map[string][]string{}, Workspaces: map[string][]string{}},
 		Skills:     Skills{Sources: map[string]Source{}},
@@ -130,7 +129,6 @@ func (e *ValidationError) Error() string {
 }
 
 var (
-	refPattern     = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._/-]{0,199}$`)
 	packagePattern = regexp.MustCompile(`^(@[a-z0-9][a-z0-9._-]*/)?[a-z0-9][a-z0-9._-]*$`)
 	zonePattern    = regexp.MustCompile(`^[A-Za-z][A-Za-z0-9_+-]*(/[A-Za-z0-9_+-]+)*$`)
 	// UserServerIDPattern caps ids at 48 characters so MCP_<ID>_TOKEN fits
@@ -142,11 +140,6 @@ var (
 // ValidPackage reports whether name is an npm package name.
 func ValidPackage(name string) bool { return packagePattern.MatchString(name) }
 
-// ValidRef reports whether ref may be passed to berth update --ref.
-func ValidRef(ref string) bool {
-	return refPattern.MatchString(ref) && !strings.Contains(ref, "..")
-}
-
 // Validate reports every invalid setting at once.
 func (c Config) Validate() error {
 	v := &validator{}
@@ -155,9 +148,6 @@ func (c Config) Validate() error {
 	}
 	if c.Revision < 0 {
 		v.add("revision", "must not be negative")
-	}
-	if !ValidRef(c.Agents.Ref) {
-		v.add("agents.ref", "must be a branch, tag or commit of the Berth repository")
 	}
 	seen := map[string]bool{}
 	for i, p := range c.Agents.Disabled {

@@ -69,11 +69,99 @@ type fake struct {
 	links       map[string]map[string]bool   // workspace id → files Berth linked to AGENTS.md
 	inOrca      map[string]bool              // workspace ids in Orca; a new one waits for Sync now
 	orcaSynced  *time.Time
+	running     map[string]string // pinned entity → the version picked over the image's
+}
+
+// fakePin is one entity the fake image pins, and the newest version upstream.
+type fakePin struct{ name, track, kind, title, image, latest string }
+
+var fakePins = []fakePin{
+	{"@example/agent-cli", "agents", "agent", "Example Agent", "2.1.0", "2.2.0"},
+	{"@example/other-cli", "agents", "agent", "Other Agent", "1.4.0", "1.4.0"},
+	{"@example/mcp-files", "agents", "mcp", "Files MCP", "0.6.2", "1.0.0"},
+	{"node", "tools", "tool", "node", "24.21.0", "24.22.2"},
+	{"ripgrep", "tools", "tool", "ripgrep", "15.2.0", "15.2.0"},
+	{"gh", "tools", "tool", "gh", "2.101.0", "2.103.3"},
+}
+
+// bump is the kind of move from one fake version to another.
+func bump(from, to string) string {
+	if from == to {
+		return ""
+	}
+	f, t := strings.Split(from, "."), strings.Split(to, ".")
+	switch {
+	case f[0] != t[0]:
+		return "major"
+	case f[1] != t[1]:
+		return "minor"
+	}
+	return "patch"
+}
+
+// pins lists the pinned entities as status reports them; with latest, as
+// a check does.
+func (f *fake) pins(latest bool) []map[string]any {
+	out := []map[string]any{}
+	for _, p := range fakePins {
+		cur := cmp.Or(f.running[p.name], p.image)
+		m := map[string]any{"name": p.name, "track": p.track, "kind": p.kind, "title": p.title, "image": p.image, "current": cur}
+		if latest {
+			m["latest"] = p.latest
+			if b := bump(cur, p.latest); b != "" && cur != p.latest {
+				m["update"] = b
+			}
+		}
+		out = append(out, m)
+	}
+	return out
+}
+
+// applyUpdate moves the pins an update job names, or all minor and patch
+// updates, or back to the image.
+func (f *fake) applyUpdate(in map[string]any) {
+	names := map[string]string{}
+	for _, n := range anyList(in["names"]) {
+		name, v := n, ""
+		if i := strings.LastIndex(n, "@"); i > 0 {
+			name, v = n[:i], n[i+1:]
+		}
+		names[name] = v
+	}
+	for _, p := range fakePins {
+		v, named := names[p.name]
+		cur := cmp.Or(f.running[p.name], p.image)
+		switch {
+		case in["image"] == true && (len(names) == 0 || named):
+			delete(f.running, p.name)
+		case named:
+			f.running[p.name] = cmp.Or(v, p.latest)
+		case len(names) == 0 && in["image"] != true && bump(cur, p.latest) != "" && bump(cur, p.latest) != "major":
+			f.running[p.name] = p.latest
+		}
+		if f.running[p.name] == p.image {
+			delete(f.running, p.name)
+		}
+	}
+}
+
+func anyList(v any) []string {
+	var out []string
+	for _, x := range asList(v) {
+		out = append(out, str(x))
+	}
+	return out
+}
+
+func asList(v any) []any {
+	l, _ := v.([]any)
+	return l
 }
 
 func newFake(mode string) *fake {
 	return &fake{
 		signedIn:    map[string]bool{},
+		running:     map[string]string{},
 		sessions:    map[string][]string{},
 		overwritten: map[string]bool{},
 		files:       map[string]map[string]string{},
@@ -90,10 +178,10 @@ func newFake(mode string) *fake {
 
 func defaultConfig(rev int) map[string]any {
 	return map[string]any{
-		"schema": 7, "revision": rev,
+		"schema": 8, "revision": rev,
 		"frontends": map[string]any{"terminal": map[string]any{"enabled": true}, "ide": map[string]any{"enabled": false},
 			"orca": map[string]any{"enabled": false, "pairing_address": ""}},
-		"agents":     map[string]any{"ref": "main", "disabled": []any{}, "added": []any{}, "keep": 2, "boot_timeout": 600, "mcp_timeout": 300},
+		"agents":     map[string]any{"disabled": []any{}, "added": []any{}, "keep": 2, "boot_timeout": 600, "mcp_timeout": 300},
 		"runtime":    map[string]any{"tz": "Etc/UTC"},
 		"mcp":        map[string]any{"servers": map[string]any{}, "available": map[string]any{}, "workspaces": map[string]any{}},
 		"skills":     map[string]any{"sources": map[string]any{}},
@@ -179,6 +267,13 @@ func (f *fake) verb(name string, in map[string]any) (int, any) {
 		return f.replace(defaultConfig(0))
 	case "update.check":
 		return http.StatusOK, map[string]any{"check": f.check()}
+	case "update.versions":
+		for _, p := range fakePins {
+			if p.name == str(in["name"]) && p.track == str(in["track"]) {
+				return http.StatusOK, map[string]any{"name": p.name, "track": p.track, "versions": []string{p.image, p.latest + "-rc.1", p.latest}}
+			}
+		}
+		return http.StatusBadGateway, apiError("lookup_failed", "no versions of "+str(in["name"]))
 	case "service.restart":
 		return http.StatusOK, map[string]any{"restarted": in["name"]}
 	case "tools.list":
@@ -528,7 +623,8 @@ func (f *fake) status() map[string]any {
 	st := map[string]any{
 		"mode": f.mode, "revision": f.cfg["revision"], "services": services,
 		"agents": map[string]any{"current": current, "previous": previous, "versions": []any{current, previous},
-			"follow_image": true, "seed": nil, "user_tools": f.tools, "warnings": []string{},
+			"follow_image": len(f.running) == 0, "seed": nil, "user_tools": f.tools, "warnings": []string{},
+			"pins": f.pins(false), "tools": map[string]any{"current": f.toolSet(), "previous": nil},
 			"build": map[string]string{"version": "0.0.0-dev", "commit": "dev", "arch": "arm64"}},
 		"packages": f.packages(),
 		"check":    f.check(),
@@ -565,9 +661,35 @@ func (f *fake) packages() []map[string]any {
 	return pkgs
 }
 
+// check is the last update check: one at start, so the banner shows.
 func (f *fake) check() map[string]any {
-	return map[string]any{"ref": f.cfg["agents"].(map[string]any)["ref"], "hash": "9e8d7c6b5a4f3e2d1c0b9a8f7e6d5c4b3a2f1e0d9c8b7a6f5e4d3c2b1a0f9e8d",
-		"update_available": true, "checked_at": time.Now().UTC()}
+	pins, updates, majors := f.pins(true), 0, 0
+	for _, p := range pins {
+		switch p["update"] {
+		case nil:
+		case "major":
+			majors++
+		default:
+			updates++
+		}
+	}
+	return map[string]any{"checked_at": time.Now().UTC(), "pins": pins, "updates": updates, "majors": majors,
+		"update_available": updates+majors > 0}
+}
+
+// toolSet is the base-tool set the picks make, or nil.
+func (f *fake) toolSet() any {
+	pkgs := map[string]string{}
+	for _, p := range fakePins {
+		if v, ok := f.running[p.name]; ok && p.track == "tools" {
+			pkgs[p.name] = v
+		}
+	}
+	if len(pkgs) == 0 {
+		return nil
+	}
+	return map[string]any{"hash": "5e1f0c2d3b4a", "source": map[string]any{"origin": "upstream", "fetched_at": time.Now().UTC()},
+		"packages": pkgs, "installed_at": time.Now().UTC()}
 }
 
 var groups = map[string]string{"update": "agents", "rollback": "agents", "gc": "agents",
@@ -682,6 +804,8 @@ func (f *fake) run(j *job, in map[string]any) {
 	now, code := time.Now().UTC(), 0
 	j.State, j.Result = "succeeded", json.RawMessage("{}")
 	switch j.Verb {
+	case "update":
+		f.applyUpdate(in)
 	case "rollback":
 		code, j.State = 1, "failed"
 		j.Result = json.RawMessage(`{"error":{"code":"rollback_failed","step":"switch","message":"no previous agent set to switch to"}}`)

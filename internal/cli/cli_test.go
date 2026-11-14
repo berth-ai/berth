@@ -12,9 +12,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/berth-ai/berth/internal/locksource"
 	"github.com/berth-ai/berth/internal/runner"
 	"github.com/berth-ai/berth/internal/testutil"
+	"github.com/berth-ai/berth/internal/upstream"
 )
 
 var update = flag.Bool("update", false, "rewrite golden files")
@@ -37,7 +37,10 @@ func testConfig(t *testing.T) Config {
 		BuildInfo:   filepath.Join(abs, "build-info.json"),
 		MiseConfig:  filepath.Join(abs, "mise.toml"),
 		ProcRoot:    filepath.Join(root, "proc"),
-		GitHub:      locksource.GitHub{Repo: "example/berth"},
+		ToolsDir:    filepath.Join(root, "agents", "tools"),
+		BaseTools:   filepath.Join(abs, "base-tools.toml"),
+		Mise:        "mise",
+		NPM:         upstream.NPM{Registry: "http://127.0.0.1:1"}, // unreachable unless a test serves one
 		Keep:        3,
 		LockTimeout: 200 * time.Millisecond,
 		IsRoot:      true,

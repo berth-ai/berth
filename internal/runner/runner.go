@@ -51,6 +51,7 @@ type Cmd struct {
 	AsAgent bool
 	Timeout time.Duration
 	Stdin   io.Reader // nil reads from the null device
+	Stdout  io.Writer // nil writes to the runner's Stdout
 }
 
 // Runner runs commands.
@@ -76,6 +77,9 @@ func (e Exec) Run(ctx context.Context, c Cmd) error {
 	cmd.Dir = c.Dir
 	cmd.Env = append(os.Environ(), c.Env...)
 	cmd.Stdout, cmd.Stderr = e.Stdout, e.Stderr
+	if c.Stdout != nil {
+		cmd.Stdout = c.Stdout
+	}
 	cmd.Stdin = c.Stdin
 	cmd.WaitDelay = 5 * time.Second
 	// Each command leads its own process group, and a timeout or cancel kills

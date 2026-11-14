@@ -46,12 +46,34 @@ type Seed struct {
 	Hash string `json:"hash"`
 }
 
-// Check is the result of comparing current with the lock on a ref.
-type Check struct {
-	Ref             string `json:"ref"`
-	Commit          string `json:"commit"`
-	Hash            string `json:"hash"`
-	UpdateAvailable bool   `json:"update_available"`
+// Tracks: the agent set and the base tools.
+const (
+	TrackAgents = "agents"
+	TrackTools  = "tools"
+)
+
+// KindTool is the kind of a base tool; agent packages use the lock's kinds.
+const KindTool = "tool"
+
+// Pin is one entity the image pins: its version in the image, the version
+// that runs, and, after a check, the newest version upstream.
+type Pin struct {
+	Name    string `json:"name"`
+	Track   string `json:"track"`
+	Kind    string `json:"kind"`
+	Title   string `json:"title"`
+	Image   string `json:"image"`
+	Current string `json:"current"`
+	Latest  string `json:"latest,omitempty"`
+	Update  string `json:"update,omitempty"` // major, minor or patch from current to latest
+	Error   string `json:"error,omitempty"`  // why the check found no latest
+}
+
+// ToolsReport is the base-tools store: the sets that override the image's
+// pins. No current set means every base tool is the image's.
+type ToolsReport struct {
+	Current  *VersionView `json:"current"`
+	Previous *VersionView `json:"previous"`
 }
 
 // Report is the full status.
@@ -61,16 +83,21 @@ type Report struct {
 	Versions    []VersionView   `json:"versions"`
 	FollowImage bool            `json:"follow_image"`
 	Seed        *Seed           `json:"seed"`
+	Pins        []Pin           `json:"pins"`
+	Tools       ToolsReport     `json:"tools"`
+	CheckedAt   *time.Time      `json:"checked_at,omitempty"`
 	UserTools   []Tool          `json:"user_tools"`
 	Build       json.RawMessage `json:"build"`
-	Check       *Check          `json:"check,omitempty"`
 	Warnings    []string        `json:"warnings"`
 }
 
-// Inputs are the paths Collect reads.
+// Inputs are the paths Collect reads. A zero ToolStore or an empty
+// BaseTools leaves the base tools out.
 type Inputs struct {
 	Store      agentstore.Store
+	ToolStore  agentstore.Store
 	SeedDir    string
+	BaseTools  string
 	BuildInfo  string
 	MiseConfig string
 }
@@ -78,7 +105,7 @@ type Inputs struct {
 // Collect reads the store, seed, build info and user tools. Problems with
 // anything but the store become warnings, so status always answers.
 func Collect(in Inputs) (Report, error) {
-	rep := Report{UserTools: []Tool{}, Warnings: []string{}, Versions: []VersionView{}}
+	rep := Report{UserTools: []Tool{}, Warnings: []string{}, Versions: []VersionView{}, Pins: []Pin{}}
 	cur, err := in.Store.Current()
 	if err != nil {
 		return rep, err
@@ -103,6 +130,12 @@ func Collect(in Inputs) (Report, error) {
 		rep.Warnings = append(rep.Warnings, "image seed: "+err.Error())
 	} else {
 		rep.Seed = &Seed{Hash: seed.Hash}
+		rep.Pins = append(rep.Pins, AgentPins(seed, cur)...)
+	}
+	if in.ToolStore.Root != "" && in.BaseTools != "" {
+		if err := collectTools(&rep, in); err != nil {
+			rep.Warnings = append(rep.Warnings, "base tools: "+err.Error())
+		}
 	}
 	if raw, err := os.ReadFile(in.BuildInfo); err == nil && json.Valid(raw) {
 		rep.Build = raw
@@ -113,6 +146,58 @@ func Collect(in Inputs) (Report, error) {
 	}
 	rep.UserTools = tools
 	return rep, nil
+}
+
+// AgentPins describes the packages of seed against the current set cur.
+func AgentPins(seed *locksource.Lock, cur *agentstore.Version) []Pin {
+	out := []Pin{}
+	for _, name := range slices.Sorted(maps.Keys(seed.Deps)) {
+		m, ok := seed.Meta[name]
+		if !ok {
+			continue // a dependency the lock does not describe, such as playwright
+		}
+		p := Pin{Name: name, Track: TrackAgents, Kind: m.Kind, Title: m.Name, Image: seed.Deps[name], Current: seed.Deps[name]}
+		if cur != nil {
+			if v, ok := cur.Manifest.Packages[name]; ok {
+				p.Current = v
+			}
+		}
+		out = append(out, p)
+	}
+	return out
+}
+
+// ToolPins describes the base tools against the current tool set cur.
+func ToolPins(base []Tool, cur *agentstore.Version) []Pin {
+	out := []Pin{}
+	for _, t := range base {
+		p := Pin{Name: t.Name, Track: TrackTools, Kind: KindTool, Title: t.Name, Image: t.Version, Current: t.Version}
+		if cur != nil {
+			if v, ok := cur.Manifest.Packages[t.Name]; ok {
+				p.Current = v
+			}
+		}
+		out = append(out, p)
+	}
+	return out
+}
+
+func collectTools(rep *Report, in Inputs) error {
+	cur, err := in.ToolStore.Current()
+	if err != nil {
+		return err
+	}
+	prev, err := in.ToolStore.Previous()
+	if err != nil {
+		return err
+	}
+	rep.Tools = ToolsReport{Current: View(cur), Previous: View(prev)}
+	base, err := UserTools(in.BaseTools)
+	if err != nil {
+		return err
+	}
+	rep.Pins = append(rep.Pins, ToolPins(base, cur)...)
+	return nil
 }
 
 // UserTools lists the [tools] of a mise config; a missing file is empty.
@@ -170,13 +255,7 @@ func WriteHuman(w io.Writer, r Report) {
 	if r.Seed != nil {
 		fmt.Fprintf(w, "seed      %s\n", r.Seed.Hash)
 	}
-	if r.Check != nil {
-		if r.Check.UpdateAvailable {
-			fmt.Fprintf(w, "update    available: %s (%s@%.7s); run berth update\n", r.Check.Hash, r.Check.Ref, r.Check.Commit)
-		} else {
-			fmt.Fprintf(w, "update    up to date with %s\n", r.Check.Ref)
-		}
-	}
+	writePins(w, r)
 	var b struct {
 		Version string `json:"version"`
 		Commit  string `json:"commit"`
@@ -197,6 +276,40 @@ func WriteHuman(w io.Writer, r Report) {
 	}
 }
 
+// writePins lists the pinned entities that differ from the image or, after
+// a check, have an update or failed; a check also counts the updates.
+func writePins(w io.Writer, r Report) {
+	updates, header := 0, false
+	for _, p := range r.Pins {
+		if p.Current == p.Image && p.Update == "" && p.Error == "" {
+			continue
+		}
+		if !header {
+			fmt.Fprintln(w, "pins")
+			header = true
+		}
+		line := fmt.Sprintf("  %s %s", p.Name, p.Current)
+		if p.Current != p.Image {
+			line += fmt.Sprintf(" (image %s)", p.Image)
+		}
+		switch {
+		case p.Update != "":
+			updates++
+			line += fmt.Sprintf(" -> %s (%s)", p.Latest, p.Update)
+		case p.Error != "":
+			line += " (check failed: " + p.Error + ")"
+		}
+		fmt.Fprintln(w, line)
+	}
+	switch {
+	case r.CheckedAt == nil:
+	case updates == 0:
+		fmt.Fprintln(w, "updates   none; everything is at its newest version")
+	default:
+		fmt.Fprintf(w, "updates   %d available; run berth update, or berth update NAME for a major\n", updates)
+	}
+}
+
 func writeVersion(w io.Writer, label string, v *VersionView) {
 	if v == nil {
 		fmt.Fprintf(w, "%-9s none\n", label)
@@ -210,6 +323,8 @@ func writeVersion(w io.Writer, label string, v *VersionView) {
 
 func describe(s locksource.Source) string {
 	switch s.Origin {
+	case locksource.OriginUpstream:
+		return "upstream"
 	case locksource.OriginRef:
 		return fmt.Sprintf("%s@%s (%.7s)", s.Repo, s.Ref, s.Commit)
 	case locksource.OriginDir:

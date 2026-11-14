@@ -91,7 +91,7 @@ func TestApplyInvalidWritesNothing(t *testing.T) {
 func TestLoadCorrupt(t *testing.T) {
 	for name, content := range map[string]string{
 		"not json":     `{"schema":`,
-		"newer schema": `{"schema":8}`,
+		"newer schema": `{"schema":9}`,
 		"unknown key":  `{"schema":1,"revision":1,"surprise":true}`,
 	} {
 		t.Run(name, func(t *testing.T) {
@@ -120,9 +120,9 @@ func TestLoadRejectsInvalidValues(t *testing.T) {
 
 func TestLoadFillsMissingKeysWithDefaults(t *testing.T) {
 	s := newStore(t)
-	writeFile(t, s, "config.json", `{"schema":1,"revision":2,"agents":{"keep":5}}`)
+	writeFile(t, s, "config.json", `{"schema":1,"revision":2,"agents":{"keep":5,"ref":"v1.4.0"}}`)
 	c, err := s.Load()
-	if err != nil || c.Agents.Keep != 5 || c.Agents.Ref != "main" || c.Runtime.TZ != "UTC" {
+	if err != nil || c.Agents.Keep != 5 || c.Runtime.TZ != "UTC" {
 		t.Fatalf("Load = %+v %v", c, err)
 	}
 }

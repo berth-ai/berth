@@ -69,7 +69,7 @@ type Package struct {
 }
 
 // systemDirs are the image's PATH after the layer (Dockerfile ENV PATH).
-var systemDirs = []string{"/opt/mise/wrappers", "/usr/local/sbin", "/usr/local/bin", "/usr/sbin", "/usr/bin", "/sbin", "/bin"}
+var systemDirs = []string{"/opt/agents/tools/current/wrappers", "/opt/mise/wrappers", "/usr/local/sbin", "/usr/local/bin", "/usr/sbin", "/usr/bin", "/sbin", "/bin"}
 
 // notInstalled explains an added agent without an install yet.
 const notInstalled = "Not installed yet; Berth installs it in the background."

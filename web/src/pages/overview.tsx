@@ -1,9 +1,8 @@
 import { Link } from "@tanstack/react-router";
 import { useState } from "react";
-import { keys, queryClient, refreshStatus, useJobs, useStatus } from "@/api/queries";
+import { refreshStatus, useJobs, useStatus } from "@/api/queries";
 import { verb } from "@/api/request";
-import { runJob } from "@/api/run-job";
-import type { ServiceStatus, Status, UpdateCheck } from "@/api/types";
+import type { ServiceStatus, Status } from "@/api/types";
 import { BusyButton } from "@/components/busy-button";
 import { EmptyState } from "@/components/empty-state";
 import { Facts, Mono } from "@/components/facts";
@@ -43,7 +42,6 @@ export function OverviewPage() {
           </>
         }
       />
-      {st?.check?.update_available ? <UpdateCallout check={st.check} /> : null}
       <SectionTitle>Services</SectionTitle>
       <CardGrid>
         {st ? (
@@ -153,33 +151,6 @@ function AgentSetCard({ status }: { status: Status }) {
         </InlineAlert>
       )}
     </PanelCard>
-  );
-}
-
-function UpdateCallout({ check }: { check: UpdateCheck }) {
-  const [busy, setBusy] = useState(false);
-  const update = async () => {
-    setBusy(true);
-    const job = await runJob("update", {});
-    setBusy(false);
-    if (job)
-      notify(
-        job.state === "succeeded" ? "Agents updated." : "The update failed; see Activity.",
-        job.state === "succeeded" ? "ok" : "bad",
-      );
-    void queryClient.invalidateQueries({ queryKey: keys.status });
-  };
-  return (
-    <InlineAlert
-      tone="warn"
-      action={
-        <BusyButton size="sm" busy={busy} busyLabel="Updating…" onClick={() => void update()}>
-          Update
-        </BusyButton>
-      }
-    >
-      Agent update available on {check.ref}: {short(check.hash)}.
-    </InlineAlert>
   );
 }
 
