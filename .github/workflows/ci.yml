@@ -159,6 +159,8 @@ jobs:
 
   image:
     name: image-${{ matrix.arch }}
+    # Release tag pushes are built and pushed by release.yml; don't build twice.
+    if: github.event_name != 'push' || !startsWith(github.ref, 'refs/tags/v')
     strategy:
       fail-fast: false
       matrix:
