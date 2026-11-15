@@ -31,7 +31,7 @@ pnpm install --frozen-lockfile && pnpm fmt:check && pnpm lint && pnpm test && pn
 Work on the UI with `pnpm dev` (a watch build) and `go run ./internal/panel/devserver -dist web/dist` from the repo root; sign in as `dev` / `dev password`.
 
 Image changes: `docker buildx build --load -t berth:dev . && tests/smoke-image.sh berth:dev`.
-CI builds the image on every push but runs the image smoke test only on demand (`gh workflow run ci --ref <branch> -f smoke=true`) and the panel e2e only on release tags or on demand (`-f e2e=true`).
+CI builds the image on every push and pull request; lint, the web, Go and shell tests and the panel e2e run only on release tags, so run the checks above locally. Release tag images come from the release workflow, not CI. On demand, `gh workflow run ci --ref <branch> -f smoke=true` runs the image smoke test and `-f e2e=true` the panel e2e.
 
 ## Design rules
 

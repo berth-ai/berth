@@ -24,7 +24,10 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
+  # Quality checks run only for release tags; other pushes and pull requests
+  # just build the image.
   lint:
+    if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-24.04
     env:
       # Lint tools come from the image's base-track pins.
@@ -47,6 +50,10 @@ jobs:
         run: hadolint --failure-threshold error Dockerfile
       - name: actionlint
         run: actionlint
+      - name: Compose config
+        run: |
+          docker compose config -q
+          cp .env.example .env && docker compose config -q && rm .env
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
@@ -61,6 +68,8 @@ jobs:
           version: v2.14.0 # renovate: datasource=github-releases depName=golangci/golangci-lint
 
   web:
+    # Also on demand, since e2e needs its build.
+    if: startsWith(github.ref, 'refs/tags/v') || inputs.e2e
     runs-on: ubuntu-24.04
     env:
       # Node comes from the image's base-track pin.
@@ -97,6 +106,7 @@ jobs:
 
   go-test:
     needs: web
+    if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -147,6 +157,7 @@ jobs:
           path: web/playwright-report
 
   shell-test:
+    if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -173,10 +184,6 @@ jobs:
         with:
           persist-credentials: false
       - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
-      - name: Compose config
-        run: |
-          docker compose config -q
-          cp .env.example .env && docker compose config -q && rm .env
       - uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
           context: .
