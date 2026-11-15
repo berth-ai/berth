@@ -179,14 +179,19 @@ func (b *Broker) skillsSourcesPreview(_ context.Context, body []byte) (int, any)
 		return rejectJob(&fieldError{Code: "invalid_request", Field: "ref", Message: "The ref must be a branch, tag or commit"})
 	}
 	return b.scanJob("skills.sources.preview", src.Repo, ref, []string{src.Path}, func(s skillScan) (json.RawMessage, error) {
-		d := sourceDiff{ID: in.ID, Ref: ref, From: src.Commit, Commit: s.Commit, Changed: s.Commit != src.Commit || ref != src.Ref}
-		next := foundOf(s.Skills)
-		if s.Commit == src.Commit {
-			next = src.Found
-		}
-		d.Added, d.Removed, d.Moved, d.Described = diffFound(src, next)
-		return json.Marshal(d)
+		return json.Marshal(previewDiff(in.ID, src, ref, s))
 	})
+}
+
+// previewDiff is what moving source id to ref, scanned as s, changes.
+func previewDiff(id string, src config.Source, ref string, s skillScan) sourceDiff {
+	d := sourceDiff{ID: id, Ref: ref, From: src.Commit, Commit: s.Commit, Changed: s.Commit != src.Commit || ref != src.Ref}
+	next := foundOf(s.Skills)
+	if s.Commit == src.Commit {
+		next = src.Found
+	}
+	d.Added, d.Removed, d.Moved, d.Described = diffFound(src, next)
+	return d
 }
 
 func (b *Broker) skillsSourcesAdd(_ context.Context, body []byte) (int, any) {
@@ -295,29 +300,44 @@ func (b *Broker) skillsSourcesUpdate(_ context.Context, body []byte) (int, any) 
 		return rejectJob(&fieldError{Code: "invalid_request", Field: "ref", Message: "The ref must be a branch, tag or commit"})
 	}
 	return b.scanJob("skills.sources.update", src.Repo, in.Commit, []string{src.Path}, func(s skillScan) (json.RawMessage, error) {
-		found := foundOf(s.Skills)
 		missing := []string{}
 		next, changed, err := b.applyPatch(func(cur config.Config) (map[string]any, error) {
-			now, ok := cur.Skills.Sources[in.ID]
-			if !ok || now.Repo != src.Repo || now.Path != src.Path {
-				return nil, &fieldError{Code: "unknown_source", Message: fmt.Sprintf("The source %s was removed or changed meanwhile; try again", in.ID)}
-			}
-			after := now
-			after.Found = found
-			if m := after.Missing(); m != nil {
+			patch, m, err := sourceUpdate(cur, in.ID, src, ref, s)
+			if m != nil {
 				missing = m
 			}
-			if now.Ref == ref && now.Commit == s.Commit && maps.Equal(now.Found, found) {
-				return nil, nil
+			if err != nil || patch == nil {
+				return nil, err
 			}
-			return map[string]any{"skills": map[string]any{"sources": map[string]any{in.ID: map[string]any{
-				"ref": ref, "commit": s.Commit, "found": replaceFound(now.Found, found)}}}}, nil
+			return map[string]any{"skills": map[string]any{"sources": map[string]any{in.ID: patch}}}, nil
 		})
 		if err != nil {
 			return nil, err
 		}
 		return json.Marshal(map[string]any{"id": in.ID, "commit": s.Commit, "changed": changed, "revision": next.Revision, "missing": missing})
 	})
+}
+
+// sourceUpdate is the merge patch of source id that moves it to ref at
+// scan s, nil when nothing changes, and the attached names it leaves
+// missing. src is the source as the update found it; one removed or
+// pointed elsewhere since is refused.
+func sourceUpdate(cur config.Config, id string, src config.Source, ref string, s skillScan) (map[string]any, []string, error) {
+	now, ok := cur.Skills.Sources[id]
+	if !ok || now.Repo != src.Repo || now.Path != src.Path {
+		return nil, nil, &fieldError{Code: "unknown_source", Message: fmt.Sprintf("The source %s was removed or changed meanwhile; try again", id)}
+	}
+	found := foundOf(s.Skills)
+	after := now
+	after.Found = found
+	missing := after.Missing()
+	if missing == nil {
+		missing = []string{}
+	}
+	if now.Ref == ref && now.Commit == s.Commit && maps.Equal(now.Found, found) {
+		return nil, missing, nil
+	}
+	return map[string]any{"ref": ref, "commit": s.Commit, "found": replaceFound(now.Found, found)}, missing, nil
 }
 
 // replaceFound is the merge patch that turns found rows old into next:

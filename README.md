@@ -109,7 +109,8 @@ Berth pins each one to a commit, keeps one copy in
 `~/.local/share/berth/skills`, and links it into the skills directory of
 every agent you pick (`~/.claude/skills`, `~/.codex/skills`,
 `~/.gemini/skills`; OpenCode reads Claude Code's). A skill moves to a newer
-commit only when you click Update. Skills are instructions and scripts your
+commit only when you ask: Update on one source, or Check for updates and then
+Update all on the Skills page. Skills are instructions and scripts your
 agents run, so add only sources you trust. Berth never touches a skill
 directory you created yourself.
 

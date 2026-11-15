@@ -372,3 +372,137 @@ func TestConfigUpgrade(t *testing.T) {
 		}
 	}
 }
+
+// staleSources adds anthropics-skills at main and anthropics-skills-v2 at
+// v2, then points both at skillCommit3 as if upstream had moved since.
+func staleSources(t *testing.T, tb *testBroker) {
+	t.Helper()
+	addSource(t, tb, "")
+	if j := skillJob(t, tb, "skills.sources.add", `{"repo":"`+anthRepo+`","ref":"v2"}`); j.State != StateSucceeded {
+		t.Fatalf("add v2 = %s", j.Result)
+	}
+	patch := `{"skills":{"sources":{"anthropics-skills":{"commit":"` + skillCommit3 + `"},"anthropics-skills-v2":{"commit":"` + skillCommit3 + `"}}}}`
+	if code, out := applyNow(t, tb, patch); code != 200 {
+		t.Fatalf("stale = %d %v", code, out)
+	}
+}
+
+func TestSourcesCheck(t *testing.T) {
+	tb := newTestBroker(t)
+	withSkills(t, tb)
+	fakeScan(t, tb)
+	staleSources(t, tb)
+	patch := `{"skills":{"sources":{"gone":{"repo":"https://github.com/acme/skills","ref":"nope","path":"","commit":"` + skillCommit +
+		`","found":{},"attached":{}},"anthropics-skills-v2":{"commit":"` + skillCommit2 + `"}}}}`
+	if code, out := applyNow(t, tb, patch); code != 200 {
+		t.Fatalf("add gone = %d %v", code, out)
+	}
+	_, before := sourcesNow(t, tb)
+	j := skillJob(t, tb, "skills.sources.check", `{}`)
+	if j.State != StateSucceeded {
+		t.Fatalf("check = %s", j.Result)
+	}
+	rows := map[string]map[string]any{}
+	for _, r := range result(t, j)["sources"].([]any) {
+		m := r.(map[string]any)
+		rows[m["id"].(string)] = m
+	}
+	if r := rows["anthropics-skills"]; r["changed"] != true || r["from"] != skillCommit3 || r["commit"] != skillCommit || r["ref"] != "main" {
+		t.Errorf("stale = %v", r)
+	}
+	if r := rows["anthropics-skills-v2"]; r["changed"] != false || r["commit"] != skillCommit2 || r["error"] != nil {
+		t.Errorf("current = %v", r)
+	}
+	if r := rows["gone"]; r["changed"] != false || r["error"].(map[string]any)["code"] != "ref_not_found" || diffNames(r["added"]) != "[]" {
+		t.Errorf("failed = %v", r)
+	}
+	if _, rev := sourcesNow(t, tb); rev != before {
+		t.Errorf("a check saved: revision %d, was %d", rev, before)
+	}
+	if code, _ := tb.verb(t, "skills.sources.check", `{"id":"x"}`); code != 400 {
+		t.Errorf("extra field = %d", code)
+	}
+}
+
+func TestSourcesUpdateAll(t *testing.T) {
+	tb := newTestBroker(t)
+	withSkills(t, tb)
+	fakeScan(t, tb)
+	staleSources(t, tb)
+	applyNow(t, tb, attach("root"))
+	_, before := sourcesNow(t, tb)
+	j := skillJob(t, tb, "skills.sources.update_all", `{"updates":[`+
+		`{"id":"anthropics-skills","ref":"main","commit":"`+skillCommit2+`"},`+
+		`{"id":"anthropics-skills-v2","ref":"v2","commit":"`+skillCommit2+`"}]}`)
+	r := result(t, j)
+	if j.State != StateSucceeded || r["changed"] != true || r["revision"] != float64(before+1) || fmt.Sprint(r["failed"]) != "[]" {
+		t.Fatalf("update all = %s", j.Result)
+	}
+	if got := fmt.Sprint(r["updated"]); !strings.Contains(got, "id:anthropics-skills missing:[root]") || !strings.Contains(got, "id:anthropics-skills-v2 missing:[]") {
+		t.Errorf("updated = %s", got)
+	}
+	srcs, _ := sourcesNow(t, tb)
+	for _, id := range []string{"anthropics-skills", "anthropics-skills-v2"} {
+		if s := srcs[id]; s.Commit != skillCommit2 || len(s.Found) != 2 {
+			t.Errorf("%s = %+v", id, s)
+		}
+	}
+	if srcs["anthropics-skills"].Ref != "main" {
+		t.Errorf("an update all must keep the ref: %+v", srcs["anthropics-skills"])
+	}
+
+	// Again: nothing moves, and nothing is written.
+	j = skillJob(t, tb, "skills.sources.update_all", `{"updates":[{"id":"anthropics-skills-v2","commit":"`+skillCommit2+`"}]}`)
+	if r := result(t, j); j.State != StateSucceeded || r["changed"] != false || fmt.Sprint(r["unchanged"]) != "[anthropics-skills-v2]" {
+		t.Errorf("unchanged = %s", j.Result)
+	}
+}
+
+func TestSourcesUpdateAllPartial(t *testing.T) {
+	tb := newTestBroker(t)
+	withSkills(t, tb)
+	fakeScan(t, tb)
+	staleSources(t, tb)
+	j := skillJob(t, tb, "skills.sources.update_all", `{"updates":[`+
+		`{"id":"anthropics-skills","commit":"`+badCommit+`"},`+
+		`{"id":"anthropics-skills-v2","commit":"`+skillCommit2+`"}]}`)
+	r := result(t, j)
+	if j.State != StateFailed || r["changed"] != true || !strings.Contains(fmt.Sprint(r["error"]), "Could not update anthropics-skills;") {
+		t.Fatalf("partial = %s", j.Result)
+	}
+	if f := r["failed"].([]any); len(f) != 1 || f[0].(map[string]any)["code"] != "commit_not_found" {
+		t.Errorf("failed = %v", f)
+	}
+	srcs, _ := sourcesNow(t, tb)
+	if srcs["anthropics-skills"].Commit != skillCommit3 || srcs["anthropics-skills-v2"].Commit != skillCommit2 {
+		t.Errorf("sources = %+v", srcs)
+	}
+}
+
+func TestSourcesUpdateAllRefusals(t *testing.T) {
+	tb := newTestBroker(t)
+	withSkills(t, tb)
+	fakeScan(t, tb)
+	addSource(t, tb, "")
+	one := func(extra string) string {
+		return `{"id":"anthropics-skills","commit":"` + skillCommit + `"` + extra + `}`
+	}
+	for name, tc := range map[string]struct {
+		body string
+		code int
+		err  string
+	}{
+		"none":      {`{"updates":[]}`, 400, "invalid_request"},
+		"unknown":   {`{"updates":[{"id":"nope","commit":"` + skillCommit + `"}]}`, 404, "unknown_source"},
+		"twice":     {`{"updates":[` + one("") + `,` + one("") + `]}`, 400, "invalid_request"},
+		"no commit": {`{"updates":[{"id":"anthropics-skills"}]}`, 400, "invalid_request"},
+		"other ref": {`{"updates":[` + one(`,"ref":"v2"`) + `]}`, 400, "source_changed"},
+		"extra":     {`{"updates":[` + one(`,"path":"x"`) + `]}`, 400, "invalid_request"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if code, out := tb.verb(t, "skills.sources.update_all", tc.body); code != tc.code || errCode(out) != tc.err {
+				t.Errorf("= %d %v", code, out)
+			}
+		})
+	}
+}

@@ -532,6 +532,44 @@ test("a skill source is added, attached, updated and removed", async ({ page }) 
   expect(problems).toEqual([]);
 });
 
+test("skill sources are checked for updates and updated together", async ({ page }) => {
+  const problems = await watch(page);
+  await signIn(page);
+  const add = page.getByRole("dialog", { name: "Add a skill source" });
+  // A branch that moved upstream: Check for updates finds it, Update all takes it.
+  await page.goto(`${NORMAL}/#/skills`);
+  await page.getByRole("button", { name: "Add source" }).click();
+  await add.getByLabel("Repository").fill("acme/eng-skills");
+  await add.getByLabel("Ref").fill("nightly");
+  await add.getByRole("button", { name: "Find skills" }).click();
+  await expect(add.getByText("2 skills at")).toBeVisible();
+  await add.getByLabel("Id").fill("nightly");
+  await add.getByRole("button", { name: "Add source" }).click();
+  await expect(page.getByText(/nightly added\./)).toBeVisible();
+  await page.goto(`${NORMAL}/#/skills`);
+  await page.getByRole("button", { name: "Check for updates" }).click();
+  await expect(page.getByText("1 source has new commits.")).toBeVisible();
+  const nightly = page.getByRole("row").filter({ hasText: "nightly · /" });
+  await expect(nightly.getByText("Update available")).toBeVisible();
+  await page.getByRole("button", { name: "Update all (1)" }).click();
+  const all = page.getByRole("alertdialog", { name: "Update 1 source?" });
+  await expect(all.getByText("nightly: 0123456789ab → 89abcdef0123")).toBeVisible();
+  await all.getByRole("button", { name: "Update all" }).click();
+  await expect(page.getByText(/Updated nightly\./)).toBeVisible();
+  await expect(nightly.getByText("Up to date")).toBeVisible();
+  await expect(page.getByRole("button", { name: /^Update all/ })).toHaveCount(0);
+
+  // Remove it again.
+  await page.goto(`${NORMAL}/#/skills/nightly`);
+  await page.getByRole("button", { name: "Remove", exact: true }).click();
+  await page
+    .getByRole("dialog", { name: "Remove nightly?" })
+    .getByRole("button", { name: "Remove source" })
+    .click();
+  await expect(page.getByText(/nightly removed\./)).toBeVisible();
+  expect(problems).toEqual([]);
+});
+
 test("agents sign in with a pasted code and a device code, and sign out", async ({ page }) => {
   const problems = await watch(page);
   await signIn(page);

@@ -262,6 +262,32 @@ func TestFakeSources(t *testing.T) {
 	if code, _ := f.verb("skills.sources.preview", map[string]any{"id": "nope"}); code != http.StatusNotFound {
 		t.Errorf("unknown preview = %d", code)
 	}
+	// Ref nightly moves upstream after its first scan; Check finds it, Update all takes it.
+	f.verb("skills.sources.add", map[string]any{"repo": repo, "ref": "nightly", "path": "", "id": "nightly"})
+	last()
+	if s := f.source("nightly"); s == nil || s["commit"] != fakeCommit {
+		t.Fatalf("add nightly = %v", s)
+	}
+	f.verb("skills.sources.check", map[string]any{})
+	checked := map[string]map[string]any{}
+	for _, r := range res(last())["sources"].([]any) {
+		checked[r.(map[string]any)["id"].(string)] = r.(map[string]any)
+	}
+	if c := checked["nightly"]; c["changed"] != true || c["commit"] != fakeCommit2 || checked["acme-eng-skills"]["changed"] != false {
+		t.Fatalf("check = %v", checked)
+	}
+	if code, _ := f.verb("skills.sources.update_all", map[string]any{"updates": []any{}}); code != http.StatusBadRequest {
+		t.Errorf("update none = %d", code)
+	}
+	f.verb("skills.sources.update_all", map[string]any{"updates": []any{
+		map[string]any{"id": "nightly", "ref": "nightly", "commit": fakeCommit2},
+		map[string]any{"id": "acme-eng-skills", "ref": "v2", "commit": fakeCommit2}}})
+	if r := res(last()); r["changed"] != true || len(r["updated"].([]any)) != 1 || fmt.Sprint(r["unchanged"]) != "[acme-eng-skills]" {
+		t.Errorf("update all = %v", r)
+	}
+	if s := f.source("nightly"); s["commit"] != fakeCommit2 || s["ref"] != "nightly" {
+		t.Errorf("after update all = %v", s)
+	}
 	if code, out := f.verb("skills.sources.remove", map[string]any{"id": "acme-eng-skills"}); code != http.StatusOK || f.source("acme-eng-skills") != nil {
 		t.Errorf("remove = %d %v", code, out)
 	}

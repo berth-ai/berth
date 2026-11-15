@@ -56,6 +56,8 @@ func (b *Broker) verbs() map[string]verbFunc {
 		"skills.sources.preview":        b.skillsSourcesPreview,
 		"skills.sources.add":            b.skillsSourcesAdd,
 		"skills.sources.update":         b.skillsSourcesUpdate,
+		"skills.sources.check":          b.skillsSourcesCheck,
+		"skills.sources.update_all":     b.skillsSourcesUpdateAll,
 		"skills.sources.remove":         b.skillsSourcesRemove,
 		"config.upgrade":                b.configUpgrade,
 		"config.revert":                 b.configRevert,

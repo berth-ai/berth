@@ -1,15 +1,18 @@
 import type {
   AgentPackage,
   Attachment,
+  BulkUpdateResult,
   Found,
   Job,
   SkillMode,
   NewSourceScan,
   Source,
+  SourceCheck,
   SourceDiff,
   SourceResult,
 } from "@/api/types";
 import { count } from "@/lib/format";
+import type { Tone } from "@/lib/notify";
 import { reachLabel, repoLabel, shortCommit } from "./skills-logic";
 
 /** SUGGESTED is the source the Skills page offers until it is added. */
@@ -235,4 +238,89 @@ export function filterRows(rows: FoundRow[], query: string, filter: SkillFilter)
       (filter === "all" || r.attachment) &&
       (!q || r.name.includes(q) || (r.found.description ?? "").toLowerCase().includes(q)),
   );
+}
+
+/** CheckState is what the last check found for a source as it is now. */
+export type CheckState =
+  | { kind: "behind"; check: SourceCheck }
+  | { kind: "current" }
+  | { kind: "failed"; message: string };
+
+/** checkState reads a source's row of the last check; null when there was
+ * none, or the source moved to another ref or commit since. */
+export function checkState(source: Source, check: SourceCheck | undefined): CheckState | null {
+  if (!check || check.ref !== source.ref) return null;
+  if (check.error)
+    return check.from === source.commit
+      ? { kind: "failed", message: check.error.message ?? check.error.code }
+      : null;
+  if (check.commit === source.commit) return { kind: "current" };
+  return check.from === source.commit ? { kind: "behind", check } : null;
+}
+
+/** behindSources lists the sources the last check found a newer commit for. */
+export function behindSources(sources: Sources, checks: SourceCheck[] | undefined): SourceCheck[] {
+  const byId = new Map((checks ?? []).map((c) => [c.id, c]));
+  return sourceList(sources).flatMap(({ id, source }) => {
+    const st = checkState(source, byId.get(id));
+    return st?.kind === "behind" ? [st.check] : [];
+  });
+}
+
+/** checksOf reads a finished skills.sources.check, or null. */
+export function checksOf(job: Job): SourceCheck[] | null {
+  const r = job.result as unknown as { sources?: SourceCheck[] } | null;
+  return Array.isArray(r?.sources) ? r.sources : null;
+}
+
+/** checkSummary says what a check found. */
+export function checkSummary(checks: SourceCheck[]): { tone: Tone; text: string } {
+  const failed = checks.filter((c) => c.error).length;
+  const behind = checks.filter((c) => !c.error && c.commit !== c.from).length;
+  const notChecked = failed ? ` ${count(failed, "source", "sources")} could not be checked.` : "";
+  if (!checks.length) return { tone: "info", text: "There are no sources to check." };
+  if (behind)
+    return {
+      tone: "warn",
+      text: `${count(behind, "source has", "sources have")} new commits.${notChecked}`,
+    };
+  return failed
+    ? { tone: "warn", text: `Everything else is up to date.${notChecked}` }
+    : { tone: "ok", text: "Every source is up to date." };
+}
+
+/** changeCounts is "2 added · 1 removed" for a preview, or "". */
+export function changeCounts(d: SourceDiff): string {
+  const parts: [number, string][] = [
+    [d.added.length, "added"],
+    [d.removed.length, "removed"],
+    [d.moved.length, "moved"],
+    [d.described.length, "reworded"],
+  ];
+  return parts
+    .filter(([n]) => n)
+    .map(([n, what]) => `${n} ${what}`)
+    .join(" · ");
+}
+
+/** bulkResult reads what skills.sources.update_all answered. */
+export const bulkResult = (job: Job): BulkUpdateResult => (job.result ?? {}) as BulkUpdateResult;
+
+/** updatedAllText is the toast after skills.sources.update_all. */
+export function updatedAllText(r: BulkUpdateResult): string {
+  const updated = r.updated ?? [];
+  const missing = [...new Set(updated.flatMap((u) => u.missing ?? []))].sort();
+  const failed = r.failed ?? [];
+  const parts: string[] = [];
+  if (updated.length) parts.push(`Updated ${updated.map((u) => u.id).join(", ")}.`);
+  else if (!failed.length) parts.push("Already up to date.");
+  if (missing.length)
+    parts.push(
+      `${missing.join(", ")} ${missing.length === 1 ? "is" : "are"} no longer in ${missing.length === 1 ? "its source" : "their sources"}; detach ${missing.length === 1 ? "it" : "them"} on the source's page.`,
+    );
+  if (failed.length)
+    parts.push(
+      `Could not update ${failed.map((f) => f.id).join(", ")}; open Activity for the log.`,
+    );
+  return parts.join(" ");
 }

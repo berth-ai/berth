@@ -116,19 +116,46 @@ type skillScan struct {
 // scanJob runs berth skills scan as agent over paths (the whole tree when
 // one is the root), then save with its answer.
 func (b *Broker) scanJob(verb, repo, ref string, paths []string, save func(skillScan) (json.RawMessage, error)) (int, any) {
+	return b.cliJob(verb, skillsGroup, scanArgs(repo, ref, paths), skillScanTimeout, func(_ context.Context, _ io.Writer, stdout []byte) (json.RawMessage, error) {
+		res, err := parseScan(stdout)
+		if err != nil {
+			return nil, err
+		}
+		return save(res)
+	})
+}
+
+// scanArgs is berth skills scan over paths (the whole tree when one is
+// the root).
+func scanArgs(repo, ref string, paths []string) []string {
 	args := []string{"skills", "scan", "--json", "--repo", repo, "--ref", ref}
 	if !slices.Contains(paths, "") {
 		for _, p := range paths {
 			args = append(args, "--path", p)
 		}
 	}
-	return b.cliJob(verb, skillsGroup, args, skillScanTimeout, func(_ context.Context, _ io.Writer, stdout []byte) (json.RawMessage, error) {
-		var res skillScan
-		if err := json.Unmarshal(stdout, &res); err != nil || res.Commit == "" {
-			return nil, &fieldError{Code: "bad_output", Message: "berth skills scan printed no result"}
-		}
-		return save(res)
-	})
+	return args
+}
+
+func parseScan(stdout []byte) (skillScan, error) {
+	var res skillScan
+	if err := json.Unmarshal(stdout, &res); err != nil || res.Commit == "" {
+		return skillScan{}, &fieldError{Code: "bad_output", Message: "berth skills scan printed no result"}
+	}
+	return res, nil
+}
+
+// scanNow runs berth skills scan as agent inside a job, its stderr in log.
+func (b *Broker) scanNow(ctx context.Context, log io.Writer, repo, ref, path string) (skillScan, error) {
+	args := scanArgs(repo, ref, []string{path})
+	stdout, code, err := b.runCLI(ctx, log, args, skillScanTimeout)
+	switch {
+	case err != nil:
+		return skillScan{}, &fieldError{Code: "scan_failed", Message: err.Error()}
+	case code != 0:
+		return skillScan{}, cliError(stdout, args)
+	}
+	return parseScan(stdout)
 }
 
 // cliJob runs berth args as agent as job verb in group, then save with its

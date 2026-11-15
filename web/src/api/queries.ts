@@ -1,4 +1,4 @@
-import { QueryClient, useQuery } from "@tanstack/react-query";
+import { QueryClient, skipToken, useQuery } from "@tanstack/react-query";
 import { jobsInterval } from "./jobs";
 import { get, shouldRetry, verb } from "./request";
 import type {
@@ -12,6 +12,7 @@ import type {
   OrcaStatus,
   RegistryAgent,
   Session,
+  SourceCheck,
   Status,
   ToolsList,
   UsageReport,
@@ -40,7 +41,19 @@ export const keys = {
   candidates: ["workspace-candidates"],
   orcaDevices: ["orca-devices"],
   orcaStatus: ["orca-status"],
+  skillsCheck: ["skills-check"],
 } as const;
+
+/** useSkillsCheck is the last skills.sources.check of this panel session,
+ * which the Skills page stores; nothing fetches it. */
+export function useSkillsCheck() {
+  return useQuery<SourceCheck[]>({
+    queryKey: keys.skillsCheck,
+    queryFn: skipToken,
+    staleTime: Infinity,
+    gcTime: Infinity,
+  });
+}
 
 export function useSession() {
   return useQuery({

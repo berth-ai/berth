@@ -158,6 +158,22 @@ export interface SourceDiff {
   described: DiffRow[];
 }
 
+/** SourceCheck is one source in skills.sources.check's answer: its
+ * preview at its ref, or why the scan failed. */
+export interface SourceCheck extends SourceDiff {
+  error?: JobError;
+}
+
+/** BulkUpdateResult is what skills.sources.update_all answers. */
+export interface BulkUpdateResult {
+  updated?: { id: string; from: string; commit: string; missing: string[] }[];
+  unchanged?: string[];
+  failed?: { id: string; code: string; message: string }[];
+  changed?: boolean;
+  revision?: number;
+  error?: JobError;
+}
+
 /** NewSourceScan is skills.sources.preview's answer for a repository not added yet. */
 export interface NewSourceScan {
   commit: string;

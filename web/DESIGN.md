@@ -222,7 +222,18 @@ Harbor styling, per component:
   (`?q=<name>`), and the source id is a `--fg-secondary` link;
   a switched-off skill's name is at 70 % opacity, a missing one says "No
   longer in its source" in `--warn`.
-  Update ends each source row. The source's page (`/skills/<id>`) has a
+  Update ends each source row. The Sources card's title row adds, once a
+  source exists, an outline Check for updates (busy "Checking…"), which
+  scans every source at its ref and answers in an `InlineAlert`
+  ("2 sources have new commits.", "Every source is up to date."), and,
+  while the last check found any, an outline "Update all (n)", which
+  confirms with each source's id, ref and commit range, its change counts
+  and a `--warn` alert naming attached skills that will go missing, then
+  moves exactly those commits in one job. Below each checked row's ref, a
+  small Update available badge and the new short commit, "Up to date" in
+  `--fg-muted`, or "Could not check" in `--warn` (the reason as its
+  title); a row whose source moved since the check shows nothing. The
+  check lasts for the panel session. The source's page (`/skills/<id>`) has a
   ghost "‹ Skills" link above its title, then facts (repository, ref,
   commit, folder, store); the repository, and on GitHub, GitLab, Gitea
   and Forgejo hosts the commit and folder, are external links (`--accent-text`

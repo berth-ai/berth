@@ -162,14 +162,17 @@ func waitSkillJob(t *testing.T, tb *testBroker, id int) Job {
 	return Job{}
 }
 
-const skillCommit2 = "89abcdef0123456789abcdef0123456789abcdef"
+const (
+	skillCommit2 = "89abcdef0123456789abcdef0123456789abcdef"
+	badCommit    = "deadbeefdeadbeefdeadbeefdeadbeefdeadbeef"
+)
 
 // fakeScan makes Home.Berth answer `skills scan`, logging its arguments to
 // scan.log. Ref nope is not found; ref v2 is a new commit of pdf and docx;
 // at ref renamed skills/pdf holds skill other; at ref moved only docx is
 // left; ref slow is v2 after half a second; ref v3 (or commit skillCommit3)
 // rewords pdf, moves docx to skills/word and adds xlsx; commit skillCommit2
-// is v2. Any other ref is skillCommit with root (path ""), a broken skill,
+// is v2; commit badCommit fails. Any other ref is skillCommit with root (path ""), a broken skill,
 // docx and pdf.
 func fakeScan(t *testing.T, tb *testBroker) {
 	t.Helper()
@@ -184,6 +187,7 @@ func fakeScan(t *testing.T, tb *testBroker) {
 	script := `#!/bin/sh
 echo "$*" >> "` + tb.dir + `/scan.log"
 case "$*" in
+  *"--ref ` + badCommit + `"*) echo '{"schema":1,"error":{"code":"commit_not_found","step":"ref","message":"Commit gone"}}'; exit 1 ;;
   *"--ref nope"*) echo '{"schema":1,"error":{"code":"ref_not_found","step":"ref","message":"Ref nope not found in that repository"}}'; exit 1 ;;
   *"--ref v2"*) ` + v2 + ` ;;
   *"--ref slow"*) sleep 0.5; ` + v2 + ` ;;

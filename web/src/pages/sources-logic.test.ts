@@ -1,10 +1,15 @@
 import { describe, expect, it } from "vitest";
-import type { AgentPackage, Job, Source, SourceDiff } from "@/api/types";
+import type { AgentPackage, Job, Source, SourceCheck, SourceDiff } from "@/api/types";
 import {
   addedText,
   agentsOf,
   attachedRows,
   attachPatch,
+  behindSources,
+  changeCounts,
+  checkState,
+  checkSummary,
+  checksOf,
   conflicts,
   detachPatch,
   diffOf,
@@ -20,6 +25,7 @@ import {
   sourceLabel,
   sourceList,
   sourceSummary,
+  updatedAllText,
   updatedText,
   whoText,
 } from "./sources-logic";
@@ -240,5 +246,83 @@ describe("filterRows", () => {
     expect(filterRows(rows, "word", "all").map((r) => r.name)).toEqual(["docx"]);
     expect(filterRows(rows, "", "attached").map((r) => r.name)).toEqual(["docx"]);
     expect(filterRows(rows, "pdf", "attached")).toEqual([]);
+  });
+});
+
+describe("checks", () => {
+  const C2 = "89abcdef0123456789abcdef0123456789abcdef";
+  const C3 = "fedcba9876543210fedcba9876543210fedcba98";
+  const src = (commit: string, ref = "main"): Source => ({
+    repo: "https://github.com/acme/skills",
+    ref,
+    path: "",
+    commit,
+    found: {},
+    attached: {},
+  });
+  const check = (id: string, over: Partial<SourceCheck> = {}): SourceCheck => ({
+    id,
+    ref: "main",
+    from: C1,
+    commit: C2,
+    changed: true,
+    added: [{ name: "x", path: "x", attached: false }],
+    removed: [],
+    moved: [],
+    described: [],
+    ...over,
+  });
+
+  it("reads a check against the source as it is now", () => {
+    expect(checkState(src(C1), undefined)).toBeNull();
+    expect(checkState(src(C1), check("a"))?.kind).toBe("behind");
+    // Updated since, by the source's own Update.
+    expect(checkState(src(C2), check("a"))?.kind).toBe("current");
+    // Moved elsewhere, or to another ref: the check says nothing anymore.
+    expect(checkState(src(C3), check("a"))).toBeNull();
+    expect(checkState(src(C1, "v2"), check("a"))).toBeNull();
+    expect(checkState(src(C1), check("a", { error: { code: "x", message: "gone" } }))).toEqual({
+      kind: "failed",
+      message: "gone",
+    });
+  });
+
+  it("lists the sources behind, and sums a check up", () => {
+    const sources = { a: src(C1), b: src(C2), c: src(C1) };
+    const checks = [
+      check("a"),
+      check("b", { from: C2, changed: false }),
+      check("c", { commit: C1, error: { code: "x", message: "gone" } }),
+    ];
+    expect(behindSources(sources, checks).map((c) => c.id)).toEqual(["a"]);
+    expect(behindSources(sources, undefined)).toEqual([]);
+    expect(checkSummary(checks)).toEqual({
+      tone: "warn",
+      text: "1 source has new commits. 1 source could not be checked.",
+    });
+    expect(checkSummary([check("b", { from: C2, commit: C2 })]).text).toBe(
+      "Every source is up to date.",
+    );
+    expect(changeCounts(check("a", { removed: [{ name: "y", path: "y", attached: true }] }))).toBe(
+      "1 added · 1 removed",
+    );
+  });
+
+  it("reads a finished check and words an Update all", () => {
+    const job = { result: { sources: [check("a")] } } as unknown as Job;
+    expect(checksOf(job)?.map((c) => c.id)).toEqual(["a"]);
+    expect(checksOf({ result: null } as Job)).toBeNull();
+    expect(
+      updatedAllText({
+        updated: [
+          { id: "a", from: C1, commit: C2, missing: ["pdf"] },
+          { id: "b", from: C1, commit: C2, missing: [] },
+        ],
+        failed: [{ id: "c", code: "x", message: "gone" }],
+      }),
+    ).toBe(
+      "Updated a, b. pdf is no longer in its source; detach it on the source's page. Could not update c; open Activity for the log.",
+    );
+    expect(updatedAllText({ updated: [], unchanged: ["a"] })).toBe("Already up to date.");
   });
 });

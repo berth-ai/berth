@@ -65,6 +65,7 @@ type fake struct {
 	signedIn    map[string]bool              // pkg + " " + method
 	sessions    map[string][]string          // workspace id → window names
 	overwritten map[string]bool              // "<ws>/<source>/<name>" after Overwrite
+	nightly     map[string]bool              // repositories whose ref nightly has moved on
 	files       map[string]map[string]string // workspace id → instruction file → content
 	links       map[string]map[string]bool   // workspace id → files Berth linked to AGENTS.md
 	inOrca      map[string]bool              // workspace ids in Orca; a new one waits for Sync now
@@ -164,6 +165,7 @@ func newFake(mode string) *fake {
 		running:     map[string]string{},
 		sessions:    map[string][]string{},
 		overwritten: map[string]bool{},
+		nightly:     map[string]bool{},
 		files:       map[string]map[string]string{},
 		links:       map[string]map[string]bool{},
 		inOrca:      map[string]bool{},
@@ -336,6 +338,20 @@ func (f *fake) verb(name string, in map[string]any) (int, any) {
 	case "skills.sources.preview", "skills.sources.update":
 		if id := str(in["id"]); (id != "" || name == "skills.sources.update") && f.source(id) == nil {
 			return http.StatusNotFound, apiError("unknown_source", "No source named "+id)
+		}
+		return f.start(name, in)
+	case "skills.sources.check":
+		return f.start(name, in)
+	case "skills.sources.update_all":
+		ups, _ := in["updates"].([]any)
+		if len(ups) == 0 {
+			return http.StatusBadRequest, fieldError("invalid_request", "updates", "List 1 to 256 sources to update")
+		}
+		for _, u := range ups {
+			id := str(u.(map[string]any)["id"])
+			if f.source(id) == nil {
+				return http.StatusNotFound, apiError("unknown_source", "No source named "+id)
+			}
 		}
 		return f.start(name, in)
 	case "skills.sources.add":
@@ -694,7 +710,7 @@ func (f *fake) toolSet() any {
 
 var groups = map[string]string{"update": "agents", "rollback": "agents", "gc": "agents",
 	"tools.add": "tools", "tools.remove": "tools", "preset.install": "tools", "forge.login": "forge",
-	"skills.sources.preview": "skills", "skills.sources.add": "skills", "skills.sources.update": "skills", "skills.sync": "skills-sync", "skills.vendor.resolve": "skills", "agent.login": "agent-login",
+	"skills.sources.preview": "skills", "skills.sources.add": "skills", "skills.sources.update": "skills", "skills.sources.check": "skills", "skills.sources.update_all": "skills", "skills.sync": "skills-sync", "skills.vendor.resolve": "skills", "agent.login": "agent-login",
 	"agents.add": "agents", "agents.rollback": "agents", "workspaces.add": "workspaces", "workspaces.forget": "workspaces"}
 
 func (f *fake) start(verb string, in map[string]any) (int, any) {
@@ -725,6 +741,8 @@ func (f *fake) start(verb string, in map[string]any) (int, any) {
 		if p != "" {
 			args = append(args, "--path", p)
 		}
+	case "skills.sources.check", "skills.sources.update_all":
+		args = []string{"/usr/local/bin/berth", "skills", "scan", "--json"}
 	case "agents.add":
 		args = []string{"/usr/local/bin/berth", "agents", "install", "--json", str(in["id"])}
 	case "agents.rollback":
@@ -778,6 +796,8 @@ func (f *fake) run(j *job, in map[string]any) {
 		lines = []string{str(in["action"]) + "   " + str(in["name"]) + " in " + str(in["workspace"])}
 	case "skills.sources.preview", "skills.sources.add", "skills.sources.update":
 		lines = []string{"fetch     " + j.Args[5] + "@" + j.Args[7], "list      SKILL.md files", "read      frontmatter"}
+	case "skills.sources.check", "skills.sources.update_all":
+		lines = []string{"fetch     every source", "list      SKILL.md files", "read      frontmatter"}
 	}
 	for i, line := range lines {
 		select {
@@ -867,6 +887,10 @@ func (f *fake) run(j *job, in map[string]any) {
 			break
 		}
 		j.Result, _ = json.Marshal(res)
+	case "skills.sources.check":
+		j.Result, _ = json.Marshal(map[string]any{"sources": f.checkSources()})
+	case "skills.sources.update_all":
+		code, j.State, j.Result = f.updateAll(in)
 	}
 	j.FinishedAt, j.ExitCode = &now, &code
 }
@@ -950,6 +974,68 @@ func fakeScan(repo, ref string) (string, map[string]any, string) {
 	return fakeCommit, found, ""
 }
 
+// scan is fakeScan, except that ref nightly is main until it was scanned
+// once and v2 after: a branch that moved upstream.
+func (f *fake) scan(repo, ref string) (string, map[string]any, string) {
+	if ref != "nightly" {
+		return fakeScan(repo, ref)
+	}
+	if f.nightly[repo] {
+		return fakeScan(repo, "v2")
+	}
+	f.nightly[repo] = true
+	return fakeScan(repo, "main")
+}
+
+// checkSources is skills.sources.check's answer: every source previewed
+// at its ref, or the scan's failure.
+func (f *fake) checkSources() []map[string]any {
+	out := []map[string]any{}
+	for _, id := range slices.Sorted(maps.Keys(sourcesOf(f.cfg))) {
+		src := f.source(id)
+		ref := str(src["ref"])
+		commit, found, failure := f.scan(str(src["repo"]), ref)
+		if failure != "" {
+			var doc map[string]any
+			_ = json.Unmarshal([]byte(failure), &doc)
+			d := fakeDiff(id, ref, src, str(src["commit"]), nil)
+			d["error"] = doc["error"]
+			out = append(out, d)
+			continue
+		}
+		out = append(out, fakeDiff(id, ref, src, commit, found))
+	}
+	return out
+}
+
+// updateAll moves each listed source to its commit, like the broker.
+func (f *fake) updateAll(in map[string]any) (int, string, json.RawMessage) {
+	updated, unchanged, failed := []any{}, []string{}, []any{}
+	for _, u := range in["updates"].([]any) {
+		up := u.(map[string]any)
+		id := str(up["id"])
+		from := str(f.source(id)["commit"])
+		res, failure := f.fakeSource("skills.sources.update", map[string]any{"id": id, "commit": up["commit"]})
+		switch {
+		case failure != "":
+			failed = append(failed, map[string]any{"id": id, "code": "scan_failed", "message": failure})
+		case res["changed"] == true:
+			updated = append(updated, map[string]any{"id": id, "from": from, "commit": res["commit"], "missing": res["missing"]})
+		default:
+			unchanged = append(unchanged, id)
+		}
+	}
+	res := map[string]any{"updated": updated, "unchanged": unchanged, "failed": failed,
+		"changed": len(updated) > 0, "revision": f.cfg["revision"]}
+	if len(failed) > 0 {
+		res["error"] = map[string]any{"code": "update_failed", "field": "updates", "message": "Some sources could not be updated; see the log"}
+		raw, _ := json.Marshal(res)
+		return 1, "failed", raw
+	}
+	raw, _ := json.Marshal(res)
+	return 0, "succeeded", raw
+}
+
 // fakeSource finishes a skills.sources job like the broker: a preview of a
 // new or an existing source, an add or an update.
 func (f *fake) fakeSource(verb string, in map[string]any) (map[string]any, string) {
@@ -959,7 +1045,7 @@ func (f *fake) fakeSource(verb string, in map[string]any) (map[string]any, strin
 	if src != nil {
 		repo, p, ref = str(src["repo"]), str(src["path"]), cmp.Or(ref, str(src["ref"]))
 	}
-	commit, found, failure := fakeScan(repo, cmp.Or(str(in["commit"]), ref))
+	commit, found, failure := f.scan(repo, cmp.Or(str(in["commit"]), ref))
 	if failure != "" {
 		return nil, failure
 	}
