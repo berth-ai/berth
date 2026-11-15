@@ -105,6 +105,10 @@ export interface SignInTarget {
   label: string;
 }
 
+// Sign-ins closed in this tab. Module-level so leaving the page and coming
+// back does not reopen one whose cancel the jobs list has not caught up with.
+const dismissed = new Set<number>();
+
 /** useSignIn owns the sign-in dialog: start opens one, and a sign-in
  * already running (another tab, a reload) reopens it. */
 export function useSignIn(logins: LoginStatus | undefined): {
@@ -113,7 +117,6 @@ export function useSignIn(logins: LoginStatus | undefined): {
 } {
   const jobs = useJobs();
   const [open, setOpen] = useState<{ target: SignInTarget; jobId: number | null } | null>(null);
-  const [dismissed, setDismissed] = useState<number | null>(null);
   // While a start is in flight the jobs list can show its job before the
   // broker's answer does; reopening then would undo a Cancel.
   const [starting, setStarting] = useState(0);
@@ -121,7 +124,7 @@ export function useSignIn(logins: LoginStatus | undefined): {
   // the broker answered cancels its own job instead of reopening.
   const attempt = useRef(0);
   const running = runningLogin(jobs.data?.jobs);
-  if (!open && !starting && running && running.id !== dismissed) {
+  if (!open && !starting && running && !dismissed.has(running.id)) {
     const a = logins?.agents?.[running.agent];
     const m = a?.methods?.find((x) => x.id === running.method);
     if (a && m) {
@@ -141,7 +144,7 @@ export function useSignIn(logins: LoginStatus | undefined): {
         method: target.method,
       });
       if (attempt.current !== mine) {
-        setDismissed(r.job.id);
+        dismissed.add(r.job.id);
         void verb("login.cancel", { job: r.job.id }).catch(() => undefined);
         return;
       }
@@ -164,7 +167,7 @@ export function useSignIn(logins: LoginStatus | undefined): {
       onRestart={() => void start(open.target)}
       onClose={() => {
         attempt.current++;
-        setDismissed(open.jobId);
+        if (open.jobId !== null) dismissed.add(open.jobId);
         setOpen(null);
       }}
     />
@@ -214,7 +217,8 @@ function SignInDialog({
   }
 
   const close = () => {
-    if (jobId !== null && job?.state === "running") {
+    // Before the job's first poll its state is unknown; cancel then too.
+    if (jobId !== null && (!job || job.state === "running")) {
       void verb("login.cancel", { job: jobId }).catch(() => undefined);
     }
     onClose();

@@ -342,7 +342,11 @@ export function SourcePage({ id, query: initialQuery = "" }: { id: string; query
                         )}
                       >
                         <span className="inline-flex items-center gap-1.5">
-                          <span className={cn(mono, "font-semibold text-fg")}>{name}</span>
+                          {/* A broken row's key is made up from its folder (with -2
+                              when a skill already has that name); show the folder. */}
+                          <span className={cn(mono, "font-semibold text-fg")}>
+                            {found.error ? found.path || "/" : name}
+                          </span>
                           {filesUrl ? (
                             <a
                               href={filesUrl}

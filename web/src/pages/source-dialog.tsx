@@ -155,7 +155,10 @@ export function SourceDialog({
                     key={name}
                     className="flex flex-col gap-0.5 border-b border-line py-2 last:border-b-0"
                   >
-                    <span className={cn(mono, "font-semibold text-fg")}>{name}</span>
+                    {/* A broken row's key is made up from its folder; show the folder. */}
+                    <span className={cn(mono, "font-semibold text-fg")}>
+                      {f.error ? f.path || "/" : name}
+                    </span>
                     <span className={cn("text-xs", f.error ? "text-warn" : "text-fg-muted")}>
                       {f.error ?? f.description}
                     </span>

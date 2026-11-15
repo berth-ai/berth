@@ -255,7 +255,7 @@ test("nothing scrolls sideways at 400 px", async ({ page }) => {
     ["#/", "Overview"],
     ["#/workspaces", "Workspaces"],
     ["#/agents", "Agents"],
-    ["#/agents/agent-cli", "Usage by model"],
+    ["#/agents/agent-cli", "example-large-2"],
     ["#/mcp", "MCP servers"],
     ["#/skills", "Skills"],
     ["#/tools", "Tools"],

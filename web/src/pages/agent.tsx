@@ -256,42 +256,46 @@ function UsageSection({
         </div>
         <UsageBars days={usage.days ?? []} total={usage.week.total} />
         {models.length ? (
-          <Table aria-label="Usage by model">
-            <TableHeader>
-              <TableRow>
-                <TableHead>Model</TableHead>
-                <TableHead className="text-right">Responses</TableHead>
-                <TableHead className="text-right">Input</TableHead>
-                <TableHead className="text-right">Output</TableHead>
-                <TableHead className="text-right">Cache read</TableHead>
-                <TableHead className="text-right">Cache write</TableHead>
-                <TableHead className="text-right">Total</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {models.map((m) => (
-                <TableRow key={m.model}>
-                  <TableCell data-label="">
-                    <Mono>{m.model}</Mono>
-                  </TableCell>
-                  {(
-                    [
-                      ["Responses", m.messages.toLocaleString()],
-                      ["Input", tokens(m.input)],
-                      ["Output", tokens(m.output)],
-                      ["Cache read", tokens(m.cache_read)],
-                      ["Cache write", tokens(m.cache_write)],
-                      ["Total", tokens(m.total)],
-                    ] as const
-                  ).map(([label, v]) => (
-                    <TableCell key={label} data-label={label} className="text-right tabular-nums">
-                      {v}
-                    </TableCell>
-                  ))}
+          // Wrapped, so the card keeps its padding around the rest; the
+          // table alone runs edge to edge (DESIGN.md §4).
+          <div className="-mx-4 border-y">
+            <Table aria-label="Usage by model">
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Model</TableHead>
+                  <TableHead className="text-right">Responses</TableHead>
+                  <TableHead className="text-right">Input</TableHead>
+                  <TableHead className="text-right">Output</TableHead>
+                  <TableHead className="text-right">Cache read</TableHead>
+                  <TableHead className="text-right">Cache write</TableHead>
+                  <TableHead className="text-right">Total</TableHead>
                 </TableRow>
-              ))}
-            </TableBody>
-          </Table>
+              </TableHeader>
+              <TableBody>
+                {models.map((m) => (
+                  <TableRow key={m.model}>
+                    <TableCell data-label="">
+                      <Mono>{m.model}</Mono>
+                    </TableCell>
+                    {(
+                      [
+                        ["Responses", m.messages.toLocaleString()],
+                        ["Input", tokens(m.input)],
+                        ["Output", tokens(m.output)],
+                        ["Cache read", tokens(m.cache_read)],
+                        ["Cache write", tokens(m.cache_write)],
+                        ["Total", tokens(m.total)],
+                      ] as const
+                    ).map(([label, v]) => (
+                      <TableCell key={label} data-label={label} className="text-right tabular-nums">
+                        {v}
+                      </TableCell>
+                    ))}
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </div>
         ) : null}
         <p className="text-xs text-fg-muted">
           Counted from {name}'s own session files in this container. Berth reads only token counts,
