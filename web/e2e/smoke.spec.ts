@@ -687,6 +687,20 @@ test("code hosts sign in with a device code and a token, and sign out", async ({
   await expect(page.getByLabel("Access token")).toHaveValue("");
   await expect(page.getByRole("heading", { name: "Add a server" })).toBeVisible();
 
+  // A signed-in host is offered first for its own git identity.
+  await page.getByRole("button", { name: "Add a host identity" }).click();
+  const dialog = page.getByRole("dialog");
+  await expect(dialog.getByLabel("Host")).toHaveValue("codeberg.org");
+  await dialog.getByLabel("Name").fill("Ada Codeberg");
+  await dialog.getByLabel("Email").fill("ada@example.org");
+  await dialog.getByRole("button", { name: "Save" }).click();
+  await expect(page.getByText("Commits on codeberg.org now use Ada Codeberg.")).toBeVisible();
+  await expect(page.getByText("Ada Codeberg <ada@example.org>")).toBeVisible();
+  await page.getByRole("button", { name: "Remove the identity for codeberg.org" }).click();
+  await page.getByRole("alertdialog").getByRole("button", { name: "Remove" }).click();
+  await expect(page.getByText("codeberg.org uses your git identity again.")).toBeVisible();
+  await expect(page.getByText("Ada Codeberg <ada@example.org>")).toHaveCount(0);
+
   await page.getByRole("button", { name: "Sign out of codeberg.org" }).click();
   await page.getByRole("alertdialog").getByRole("button", { name: "Sign out" }).click();
   await expect(page.getByText("Signed out of codeberg.org.")).toBeVisible();

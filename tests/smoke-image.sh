@@ -662,6 +662,14 @@ verb main tools.list '{}' | jq -e '.user | map(.name) | index("jq")' >/dev/null 
 verb main tools.remove '{"tool":"jq"}' >/dev/null
 verb main git.identity '{"name":"Smoke Test","email":"smoke@example.org"}' >/dev/null || fail "git.identity"
 [[ $(xa main git config --global user.email) == smoke@example.org ]] || fail "git identity not written as agent"
+verb main git.identity '{"name":"Smoke Lab","email":"lab@example.org","host":"gitlab.com"}' >/dev/null || fail "git.identity for a host"
+# shellcheck disable=SC2016  # expanded by sh inside the container
+xa main sh -c 'd=$(mktemp -d) && git -C "$d" init -q && git -C "$d" remote add origin git@gitlab.com:smoke/repo.git &&
+  git -C "$d" config user.email; rm -rf "$d"' | grep -qx lab@example.org || fail "host identity not used for a gitlab.com remote"
+[[ $(xa main stat -c %U /home/agent/.config/berth/git/gitlab.com.gitconfig) == agent ]] || fail "host identity not owned by agent"
+verb main forge.status '{}' | jq -e '.identities == [{"host":"gitlab.com","name":"Smoke Lab","email":"lab@example.org"}]' >/dev/null ||
+  fail "forge.status identities"
+verb main git.identity.remove '{"host":"gitlab.com"}' >/dev/null || fail "git.identity.remove"
 xa main tea --version >/dev/null || fail "tea --version"
 verb main forge.status '{}' | jq -e '.forges.gh.signed_in == false and .forges.tea.signed_in == false and .git.name == "Smoke Test"' >/dev/null ||
   fail "forge.status"

@@ -1,7 +1,7 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { verb } from "@/api/request";
-import { TeaCard } from "./accounts";
+import { HostIdentities, TeaCard } from "./accounts";
 
 vi.mock(import("@/api/request"), async (importOriginal) => ({
   ...(await importOriginal()),
@@ -63,5 +63,47 @@ describe("TeaCard", () => {
     expect(screen.getByRole("heading", { name: "Add a server" })).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Sign out of git.example.org" }));
     expect(onSignOut).toHaveBeenCalledWith(logins[0]);
+  });
+});
+
+describe("HostIdentities", () => {
+  beforeEach(() => vi.mocked(verb).mockClear());
+
+  it("adds an identity for a signed-in host", async () => {
+    render(
+      <HostIdentities identities={[]} suggested={["gitlab.com"]} defaultName="Ada" ask={vi.fn()} />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Add a host identity" }));
+    expect((screen.getByLabelText("Host") as HTMLInputElement).value).toBe("gitlab.com");
+    expect((screen.getByLabelText("Name") as HTMLInputElement).value).toBe("Ada");
+    const save = screen.getByRole("button", { name: "Save" }) as HTMLButtonElement;
+    expect(save.disabled).toBe(true);
+    fireEvent.change(screen.getByLabelText("Email"), { target: { value: "ada@example.org" } });
+    fireEvent.click(save);
+    await vi.waitFor(() =>
+      expect(verb).toHaveBeenCalledWith("git.identity", {
+        host: "gitlab.com",
+        name: "Ada",
+        email: "ada@example.org",
+      }),
+    );
+  });
+
+  it("refuses a host that already has one", () => {
+    const identities = [{ host: "gitlab.com", name: "Ada", email: "ada@example.org" }];
+    render(<HostIdentities identities={identities} suggested={[]} defaultName="" ask={vi.fn()} />);
+    expect(screen.getByText("Ada <ada@example.org>")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Add a host identity" }));
+    fireEvent.change(screen.getByLabelText("Host"), { target: { value: "https://GitLab.com/" } });
+    expect(screen.getByText(/already has an identity/)).toBeTruthy();
+  });
+
+  it("confirms before removing one", () => {
+    const ask = vi.fn();
+    const id = { host: "github.com", name: "Ada", email: "ada@example.org" };
+    render(<HostIdentities identities={[id]} suggested={[]} defaultName="" ask={ask} />);
+    fireEvent.click(screen.getByRole("button", { name: "Remove the identity for github.com" }));
+    expect(ask).toHaveBeenCalledWith(expect.objectContaining({ confirm: "Remove", danger: true }));
+    expect(verb).not.toHaveBeenCalled();
   });
 });

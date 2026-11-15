@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import type { Job } from "@/api/types";
-import { deviceHost, forgeJobId, tokenPage } from "./accounts-logic";
+import type { ForgeStatus, Job } from "@/api/types";
+import { deviceHost, forgeJobId, hostError, identityHosts, tokenPage } from "./accounts-logic";
 
 const job = (id: number, verb: string, state: string, args: string[]): Job => ({
   id,
@@ -38,5 +38,38 @@ describe("accounts logic", () => {
     expect(tokenPage("http://gitea.com")).toBeNull();
     expect(tokenPage("gitea.com")).toBeNull();
     expect(tokenPage("")).toBeNull();
+  });
+});
+
+describe("host identities", () => {
+  it("validates a host like the broker", () => {
+    expect(hostError("", [])).toBe("");
+    expect(hostError("GitLab.com", [])).toBe("");
+    expect(hostError("https://git.example.org:3000/x", [])).toBe("");
+    for (const bad of ["-x.org", "a b", "a..b", "a_b.org", "a:b"]) {
+      expect(hostError(bad, [])).toMatch(/host name/);
+    }
+    expect(hostError("gitlab.com", ["gitlab.com"])).toMatch(/already/);
+  });
+
+  it("offers signed-in hosts without an identity", () => {
+    const data: ForgeStatus = {
+      git: { name: "", email: "" },
+      identities: [{ host: "github.com", name: "A", email: "a@example.org" }],
+      forges: {
+        gh: { host: "github.com", signed_in: true, user: "" },
+        glab: { host: "gitlab.com", signed_in: false, user: "" },
+        tea: {
+          host: "codeberg.org",
+          signed_in: true,
+          user: "",
+          logins: [
+            { name: "codeberg.org", url: "https://codeberg.org", user: "", default: true },
+            { name: "git", url: "https://git.example.org:3000/sub", user: "", default: false },
+          ],
+        },
+      },
+    };
+    expect(identityHosts(data)).toEqual(["codeberg.org", "git.example.org:3000"]);
   });
 });

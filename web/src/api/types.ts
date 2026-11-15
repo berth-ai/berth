@@ -492,8 +492,17 @@ export interface ForgeLogin {
   default: boolean;
 }
 
+/** HostIdentity is the git identity for the remotes on one code host. */
+export interface HostIdentity {
+  host: string;
+  name: string;
+  email: string;
+}
+
 export interface ForgeStatus {
   git: { name: string; email: string };
+  /** Identities that replace git for the remotes on one host, by host. */
+  identities: HostIdentity[];
   forges: Record<string, Forge>;
 }
 

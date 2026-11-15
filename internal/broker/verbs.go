@@ -73,6 +73,7 @@ func (b *Broker) verbs() map[string]verbFunc {
 		"tools.remove":                  b.toolsRemove,
 		"preset.install":                b.presetInstall,
 		"git.identity":                  b.gitIdentity,
+		"git.identity.remove":           b.gitIdentityRemove,
 		"forge.status":                  b.forgeStatus,
 		"forge.login":                   b.forgeLogin,
 		"forge.token":                   b.forgeToken,

@@ -70,34 +70,6 @@ func (b *Broker) forges() map[string]forgeSpec {
 	}
 }
 
-func validGitName(s string) bool {
-	return s != "" && len(s) <= 100 && !strings.HasPrefix(s, "-") &&
-		strings.IndexFunc(s, unicode.IsControl) < 0
-}
-
-func (b *Broker) gitIdentity(ctx context.Context, body []byte) (int, any) {
-	var in struct {
-		Name  string `json:"name"`
-		Email string `json:"email"`
-	}
-	if err := decode(body, &in); err != nil {
-		return badRequest(err)
-	}
-	if !validGitName(in.Name) {
-		return badRequest(errors.New("the name must be 1 to 100 characters, without control characters or a leading dash"))
-	}
-	if !emailPattern.MatchString(in.Email) {
-		return badRequest(errors.New("the email must look like name@example.org"))
-	}
-	for _, kv := range [][2]string{{"user.name", in.Name}, {"user.email", in.Email}} {
-		_, stderr, exit, err := b.agentRun(ctx, b.syncTimeout(), b.Home.Git, "config", "--global", kv[0], kv[1])
-		if code, v, failed := syncFailure(err, exit, stderr); failed {
-			return code, v
-		}
-	}
-	return http.StatusOK, map[string]any{"name": in.Name, "email": in.Email}
-}
-
 func (b *Broker) forgeStatus(ctx context.Context, body []byte) (int, any) {
 	if err := decode(body, &struct{}{}); err != nil {
 		return badRequest(err)
@@ -107,6 +79,7 @@ func (b *Broker) forgeStatus(ctx context.Context, body []byte) (int, any) {
 		stdout, _, _, _ := b.agentRun(ctx, b.syncTimeout(), b.Home.Git, "config", "--global", "--get", "user."+key)
 		git[key] = strings.TrimSpace(stdout)
 	}
+	identities := b.hostIdentities(ctx)
 	forges := map[string]Forge{}
 	for name, spec := range b.forges() {
 		stdout, stderr, exit, err := b.agentRun(ctx, b.syncTimeout(), spec.path, "auth", "status", "--hostname", spec.host)
@@ -122,7 +95,7 @@ func (b *Broker) forgeStatus(ctx context.Context, body []byte) (int, any) {
 	// A tea that cannot list its logins counts as signed out.
 	logins, _ := b.teaLogins(ctx)
 	forges[teaForge] = teaState(logins)
-	return http.StatusOK, map[string]any{"git": git, "forges": forges}
+	return http.StatusOK, map[string]any{"git": git, "identities": identities, "forges": forges}
 }
 
 func (b *Broker) forgeLogin(_ context.Context, body []byte) (int, any) {

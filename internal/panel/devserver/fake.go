@@ -56,6 +56,7 @@ type fake struct {
 	prev        map[string]any
 	keys        map[string]bool
 	git         map[string]string
+	identities  map[string]map[string]string // host → name and email
 	forges      map[string]bool
 	teaLogins   []map[string]any // tea's servers, in the order they signed in
 	tools       []map[string]string
@@ -170,11 +171,12 @@ func newFake(mode string) *fake {
 		links:       map[string]map[string]bool{},
 		inOrca:      map[string]bool{},
 		mode:        mode, user: devUser, started: time.Now().UTC(), step: 400 * time.Millisecond,
-		cfg:    defaultConfig(1),
-		keys:   map[string]bool{"EXAMPLE_API_KEY": false, "COPILOT_GITHUB_TOKEN": false},
-		git:    map[string]string{"name": "", "email": ""},
-		forges: map[string]bool{"gh": false, "glab": false},
-		tools:  []map[string]string{{"name": "terraform", "version": "1.1.0"}},
+		cfg:        defaultConfig(1),
+		keys:       map[string]bool{"EXAMPLE_API_KEY": false, "COPILOT_GITHUB_TOKEN": false},
+		git:        map[string]string{"name": "", "email": ""},
+		identities: map[string]map[string]string{},
+		forges:     map[string]bool{"gh": false, "glab": false},
+		tools:      []map[string]string{{"name": "terraform", "version": "1.1.0"}},
 	}
 }
 
@@ -307,7 +309,11 @@ func (f *fake) verb(name string, in map[string]any) (int, any) {
 		if len(f.teaLogins) > 0 {
 			tea["host"], tea["user"], tea["logins"] = f.teaLogins[0]["name"], f.teaLogins[0]["user"], f.teaLogins
 		}
-		return http.StatusOK, map[string]any{"git": f.git, "forges": map[string]any{
+		ids := []map[string]string{}
+		for _, h := range slices.Sorted(maps.Keys(f.identities)) {
+			ids = append(ids, map[string]string{"host": h, "name": f.identities[h]["name"], "email": f.identities[h]["email"]})
+		}
+		return http.StatusOK, map[string]any{"git": f.git, "identities": ids, "forges": map[string]any{
 			"gh": forge("gh", "github.com"), "glab": forge("glab", "gitlab.com"), "tea": tea}}
 	case "forge.token":
 		return f.teaSignIn(in)
@@ -333,8 +339,19 @@ func (f *fake) verb(name string, in map[string]any) (int, any) {
 		if !strings.Contains(email, "@") {
 			return http.StatusBadRequest, apiError("invalid_request", "the email must look like name@example.org")
 		}
+		if host := strings.ToLower(str(in["host"])); host != "" {
+			f.identities[host] = map[string]string{"name": name, "email": email}
+			return http.StatusOK, map[string]any{"host": host, "name": name, "email": email}
+		}
 		f.git = map[string]string{"name": name, "email": email}
 		return http.StatusOK, f.git
+	case "git.identity.remove":
+		host := strings.ToLower(str(in["host"]))
+		if _, ok := f.identities[host]; !ok {
+			return http.StatusNotFound, apiError("unknown_host", "there is no git identity for "+host)
+		}
+		delete(f.identities, host)
+		return http.StatusOK, map[string]any{"host": host}
 	case "skills.sources.preview", "skills.sources.update":
 		if id := str(in["id"]); (id != "" || name == "skills.sources.update") && f.source(id) == nil {
 			return http.StatusNotFound, apiError("unknown_source", "No source named "+id)

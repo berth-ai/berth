@@ -3,7 +3,7 @@ import { useEffect, useId, useRef, useState, type FormEvent, type ReactNode } fr
 import { keys, queryClient, useForges, useJob, useJobs } from "@/api/queries";
 import { verb } from "@/api/request";
 import { jobStartError } from "@/api/run-job";
-import type { Forge, ForgeLogin, ForgeStatus, Job } from "@/api/types";
+import type { Forge, ForgeLogin, ForgeStatus, HostIdentity, Job } from "@/api/types";
 import { BusyButton } from "@/components/busy-button";
 import { useConfirm } from "@/components/confirm";
 import { DeviceBox } from "@/components/device-box";
@@ -15,12 +15,19 @@ import { CardGrid, Page, PageHeader, SectionTitle } from "@/components/page";
 import { PanelCard } from "@/components/panel-card";
 import { StatusBadge } from "@/components/status-badge";
 import { Button, buttonVariants } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Spinner } from "@/components/ui/spinner";
 import { errorText } from "@/lib/errors";
 import { notify } from "@/lib/notify";
 import { useTitle } from "@/lib/use-title";
-import { forgeJobId, tokenPage } from "./accounts-logic";
+import { forgeJobId, hostError, identityHosts, normalHost, tokenPage } from "./accounts-logic";
 
 /** The CLIs that sign in to one host with a device code. */
 const DEVICE_FORGES = [
@@ -73,7 +80,12 @@ function Accounts({ data }: { data: ForgeStatus }) {
     });
   return (
     <>
-      <GitCard initial={data.git} />
+      <GitCard
+        initial={data.git}
+        identities={data.identities}
+        suggested={identityHosts(data)}
+        ask={ask}
+      />
       <section className="flex flex-col gap-3" aria-labelledby="code-hosts">
         <div className="flex flex-col gap-0.5">
           <SectionTitle>
@@ -116,7 +128,19 @@ function Accounts({ data }: { data: ForgeStatus }) {
   );
 }
 
-function GitCard({ initial }: { initial: { name: string; email: string } }) {
+type Ask = ReturnType<typeof useConfirm>[1];
+
+function GitCard({
+  initial,
+  identities,
+  suggested,
+  ask,
+}: {
+  initial: { name: string; email: string };
+  identities: HostIdentity[];
+  suggested: string[];
+  ask: Ask;
+}) {
   const [name, setName] = useState(initial.name);
   const [email, setEmail] = useState(initial.email);
   const [saved, setSaved] = useState(initial);
@@ -176,7 +200,200 @@ function GitCard({ initial }: { initial: { name: string; email: string } }) {
           </BusyButton>
         </div>
       </form>
+      <HostIdentities
+        identities={identities}
+        suggested={suggested}
+        defaultName={saved.name}
+        ask={ask}
+      />
     </PanelCard>
+  );
+}
+
+// HostIdentities lists the identities that replace the global one for the
+// remotes on one host, such as a work GitLab beside a personal GitHub.
+export function HostIdentities({
+  identities,
+  suggested,
+  defaultName,
+  ask,
+}: {
+  identities: HostIdentity[];
+  suggested: string[];
+  defaultName: string;
+  ask: Ask;
+}) {
+  const [editing, setEditing] = useState<HostIdentity | "new" | null>(null);
+  const remove = (id: HostIdentity) =>
+    ask({
+      title: `Remove the identity for ${id.host}?`,
+      body: `Commits in repositories on ${id.host} use your git identity again. Commits already made keep their author.`,
+      confirm: "Remove",
+      danger: true,
+      action: async () => {
+        try {
+          await verb("git.identity.remove", { host: id.host });
+          notify(`${id.host} uses your git identity again.`);
+          void queryClient.invalidateQueries({ queryKey: keys.forges });
+        } catch (err) {
+          notify(errorText(err), "bad");
+          return false;
+        }
+      },
+    });
+  return (
+    <section className="flex flex-col gap-3 border-t pt-4" aria-labelledby="host-identities">
+      <div className="flex flex-col gap-0.5">
+        <h3 id="host-identities" className="text-sm font-semibold">
+          Per-host identities
+        </h3>
+        <p className="text-fg-muted">
+          Repositories whose remote is on one of these hosts, over HTTPS or SSH, commit with its
+          identity instead.
+        </p>
+      </div>
+      {identities.length ? (
+        <ul className="m-0 flex list-none flex-col divide-y rounded-md border p-0">
+          {identities.map((id) => (
+            <li key={id.host} className="flex flex-wrap items-center gap-x-3 gap-y-1 px-3 py-2">
+              <span className="font-mono text-xs font-semibold wrap-anywhere">{id.host}</span>
+              <span className="text-fg-muted wrap-anywhere">
+                {id.name} &lt;{id.email}&gt;
+              </span>
+              <span className="flex-1" />
+              <span className="flex gap-1.5">
+                <Button
+                  size="xs"
+                  variant="outline"
+                  aria-label={`Edit the identity for ${id.host}`}
+                  onClick={() => setEditing(id)}
+                >
+                  Edit
+                </Button>
+                <Button
+                  size="xs"
+                  variant="outline"
+                  aria-label={`Remove the identity for ${id.host}`}
+                  onClick={() => remove(id)}
+                >
+                  Remove
+                </Button>
+              </span>
+            </li>
+          ))}
+        </ul>
+      ) : null}
+      <div>
+        <Button size="sm" variant="outline" onClick={() => setEditing("new")}>
+          Add a host identity
+        </Button>
+      </div>
+      {editing ? (
+        <HostIdentityDialog
+          edit={editing === "new" ? undefined : editing}
+          suggested={suggested}
+          taken={identities.map((i) => i.host)}
+          defaultName={defaultName}
+          onClose={() => setEditing(null)}
+        />
+      ) : null}
+    </section>
+  );
+}
+
+function HostIdentityDialog({
+  edit,
+  suggested,
+  taken,
+  defaultName,
+  onClose,
+}: {
+  edit?: HostIdentity;
+  suggested: string[];
+  taken: string[];
+  defaultName: string;
+  onClose: () => void;
+}) {
+  const hostId = useId();
+  const nameId = useId();
+  const emailId = useId();
+  const [host, setHost] = useState(edit?.host ?? suggested[0] ?? "");
+  const [name, setName] = useState(edit?.name ?? defaultName);
+  const [email, setEmail] = useState(edit?.email ?? "");
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+  const hostErr = edit ? "" : hostError(host, taken);
+  const hint = suggested.length
+    ? `Signed in: ${suggested.join(", ")}.`
+    : "A host name such as gitlab.com, with a port if the server needs one.";
+  const save = async (e: FormEvent) => {
+    e.preventDefault();
+    setBusy(true);
+    try {
+      const h = edit?.host ?? normalHost(host);
+      await verb("git.identity", { host: h, name: name.trim(), email: email.trim() });
+      notify(`Commits on ${h} now use ${name.trim()}.`);
+      void queryClient.invalidateQueries({ queryKey: keys.forges });
+      onClose();
+    } catch (err) {
+      setError(errorText(err));
+    }
+    setBusy(false);
+  };
+  return (
+    <Dialog open onOpenChange={(open) => !open && !busy && onClose()}>
+      <DialogContent className="sm:max-w-lg">
+        <form noValidate onSubmit={(e) => void save(e)} className="flex flex-col gap-4">
+          <DialogHeader>
+            <DialogTitle>{edit ? `Identity for ${edit.host}` : "Add a host identity"}</DialogTitle>
+          </DialogHeader>
+          <FormField id={hostId} label="Host" hint={edit ? undefined : hint} error={hostErr}>
+            <Input
+              {...fieldProps(hostId, hostErr)}
+              value={host}
+              disabled={Boolean(edit)}
+              className="font-mono text-xs"
+              spellCheck={false}
+              autoComplete="off"
+              onChange={(e) => setHost(e.target.value)}
+            />
+          </FormField>
+          <FormField id={nameId} label="Name">
+            <Input
+              {...fieldProps(nameId)}
+              autoComplete="name"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+            />
+          </FormField>
+          <FormField id={emailId} label="Email">
+            <Input
+              {...fieldProps(emailId)}
+              type="email"
+              autoComplete="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+            />
+          </FormField>
+          <div aria-live="polite">
+            {error ? <InlineAlert tone="bad">{error}</InlineAlert> : null}
+          </div>
+          <DialogFooter>
+            <Button type="button" variant="outline" disabled={busy} onClick={onClose}>
+              Cancel
+            </Button>
+            <BusyButton
+              type="submit"
+              busy={busy}
+              busyLabel="Saving…"
+              disabled={!normalHost(host) || Boolean(hostErr) || !name.trim() || !email.trim()}
+            >
+              Save
+            </BusyButton>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
   );
 }
 

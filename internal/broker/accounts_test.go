@@ -15,7 +15,8 @@ func TestGitIdentity(t *testing.T) {
 	if code != 200 || out["name"] != "Ada Lovelace" {
 		t.Fatalf("identity = %d %v", code, out)
 	}
-	if got := callLog(dir, "git"); got != "config --global user.name Ada Lovelace\nconfig --global user.email ada@example.org\n" {
+	if got := callLog(dir, "git"); got != "config --global --get-regexp ^includeif\\.hasconfig:remote\\.\\*\\.url:.*\\.path$\n"+
+		"config --global user.name Ada Lovelace\nconfig --global user.email ada@example.org\n" {
 		t.Errorf("git ran %q", got)
 	}
 }
