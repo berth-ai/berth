@@ -1,7 +1,11 @@
 import { describe, expect, it } from "vitest";
-import type { AgentsReport, Pin, UpdateCheck } from "@/api/types";
+import type { AgentVersion, AgentsReport, Pin, UpdateCheck } from "@/api/types";
 import {
+  bannerKey,
   bannerText,
+  dismissedCovers,
+  setBefore,
+  setChanges,
   checkSummary,
   newestFirst,
   pinRows,
@@ -79,8 +83,73 @@ describe("updates", () => {
     expect(bannerText(check({ update_available: true, updates: 1 }))).toBe(
       "1 newer version is available for your agents and tools.",
     );
+    const cc = pin({
+      name: "@anthropic-ai/claude-code",
+      track: "agents",
+      title: "Claude Code",
+      current: "2.1.321",
+      latest: "2.1.330",
+      update: "patch",
+    });
+    const gh = pin({ latest: "2.1.0", update: "minor" });
+    const node = pin({
+      name: "node",
+      title: "node",
+      current: "24.1.0",
+      latest: "24.2.0",
+      update: "minor",
+    });
+    const big = pin({ name: "rg", title: "rg", latest: "3.0.0", update: "major" });
+    expect(bannerText(check({ update_available: true, updates: 1, pins: [big, gh] }))).toBe(
+      "gh 2.0.0 → 2.1.0 is available.",
+    );
+    expect(bannerText(check({ update_available: true, updates: 2, pins: [gh, cc] }))).toBe(
+      "Claude Code 2.1.321 → 2.1.330 and gh 2.0.0 → 2.1.0 are available.",
+    );
+    expect(bannerText(check({ update_available: true, updates: 3, pins: [gh, node, cc] }))).toBe(
+      "Claude Code 2.1.321 → 2.1.330, gh 2.0.0 → 2.1.0 and 1 more are available.",
+    );
     expect(bannerText(check({ update_available: true, majors: 3 }))).toBeNull();
     expect(bannerText(null)).toBeNull();
+  });
+
+  it("keeps a dismissal until a new version is announced", () => {
+    const gh = pin({ latest: "2.1.0", update: "minor" });
+    const node = pin({ name: "node", latest: "24.2.0", update: "patch" });
+    const one = bannerKey(check({ update_available: true, updates: 1, pins: [gh] }));
+    const two = bannerKey(check({ update_available: true, updates: 2, pins: [gh, node] }));
+    expect(one).toBe("gh@2.1.0");
+    expect(dismissedCovers(two, one)).toBe(true);
+    expect(dismissedCovers(one, two)).toBe(false);
+    expect(dismissedCovers("", one)).toBe(false);
+    expect(
+      dismissedCovers(
+        one,
+        bannerKey(
+          check({ update_available: true, updates: 1, pins: [{ ...gh, latest: "2.2.0" }] }),
+        ),
+      ),
+    ).toBe(false);
+  });
+
+  it("says what each set changed", () => {
+    const set = (hash: string, at: string, packages: Record<string, string>): AgentVersion => ({
+      hash,
+      source: { origin: "image", fetched_at: at },
+      packages,
+      installed_at: at,
+    });
+    const a = set("a", "2026-11-01T00:00:00Z", { "@x/cc": "1.0.0", gh: "2.0.0" });
+    const b = set("b", "2026-11-02T00:00:00Z", { "@x/cc": "1.1.0", gh: "2.0.0", rg: "15.0.0" });
+    const c = set("c", "2026-11-03T00:00:00Z", { "@x/cc": "1.1.0" });
+    const titles = new Map([["@x/cc", "Claude Code"]]);
+    const all = [c, a, b];
+    expect(setBefore(b, all)).toBe(a);
+    expect(setBefore(a, all)).toBeUndefined();
+    expect(setChanges(a, undefined, titles)).toBe("First set");
+    expect(setChanges(b, a, titles)).toBe("Claude Code 1.0.0 → 1.1.0, rg 15.0.0 added");
+    expect(setChanges(c, b, titles)).toBe("gh removed, rg removed");
+    expect(setChanges(c, c, titles)).toBe("");
   });
 
   it("lists what Update all changes", () => {

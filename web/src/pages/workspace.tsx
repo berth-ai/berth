@@ -248,7 +248,7 @@ function Overview({
 function WorkspaceTerminal({ id, st }: { id: string; st: WorkspaceState | undefined }) {
   const status = useStatus();
   const ttyd = status.data?.services?.find((s) => s.name === "ttyd");
-  if (status.data && !ttyd) return <FrontendOff label="Terminal" />;
+  if (status.data && !ttyd) return <FrontendOff label="Terminal" frontend="terminal" />;
   return (
     <div className="flex flex-col gap-2">
       <div className="flex flex-wrap items-center gap-2 text-xs text-fg-muted">

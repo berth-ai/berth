@@ -1,4 +1,4 @@
-import type { AgentsReport, Pin, Track, UpdateCheck } from "@/api/types";
+import type { AgentVersion, AgentsReport, Pin, Track, UpdateCheck } from "@/api/types";
 import type { Tone } from "@/lib/notify";
 
 /** pinRows are the pins of one track as the status reports them, each with
@@ -49,10 +49,78 @@ export function checkSummary(c: UpdateCheck): { tone: Tone; text: string } {
   return { tone: "ok", text: "Everything is at its newest version." };
 }
 
-/** bannerText announces minor and patch updates; null when there are none. */
+/** bannerUpdates are the minor and patch updates the banner names, agents
+ * and MCP servers before base tools. */
+export function bannerUpdates(c: UpdateCheck | null | undefined): Pin[] {
+  if (!c?.update_available || !c.updates) return [];
+  return updatable(c.pins ?? []).sort(
+    (a, b) => Number(a.track !== "agents") - Number(b.track !== "agents"),
+  );
+}
+
+const move = (p: Pin) => `${p.title} ${p.current} → ${p.latest}`;
+
+/** bannerText announces minor and patch updates by name, the first two in
+ * full; null when there are none. */
 export function bannerText(c: UpdateCheck | null | undefined): string | null {
   if (!c?.update_available || !c.updates) return null;
-  return `${plural(c.updates, "newer version is", "newer versions are")} available for your agents and tools.`;
+  const pins = bannerUpdates(c);
+  if (!pins.length)
+    return `${plural(c.updates, "newer version is", "newer versions are")} available for your agents and tools.`;
+  if (pins.length === 1) return `${move(pins[0])} is available.`;
+  if (pins.length === 2) return `${move(pins[0])} and ${move(pins[1])} are available.`;
+  return `${move(pins[0])}, ${move(pins[1])} and ${pins.length - 2} more are available.`;
+}
+
+/** bannerKey names what the banner announces, so dismissing it lasts
+ * until a check finds a version not yet dismissed. */
+export function bannerKey(c: UpdateCheck | null | undefined): string {
+  return bannerUpdates(c)
+    .map((p) => `${p.name}@${p.latest}`)
+    .sort()
+    .join(" ");
+}
+
+/** dismissedCovers reports whether a dismissed key still covers the
+ * current one: every announced version was announced when dismissed. */
+export function dismissedCovers(dismissed: string, key: string): boolean {
+  if (!dismissed || !key) return false;
+  const seen = new Set(dismissed.split(" "));
+  return key.split(" ").every((k) => seen.has(k));
+}
+
+/** setChanges says what an installed set changed from the one before it,
+ * by title where the image pins the package; "" when nothing differs. */
+export function setChanges(
+  v: AgentVersion,
+  before: AgentVersion | undefined,
+  titles: Map<string, string>,
+): string {
+  const now = v.packages ?? {};
+  if (!before) return "First set";
+  const was = before.packages ?? {};
+  const name = (n: string) => titles.get(n) ?? n;
+  const moves: string[] = [];
+  for (const n of Object.keys(now).sort((a, b) => name(a).localeCompare(name(b)))) {
+    if (!(n in was)) moves.push(`${name(n)} ${now[n]} added`);
+    else if (was[n] !== now[n]) moves.push(`${name(n)} ${was[n]} → ${now[n]}`);
+  }
+  for (const n of Object.keys(was).sort()) if (!(n in now)) moves.push(`${name(n)} removed`);
+  if (moves.length > 2) return `${moves.slice(0, 2).join(", ")} and ${moves.length - 2} more`;
+  return moves.join(", ");
+}
+
+/** setBefore is the set installed just before v, if the list has it. */
+export function setBefore(v: AgentVersion, all: AgentVersion[]): AgentVersion | undefined {
+  let best: AgentVersion | undefined;
+  for (const o of all)
+    if (
+      o.hash !== v.hash &&
+      o.installed_at < v.installed_at &&
+      (!best || o.installed_at > best.installed_at)
+    )
+      best = o;
+  return best;
 }
 
 /** updateAllBody lists what Update all changes. */

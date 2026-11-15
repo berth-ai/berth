@@ -54,6 +54,8 @@ import {
   newestFirst,
   picked,
   pinRows,
+  setBefore,
+  setChanges,
   plural,
   updatable,
   updateAllBody,
@@ -418,9 +420,15 @@ function SetsCard({
             [
               "Agents",
               cur ? (
-                <span key="agents">
-                  <Mono>{short(cur.hash)}</Mono> · {describeSource(cur.source)} · installed{" "}
-                  {when(cur.installed_at)}
+                <span key="agents" className="flex flex-col gap-0.5">
+                  <span>
+                    {setChanges(cur, prev ?? undefined, pinTitles(status)) ||
+                      "Same versions as before"}
+                  </span>
+                  <span className="text-xs text-fg-muted">
+                    <Mono>{short(cur.hash)}</Mono> · {describeSource(cur.source)} · installed{" "}
+                    {when(cur.installed_at)}
+                  </span>
                 </span>
               ) : (
                 "No agent set is installed yet."
@@ -448,6 +456,10 @@ function SetsCard({
     </PanelCard>
   );
 }
+
+/** pinTitles names packages by their pinned title. */
+const pinTitles = (status: Status | undefined) =>
+  new Map((status?.agents?.pins ?? []).map((p) => [p.name, p.title]));
 
 const toolList = (v: AgentVersion) =>
   Object.entries(v.packages ?? {})
@@ -519,6 +531,7 @@ function PickDialog({
 function History({ status }: { status: Status | undefined }) {
   const [dialog, confirm] = useConfirm();
   const versions = status?.agents?.versions ?? [];
+  const titles = pinTitles(status);
   return (
     <PanelCard
       title="Agent set history"
@@ -549,7 +562,7 @@ function History({ status }: { status: Status | undefined }) {
           <TableHeader>
             <TableRow>
               <TableHead>Status</TableHead>
-              <TableHead>Set</TableHead>
+              <TableHead>Changes</TableHead>
               <TableHead className="max-sm:hidden">Origin</TableHead>
               <TableHead>Installed</TableHead>
               <TableHead>
@@ -562,6 +575,7 @@ function History({ status }: { status: Status | undefined }) {
               <VersionRows
                 key={v.hash}
                 v={v}
+                changes={setChanges(v, setBefore(v, versions), titles)}
                 label={versionLabel(
                   v.hash,
                   status.agents?.current?.hash,
@@ -579,7 +593,7 @@ function History({ status }: { status: Status | undefined }) {
   );
 }
 
-function VersionRows({ v, label }: { v: AgentVersion; label: string }) {
+function VersionRows({ v, label, changes }: { v: AgentVersion; label: string; changes: string }) {
   const [open, setOpen] = useState(false);
   const detailId = useId();
   const pkgs = Object.keys(v.packages ?? {}).sort();
@@ -589,8 +603,11 @@ function VersionRows({ v, label }: { v: AgentVersion; label: string }) {
         <TableCell data-label="">
           <strong className="text-fg">{label}</strong>
         </TableCell>
-        <TableCell data-label="Set">
-          <span className="font-mono text-xs">{short(v.hash)}</span>
+        <TableCell data-label="Changes">
+          <div className="flex flex-col gap-0.5">
+            <span>{changes || "Same versions as before"}</span>
+            <span className="font-mono text-xs text-fg-muted">{short(v.hash)}</span>
+          </div>
         </TableCell>
         <TableCell data-label="Origin" className="max-sm:hidden!">
           {describeSource(v.source)}

@@ -1,11 +1,11 @@
 import { Link } from "@tanstack/react-router";
 import { CircleArrowUp, CircleX } from "lucide-react";
-import { useSyncExternalStore, type ReactNode } from "react";
+import { useState, useSyncExternalStore, type ReactNode } from "react";
 import { getOnline, subscribeOnline } from "@/api/request";
 import type { Status } from "@/api/types";
-import { buttonVariants } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-import { bannerText } from "@/pages/updates-logic";
+import { bannerKey, bannerText, dismissedCovers } from "@/pages/updates-logic";
 
 export function failedCount(status: Status | undefined): number {
   return (status?.services ?? []).filter((s) => s.state === "failed").length;
@@ -47,9 +47,29 @@ function Banner({
   );
 }
 
+const DISMISSED = "berth.updates.dismissed";
+
+function readDismissed(): string {
+  try {
+    return localStorage.getItem(DISMISSED) ?? "";
+  } catch {
+    return "";
+  }
+}
+
 export function Banners({ status, pathname }: { status: Status | undefined; pathname: string }) {
   const online = useSyncExternalStore(subscribeOnline, getOnline);
-  const update = updateBanner(status, pathname);
+  const [dismissed, setDismissed] = useState(readDismissed);
+  const key = bannerKey(status?.check);
+  const update = dismissedCovers(dismissed, key) ? null : updateBanner(status, pathname);
+  const dismiss = () => {
+    try {
+      localStorage.setItem(DISMISSED, key);
+    } catch {
+      // Private windows may refuse storage; the banner hides for this visit.
+    }
+    setDismissed(key);
+  };
   return (
     <>
       {online ? null : (
@@ -62,9 +82,21 @@ export function Banners({ status, pathname }: { status: Status | undefined; path
           tone="warn"
           title="Update available"
           action={
-            <Link to="/updates" className={buttonVariants({ variant: "outline", size: "sm" })}>
-              Review
-            </Link>
+            <span className="flex gap-1">
+              <Link to="/updates" className={buttonVariants({ variant: "outline", size: "sm" })}>
+                Review
+              </Link>
+              {key ? (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  title="Hide until a newer version comes out"
+                  onClick={dismiss}
+                >
+                  Dismiss
+                </Button>
+              ) : null}
+            </span>
           }
         >
           {update}

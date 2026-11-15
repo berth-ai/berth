@@ -1,9 +1,15 @@
 import { Link } from "@tanstack/react-router";
 import { ChevronLeft, ExternalLink } from "lucide-react";
-import { useStatus } from "@/api/queries";
+import { useState } from "react";
+import { applyConfig } from "@/api/config";
+import { keys, queryClient, refreshStatus, useStatus } from "@/api/queries";
+import { BusyButton } from "@/components/busy-button";
+import { InlineAlert } from "@/components/inline-alert";
 import { PanelCard } from "@/components/panel-card";
 import { StatusBadge } from "@/components/status-badge";
 import { buttonVariants } from "@/components/ui/button";
+import { errorText } from "@/lib/errors";
+import { notify } from "@/lib/notify";
 import { useTitle } from "@/lib/use-title";
 
 /** keepRightClick stops the browser menu over a same-origin frame, so a
@@ -17,11 +23,13 @@ export function keepRightClick(frame: HTMLIFrameElement) {
 // Terminal and IDE: full-height embeds of the proxied frontends.
 export function FrontendPage({
   service,
+  frontend,
   label,
   path,
   rightClick = false,
 }: {
   service: string;
+  frontend: Frontend;
   label: string;
   path: string;
   /** rightClick hands right clicks to the frame instead of the browser menu. */
@@ -58,23 +66,47 @@ export function FrontendPage({
             onLoad={rightClick ? (e) => keepRightClick(e.currentTarget) : undefined}
           />
         ) : null}
-        {status.data && !svc ? <FrontendOff label={label} /> : null}
+        {status.data && !svc ? <FrontendOff label={label} frontend={frontend} /> : null}
       </div>
     </div>
   );
 }
 
-/** FrontendOff says a frontend is switched off and where to turn it on. */
-export function FrontendOff({ label }: { label: string }) {
+export type Frontend = "terminal" | "ide" | "orca";
+
+/** FrontendOff says a frontend is switched off and turns it on in place,
+ * since the user has just asked for it; Settings stays one link away. */
+export function FrontendOff({ label, frontend }: { label: string; frontend: Frontend }) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const turnOn = async () => {
+    setBusy(true);
+    setError("");
+    try {
+      await applyConfig({ frontends: { [frontend]: { enabled: true } } });
+      notify(`The ${label} is starting.`);
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: keys.config }),
+        refreshStatus(),
+      ]);
+    } catch (err) {
+      setError(errorText(err));
+    }
+    setBusy(false);
+  };
   return (
     <div className="flex flex-1 items-center justify-center p-4">
       <PanelCard className="max-w-105">
         <h2>The {label} is off</h2>
         <p className="text-fg-muted">
-          Turn it on in Settings. Only the {label} starts; nothing else restarts.
+          Turn it on here or in Settings. Only the {label} starts; nothing else restarts.
         </p>
-        <div>
-          <Link to="/settings" className={buttonVariants()}>
+        {error ? <InlineAlert tone="bad">{error}</InlineAlert> : null}
+        <div className="flex flex-wrap gap-2">
+          <BusyButton busy={busy} busyLabel="Turning on…" onClick={() => void turnOn()}>
+            Turn on the {label}
+          </BusyButton>
+          <Link to="/settings" className={buttonVariants({ variant: "outline" })}>
             Open Settings
           </Link>
         </div>

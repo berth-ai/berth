@@ -55,7 +55,7 @@ const ADVANCED = [
 
 type Edit = (path: string, value: unknown) => void;
 
-// Settings: login, frontends, runtime, advanced, host values, backup.
+// Settings: frontends, runtime, advanced, host values, backup, login.
 export function SettingsPage() {
   useTitle("Settings");
   const config = useConfig();
@@ -126,7 +126,6 @@ function SettingsForm({ initial }: { initial: Config }) {
 
   return (
     <div className="flex flex-col gap-3">
-      <LoginCard key={session.data?.user ?? ""} user={session.data?.user ?? ""} />
       <PanelCard title="Frontends">
         <SettingRow
           title="Terminal"
@@ -152,6 +151,7 @@ function SettingsForm({ initial }: { initial: Config }) {
       <AdvancedCard draft={draft} errors={errors} edit={edit} />
       <HostCard status={status.data} />
       <BackupCard base={base} onReload={reload} />
+      <LoginCard key={session.data?.user ?? ""} user={session.data?.user ?? ""} />
       <div aria-live="polite">
         {conflict ? (
           <InlineAlert tone="warn">

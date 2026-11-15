@@ -1,4 +1,5 @@
 import { Link, useNavigate } from "@tanstack/react-router";
+import { ChevronLeft } from "lucide-react";
 import { type ReactNode, useState } from "react";
 import { applyConfig } from "@/api/config";
 import {
@@ -128,13 +129,24 @@ function AgentSections({ p, all }: { p: AgentPackage; all: AgentPackage[] }) {
 
   return (
     <Page>
-      <header className="flex flex-wrap items-center gap-3">
-        <BrandIcon slug={p.icon} name={p.name} id={p.package} />
-        <div className="flex min-w-0 flex-[1_1_280px] flex-col gap-0.5">
-          <h1>{p.name}</h1>
-          <p className="flex flex-wrap items-center gap-2 font-mono text-xs break-all text-fg-muted">
-            {p.package} {p.version}
-          </p>
+      <header className="flex flex-col gap-1">
+        <div>
+          <Link
+            to="/agents"
+            className={buttonVariants({ variant: "ghost", size: "sm", className: "-ml-2" })}
+          >
+            <ChevronLeft aria-hidden className="size-3.25" strokeWidth={1.6} />
+            Agents
+          </Link>
+        </div>
+        <div className="flex flex-wrap items-center gap-3">
+          <BrandIcon slug={p.icon} name={p.name} id={p.package} />
+          <div className="flex min-w-0 flex-[1_1_280px] flex-col gap-0.5">
+            <h1>{p.name}</h1>
+            <p className="flex flex-wrap items-center gap-2 font-mono text-xs break-all text-fg-muted">
+              {p.package} {p.version}
+            </p>
+          </div>
         </div>
       </header>
       {p.error ? (

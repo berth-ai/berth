@@ -79,7 +79,7 @@ export function OrcaBody({
   const [busy, setBusy] = useState<Scope | null>(null);
   const [result, setResult] = useState<OrcaPair | null>(null);
   const [error, setError] = useState("");
-  if (!enabled) return <FrontendOff label="Orca server" />;
+  if (!enabled) return <FrontendOff label="Orca server" frontend="orca" />;
   const pair = async (scope: Scope) => {
     setBusy(scope);
     setError("");
