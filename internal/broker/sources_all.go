@@ -1,6 +1,7 @@
 package broker
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -25,7 +26,8 @@ type sourceCheck struct {
 }
 
 // skillsSourcesCheck scans every source at its ref, one after another in
-// one job, and answers each one's preview. It changes nothing.
+// one job, and answers each one's preview. A source whose folder holds
+// the same files at the new commit is up to date. It changes nothing.
 func (b *Broker) skillsSourcesCheck(_ context.Context, body []byte) (int, any) {
 	var in struct{}
 	if err := decode(body, &in); err != nil {
@@ -41,8 +43,8 @@ func (b *Broker) skillsSourcesCheck(_ context.Context, body []byte) (int, any) {
 		res := []sourceCheck{}
 		for _, id := range slices.Sorted(maps.Keys(sources)) {
 			src := sources[id]
-			fmt.Fprintf(out, "check     %s: %s at %s\n", id, src.Repo, src.Ref)
-			s, err := b.scanNow(ctx, out, src.Repo, src.Ref, src.Path)
+			fmt.Fprintf(out, "check     %s: %s at %s\n", id, src.Repo, cmp.Or(src.Ref, "its newest index"))
+			s, err := b.scanNow(ctx, out, sourceScan(src, "", src.Commit))
 			if err != nil {
 				fmt.Fprintf(out, "error: %s: %v\n", id, err)
 				res = append(res, sourceCheck{sourceDiff: emptyDiff(id, src), Error: asFieldError(err)})
@@ -112,7 +114,7 @@ func (b *Broker) skillsSourcesUpdateAll(_ context.Context, body []byte) (int, an
 			return fail(http.StatusNotFound, "unknown_source", "No source named %s", u.ID)
 		case dup:
 			return rejectJob(&fieldError{Code: "invalid_request", Field: "updates", Message: "List each source once"})
-		case !config.ValidCommit(u.Commit):
+		case !config.ValidPin(src.Kind, u.Commit):
 			return rejectJob(&fieldError{Code: "invalid_request", Field: "commit", Message: "Check for updates again; a commit is missing"})
 		case u.Ref != "" && u.Ref != src.Ref:
 			return rejectJob(&fieldError{Code: "source_changed", Field: "ref",
@@ -132,7 +134,10 @@ func (b *Broker) skillsSourcesUpdateAll(_ context.Context, body []byte) (int, an
 		for _, u := range in.Updates {
 			src := srcs[u.ID]
 			fmt.Fprintf(out, "update    %s: %s at %s\n", u.ID, src.Ref, u.Commit)
-			s, err := b.scanNow(ctx, out, src.Repo, u.Commit, src.Path)
+			s, err := b.scanNow(ctx, out, sourceScan(src, u.Commit, ""))
+			if err == nil {
+				err = pinnedScan(src.Kind, u.Commit, s)
+			}
 			if err != nil {
 				failOf(u.ID, err)
 				continue

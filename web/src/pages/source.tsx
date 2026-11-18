@@ -44,11 +44,12 @@ import { AttachedSwitch } from "./attached-switch";
 import { targetsText, wsConflicts } from "./attachments-logic";
 import {
   commitUrl,
+  isWellKnown,
   refError,
   repoHome,
-  repoLabel,
   shortCommit,
   skillAgents,
+  sourceTitle,
   treeUrl,
   unsupportedAgents,
 } from "./skills-logic";
@@ -127,7 +128,7 @@ export function SourcePage({ id, query: initialQuery = "" }: { id: string; query
   const [filter, setFilter] = useState<SkillFilter>("all");
   const sources = config.data?.config.skills?.sources;
   const source = sources?.[id];
-  useTitle(source ? repoLabel(source.repo) : "Skill source");
+  useTitle(source ? sourceTitle(source) : "Skill source");
   const packages = status.data?.packages ?? [];
   const agents = skillAgents(packages);
   const unsupported = unsupportedAgents(packages);
@@ -159,8 +160,9 @@ export function SourcePage({ id, query: initialQuery = "" }: { id: string; query
   const q = query.trim().toLowerCase();
   const missingShown = missing.filter((n) => !q || n.includes(q));
   const attachedCount = all.filter((r) => r.attachment).length;
-  const folderUrl = treeUrl(source.repo, source.commit, source.path);
-  const commitLink = commitUrl(source.repo, source.commit);
+  const site = isWellKnown(source);
+  const folderUrl = site ? null : treeUrl(source.repo, source.commit, source.path);
+  const commitLink = site ? null : commitUrl(source.repo, source.commit);
   const detach = (name: string) =>
     confirm({
       title: `Detach ${name}?`,
@@ -173,15 +175,21 @@ export function SourcePage({ id, query: initialQuery = "" }: { id: string; query
   return (
     <Page>
       <PageHeader
-        title={repoLabel(source.repo)}
-        description={`${id} · ${source.path || "the whole repository"} at ${source.ref}`}
+        title={sourceTitle(source)}
+        description={
+          site
+            ? `${id} · the skills this website publishes`
+            : `${id} · ${source.path || "the whole repository"} at ${source.ref}`
+        }
         back={<BackToSkills />}
         actions={
           <>
             <Button onClick={() => setUpdating("update")}>Update</Button>
-            <Button variant="outline" onClick={() => setUpdating("ref")}>
-              Change ref
-            </Button>
+            {site ? null : (
+              <Button variant="outline" onClick={() => setUpdating("ref")}>
+                Change ref
+              </Button>
+            )}
             <Button variant="outline" onClick={() => setRemoving(true)}>
               Remove
             </Button>
@@ -190,36 +198,49 @@ export function SourcePage({ id, query: initialQuery = "" }: { id: string; query
       />
       <PanelCard title="Source">
         <Facts
-          rows={[
-            [
-              "Repository",
-              <ExternalAnchor key="repo" href={repoHome(source.repo)}>
-                <Mono>{source.repo}</Mono>
-              </ExternalAnchor>,
-            ],
-            ["Ref", <Mono key="ref">{source.ref}</Mono>],
-            [
-              "Commit",
-              commitLink ? (
-                <ExternalAnchor key="commit" href={commitLink}>
-                  <Mono>{source.commit}</Mono>
-                </ExternalAnchor>
-              ) : (
-                <Mono key="commit">{source.commit}</Mono>
-              ),
-            ],
-            [
-              "Folder",
-              folderUrl ? (
-                <ExternalAnchor key="folder" href={folderUrl}>
-                  <Mono>{source.path || "/"}</Mono>
-                </ExternalAnchor>
-              ) : (
-                <Mono key="folder">{source.path || "/"}</Mono>
-              ),
-            ],
-            ["Store", <Mono key="store">{exportPath(id, "<skill>")}</Mono>],
-          ]}
+          rows={
+            site
+              ? [
+                  [
+                    "Index",
+                    <ExternalAnchor key="index" href={source.repo}>
+                      <Mono>{source.repo}</Mono>
+                    </ExternalAnchor>,
+                  ],
+                  ["Digest", <Mono key="digest">{source.commit}</Mono>],
+                  ["Store", <Mono key="store">{exportPath(id, "<skill>")}</Mono>],
+                ]
+              : [
+                  [
+                    "Repository",
+                    <ExternalAnchor key="repo" href={repoHome(source.repo)}>
+                      <Mono>{source.repo}</Mono>
+                    </ExternalAnchor>,
+                  ],
+                  ["Ref", <Mono key="ref">{source.ref}</Mono>],
+                  [
+                    "Commit",
+                    commitLink ? (
+                      <ExternalAnchor key="commit" href={commitLink}>
+                        <Mono>{source.commit}</Mono>
+                      </ExternalAnchor>
+                    ) : (
+                      <Mono key="commit">{source.commit}</Mono>
+                    ),
+                  ],
+                  [
+                    "Folder",
+                    folderUrl ? (
+                      <ExternalAnchor key="folder" href={folderUrl}>
+                        <Mono>{source.path || "/"}</Mono>
+                      </ExternalAnchor>
+                    ) : (
+                      <Mono key="folder">{source.path || "/"}</Mono>
+                    ),
+                  ],
+                  ["Store", <Mono key="store">{exportPath(id, "<skill>")}</Mono>],
+                ]
+          }
         />
       </PanelCard>
       {missing.length ? (
@@ -331,7 +352,9 @@ export function SourcePage({ id, query: initialQuery = "" }: { id: string; query
                 );
               })}
               {rows.map(({ name, found, attachment }) => {
-                const filesUrl = treeUrl(source.repo, source.commit, found.path);
+                const filesUrl = site
+                  ? (found.url ?? null)
+                  : treeUrl(source.repo, source.commit, found.path);
                 return (
                   <TableRow key={name}>
                     <TableCell data-label="">
@@ -467,14 +490,15 @@ export function UpdateDialog({
   const [busy, setBusy] = useState(false);
   const refId = useId();
 
+  const site = isWellKnown(source);
   const preview = async () => {
     const r = ref.trim();
-    const e = refError(r);
+    const e = site ? "" : refError(r);
     setError(e);
     setFailed("");
     if (e) return;
     setBusy(true);
-    const finished = await runJob("skills.sources.preview", { id, ref: r }, setJob);
+    const finished = await runJob("skills.sources.preview", site ? { id } : { id, ref: r }, setJob);
     setBusy(false);
     if (!finished) return;
     const d = diffOf(finished);
@@ -493,7 +517,7 @@ export function UpdateDialog({
     setBusy(true);
     const finished = await runJob(
       "skills.sources.update",
-      { id, ref: diff.ref, commit: diff.commit },
+      site ? { id, commit: diff.commit } : { id, ref: diff.ref, commit: diff.commit },
       setJob,
     );
     setBusy(false);
@@ -541,11 +565,13 @@ export function UpdateDialog({
           </FormField>
         ) : null}
         {!changeRef && !diff && busy ? (
-          <p className="text-fg-muted">Checking {source.ref} for new commits…</p>
+          <p className="text-fg-muted">
+            {site ? "Reading the site's skills index…" : `Checking ${source.ref} for new commits…`}
+          </p>
         ) : null}
         {diff && !diff.changed ? (
           <p>
-            Already up to date: {diff.ref} is still{" "}
+            Already up to date: {site ? "the site's index" : diff.ref} is still{" "}
             <code className={mono}>{shortCommit(diff.commit)}</code>.
           </p>
         ) : null}

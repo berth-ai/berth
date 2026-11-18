@@ -23,7 +23,28 @@ var (
 	// SkillIDPattern is the Agent Skills name rule.
 	SkillIDPattern = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,63}$`)
 	commitPattern  = regexp.MustCompile(`^(?:[0-9a-f]{40}|[0-9a-f]{64})$`)
+	digestPattern  = regexp.MustCompile(`^sha256:[0-9a-f]{64}$`)
 )
+
+// ValidDigest reports whether d is a digest of the form sha256:<hex>.
+func ValidDigest(d string) bool { return digestPattern.MatchString(d) }
+
+// CheckArtifactURL returns why raw cannot be the URL of a well-known
+// skill's artifact, or "".
+func CheckArtifactURL(raw string) string {
+	u, err := url.Parse(raw)
+	switch {
+	case raw == "" || err != nil || !u.IsAbs() || u.Host == "" || u.Opaque != "":
+		return "must be an absolute URL"
+	case len(raw) > 2048:
+		return "must be at most 2048 characters"
+	case u.Scheme != "https":
+		return "must start with https://"
+	case u.User != nil:
+		return "must not contain a user name or password"
+	}
+	return ""
+}
 
 // CheckSkillRepo returns why raw cannot be a skill repository URL, or "".
 func CheckSkillRepo(raw string) string {

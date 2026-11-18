@@ -16,7 +16,13 @@ type Skills struct {
 
 // Source is a repository folder at a ref, pinned to a commit. Found is its
 // last scan, by skill name; Attached says which of those skills reach whom.
+//
+// A well-known source (Kind KindWellKnown) is a website's Agent Skills
+// index instead: Repo is the index's URL, Ref and Path are empty, Commit
+// is the digest of the index as last scanned, and each Found row names the
+// artifact to download and its digest.
 type Source struct {
+	Kind     string                `json:"kind,omitempty"` // KindGit or KindWellKnown
 	Repo     string                `json:"repo"`
 	Ref      string                `json:"ref"`  // what the user asked for; Commit is what it resolved to
 	Path     string                `json:"path"` // the folder scanned; empty is the whole repository
@@ -25,12 +31,37 @@ type Source struct {
 	Attached map[string]Attachment `json:"attached"`
 }
 
+// The kinds of source: a git repository, or a website's well-known index.
+const (
+	KindGit       = ""
+	KindWellKnown = "well-known"
+)
+
+// The artifact types of a well-known index entry.
+const (
+	ArtifactSkillMD = "skill-md"
+	ArtifactArchive = "archive"
+)
+
+// ValidPin reports whether c can pin a source of kind: a commit for a git
+// repository, a digest for a well-known index.
+func ValidPin(kind, c string) bool {
+	if kind == KindWellKnown {
+		return ValidDigest(c)
+	}
+	return ValidCommit(c)
+}
+
 // Found is one SKILL.md of a source's last scan. A row with Error has no
-// description and cannot be attached.
+// description and cannot be attached. URL, Digest and Type are set only in
+// a well-known source, whose rows' Path is the skill's name.
 type Found struct {
 	Path        string `json:"path"`
 	Description string `json:"description,omitempty"`
 	Error       string `json:"error,omitempty"`
+	URL         string `json:"url,omitempty"`
+	Digest      string `json:"digest,omitempty"`
+	Type        string `json:"type,omitempty"`
 }
 
 // Valid reports whether f can be attached.
@@ -173,14 +204,29 @@ func validateSources(v *validator, sources map[string]Source, workspaces map[str
 		if msg := CheckSkillRepo(s.Repo); msg != "" {
 			v.add(field+".repo", "%s", msg)
 		}
-		if !ValidGitRef(s.Ref) {
-			v.add(field+".ref", "must be a branch, tag or commit")
-		}
-		if !ValidSkillPath(s.Path) {
-			v.add(field+".path", "must be a folder inside the repository, such as skills")
-		}
-		if !ValidCommit(s.Commit) {
-			v.add(field+".commit", "must be a full commit hash")
+		switch s.Kind {
+		case KindGit:
+			if !ValidGitRef(s.Ref) {
+				v.add(field+".ref", "must be a branch, tag or commit")
+			}
+			if !ValidSkillPath(s.Path) {
+				v.add(field+".path", "must be a folder inside the repository, such as skills")
+			}
+			if !ValidCommit(s.Commit) {
+				v.add(field+".commit", "must be a full commit hash")
+			}
+		case KindWellKnown:
+			if s.Ref != "" {
+				v.add(field+".ref", "must be empty for a well-known source")
+			}
+			if s.Path != "" {
+				v.add(field+".path", "must be empty for a well-known source")
+			}
+			if !ValidDigest(s.Commit) {
+				v.add(field+".commit", "must be a digest such as sha256:<64 hex digits>")
+			}
+		default:
+			v.add(field+".kind", "must be empty (a git repository) or %s", KindWellKnown)
 		}
 		validateFound(v, field+".found", s)
 		for _, name := range slices.Sorted(maps.Keys(s.Attached)) {
@@ -204,6 +250,7 @@ func validateFound(v *validator, field string, s Source) {
 		if !ValidSkillPath(f.Path) || !within(f.Path, s.Path) {
 			v.add(ff+".path", "must be the source's folder or a folder inside it")
 		}
+		validateArtifact(v, ff, s.Kind, f)
 		switch d, e := utf8.RuneCountInString(f.Description), utf8.RuneCountInString(f.Error); {
 		case e > 1024:
 			v.add(ff+".error", "must be at most 1024 characters")
@@ -212,6 +259,26 @@ func validateFound(v *validator, field string, s Source) {
 		case e == 0 && (d == 0 || d > 1024):
 			v.add(ff+".description", "must be 1 to 1024 characters")
 		}
+	}
+}
+
+// validateArtifact checks the artifact fields of found row f: set and well
+// formed in a valid row of a well-known source, empty everywhere else.
+func validateArtifact(v *validator, field, kind string, f Found) {
+	if kind != KindWellKnown || !f.Valid() {
+		if f.URL != "" || f.Digest != "" || f.Type != "" {
+			v.add(field, "only a valid skill of a well-known source has a url, digest and type")
+		}
+		return
+	}
+	if msg := CheckArtifactURL(f.URL); msg != "" {
+		v.add(field+".url", "%s", msg)
+	}
+	if !ValidDigest(f.Digest) {
+		v.add(field+".digest", "must be sha256:<64 hex digits>")
+	}
+	if f.Type != ArtifactSkillMD && f.Type != ArtifactArchive {
+		v.add(field+".type", "must be %s or %s", ArtifactSkillMD, ArtifactArchive)
 	}
 }
 

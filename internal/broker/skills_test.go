@@ -162,6 +162,11 @@ func waitSkillJob(t *testing.T, tb *testBroker, id int) Job {
 	return Job{}
 }
 
+var (
+	siteDigest  = "sha256:" + strings.Repeat("1", 64)
+	siteDigest2 = "sha256:" + strings.Repeat("2", 64)
+)
+
 const (
 	skillCommit2 = "89abcdef0123456789abcdef0123456789abcdef"
 	badCommit    = "deadbeefdeadbeefdeadbeefdeadbeefdeadbeef"
@@ -172,8 +177,11 @@ const (
 // at ref renamed skills/pdf holds skill other; at ref moved only docx is
 // left; ref slow is v2 after half a second; ref v3 (or commit skillCommit3)
 // rewords pdf, moves docx to skills/word and adds xlsx; commit skillCommit2
-// is v2; commit badCommit fails. Any other ref is skillCommit with root (path ""), a broken skill,
-// docx and pdf.
+// is v2; ref quiet is skillCommit2 with the path unchanged since --since;
+// commit badCommit fails. Any other ref is skillCommit with root (path ""),
+// a broken skill, docx and pdf. A well-known scan answers siteDigest, with
+// skills pdf and docx (an archive). berth workspaces skills-lock answers
+// lockJSON.
 func fakeScan(t *testing.T, tb *testBroker) {
 	t.Helper()
 	row := func(path, name, desc string) string {
@@ -182,14 +190,20 @@ func fakeScan(t *testing.T, tb *testBroker) {
 	at := func(commit string, rows ...string) string {
 		return `echo '{"schema":1,"commit":"` + commit + `","skills":[` + strings.Join(rows, ",") + `]}'`
 	}
+	site := func(name, typ string) string {
+		return `{"path":"` + name + `","name":"` + name + `","description":"` + name + ` tools","url":"https://docs.example.org/` + name + `","digest":"sha256:` + strings.Repeat("a", 64) + `","type":"` + typ + `"}`
+	}
 	v2 := at(skillCommit2, row("skills/docx", "docx", "Word v2"), row("skills/pdf", "pdf", "PDF tools v2"))
 	v3 := at(skillCommit3, row("skills/pdf", "pdf", "PDF tools v3"), row("skills/word", "docx", "Word"), row("skills/xlsx", "xlsx", "Sheets"))
 	script := `#!/bin/sh
 echo "$*" >> "` + tb.dir + `/scan.log"
 case "$*" in
+  *"workspaces skills-lock"*) echo '` + lockJSON + `' ;;
+  *"--kind well-known"*) echo '{"schema":1,"commit":"` + siteDigest + `","index":"https://docs.example.org/.well-known/agent-skills/index.json","skills":[` + site("docx", "archive") + `,` + site("pdf", "skill-md") + `]}' ;;
   *"--ref ` + badCommit + `"*) echo '{"schema":1,"error":{"code":"commit_not_found","step":"ref","message":"Commit gone"}}'; exit 1 ;;
   *"--ref nope"*) echo '{"schema":1,"error":{"code":"ref_not_found","step":"ref","message":"Ref nope not found in that repository"}}'; exit 1 ;;
   *"--ref v2"*) ` + v2 + ` ;;
+  *"--ref quiet"*) echo '{"schema":1,"commit":"` + skillCommit2 + `","unchanged":true,"skills":[` + row("skills/pdf", "pdf", "PDF tools v2") + `]}' ;;
   *"--ref slow"*) sleep 0.5; ` + v2 + ` ;;
   *"--ref renamed"*) ` + at(skillCommit, row("skills/docx", "docx", "Word"), row("skills/pdf", "other", "Other")) + ` ;;
   *"--ref moved"*) ` + at(skillCommit, row("skills/docx", "docx", "Word")) + ` ;;

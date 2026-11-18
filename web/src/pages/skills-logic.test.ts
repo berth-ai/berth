@@ -2,6 +2,10 @@ import { describe, expect, it } from "vitest";
 import type { AgentPackage } from "@/api/types";
 import {
   commitUrl,
+  normalizeSite,
+  shortCommit,
+  siteError,
+  sourceTitle,
   normalizeRepo,
   parseSkillView,
   pathError,
@@ -122,5 +126,23 @@ describe("repository links", () => {
     expect(treeUrl("https://git.example.com/o/r", C, "x")).toBeNull();
     expect(commitUrl("https://git.example.com/o/r", C)).toBeNull();
     expect(commitUrl("not a url", C)).toBeNull();
+  });
+});
+
+describe("websites", () => {
+  it("names a website by its host and shortens its digest", () => {
+    const repo = "https://docs.example.org/.well-known/agent-skills/index.json";
+    expect(sourceTitle({ kind: "well-known", repo })).toBe("docs.example.org");
+    expect(sourceTitle({ repo: "https://github.com/acme/skills" })).toBe("acme/skills");
+    expect(shortCommit("sha256:" + "ab".repeat(32))).toBe("abababababab");
+    expect(shortCommit("0123456789abcdef0123")).toBe("0123456789ab");
+  });
+
+  it("checks a website URL", () => {
+    expect(siteError("")).toMatch(/Enter the website/);
+    expect(siteError("http://example.com")).toBe("Use an https:// URL.");
+    expect(siteError("https://u:p@example.com")).toMatch(/user name/);
+    expect(siteError("example.com")).toBe("");
+    expect(normalizeSite("example.com/docs")).toBe("https://example.com/docs");
   });
 });

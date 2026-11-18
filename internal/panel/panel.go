@@ -43,6 +43,7 @@ var browserVerbs = map[string]bool{
 	"workspaces.add": true, "workspaces.forget": true, "workspaces.status": true, "workspaces.candidates": true, "workspaces.launch": true, "workspaces.restart": true,
 	"workspaces.instructions.read": true, "workspaces.instructions.write": true, "workspaces.instructions.merge": true,
 	"workspaces.report": true, "skills.vendor.resolve": true,
+	"workspaces.skills_lock": true, "workspaces.skills_lock.add": true,
 	"login.status": true, "login.start": true, "login.input": true, "login.cancel": true, "login.logout": true,
 	"orca.pair": true, "orca.devices": true, "orca.status": true, "orca.sync": true,
 }

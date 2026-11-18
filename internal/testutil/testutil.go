@@ -282,7 +282,7 @@ const CopilotPackageJSON = `{"name":"berth-registry-copilot","private":true,
     "description":"GitHub's coding agent, signed in with your GitHub account","keys":["COPILOT_GITHUB_TOKEN"]}},
   "berthAgents":{"schema":1,"agents":{"@github/copilot":{
     "mcp":{"file":"~/.copilot/mcp-config.json","style":"claude","key":"mcpServers"},
-    "skills":{"dir":"~/.copilot/skills"},
+    "skills":{"dir":"~/.copilot/skills","project":".github/skills","project_also":[".claude/skills",".agents/skills"]},
     "icon":"githubcopilot",
     "login":{"methods":[{"id":"github","label":"GitHub","flow":"device","args":["login","--device-code"],
       "status":{"file":"~/.copilot/config.json","key":"authTokens"},

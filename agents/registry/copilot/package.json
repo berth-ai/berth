@@ -17,7 +17,7 @@
     "agents": {
       "@github/copilot": {
         "mcp": { "file": "~/.copilot/mcp-config.json", "style": "claude", "key": "mcpServers" },
-        "skills": { "dir": "~/.copilot/skills" },
+        "skills": { "dir": "~/.copilot/skills", "project": ".github/skills", "project_also": [".claude/skills", ".agents/skills"] },
         "icon": "githubcopilot",
         "login": {
           "methods": [

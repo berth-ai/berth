@@ -16,7 +16,7 @@ import (
 	"github.com/berth-ai/berth/internal/wsstate"
 )
 
-const skillsUsage = "usage: berth skills scan --repo URL --ref REF [--path P]... [--json] | berth skills sync | " +
+const skillsUsage = "usage: berth skills scan [--kind well-known] --repo URL [--ref REF] [--path P]... [--since COMMIT] [--json] | berth skills sync | " +
 	"berth skills vendor --workspace ID --key SOURCE/NAME --action overwrite|release [--json]"
 
 // runSkills is the hidden `berth skills scan|sync`, run as agent: the
@@ -95,6 +95,8 @@ func (a *app) skillsScan(ctx context.Context, g skills.Git, args []string) error
 	ref := fs.String("ref", "", "branch, tag or commit")
 	var paths pathsFlag
 	fs.Var(&paths, "path", "folder to look in; repeatable")
+	since := fs.String("since", "", "commit (or index digest) to compare with")
+	kind := fs.String("kind", "", "well-known to read a website's skills index instead of a repository")
 	jsonOut := fs.Bool("json", false, "print JSON")
 	pos, err := parseArgs(fs, args)
 	if err != nil {
@@ -108,7 +110,18 @@ func (a *app) skillsScan(ctx context.Context, g skills.Git, args []string) error
 	if err != nil {
 		return err
 	}
-	res, err := g.Scan(ctx, home, skills.ScanRequest{Repo: *repo, Ref: *ref, Paths: paths})
+	var res skills.Scan
+	switch *kind {
+	case "":
+		res, err = g.Scan(ctx, home, skills.ScanRequest{Repo: *repo, Ref: *ref, Paths: paths, Since: *since})
+	case config.KindWellKnown:
+		if *ref != "" || len(paths) > 0 {
+			return usageErr(errors.New("a well-known scan takes no --ref or --path"))
+		}
+		res, err = skills.WellKnown{}.ScanWellKnown(ctx, *repo, *since)
+	default:
+		return usageErr(fmt.Errorf("--kind must be empty or %s", config.KindWellKnown))
+	}
 	var se *skills.Error
 	switch {
 	case errors.As(err, &se):
@@ -117,7 +130,11 @@ func (a *app) skillsScan(ctx context.Context, g skills.Git, args []string) error
 	case err != nil:
 		return output.Errorf(output.ExitFailure, "fetch_failed", "repo", "%v", err)
 	}
-	a.p.Logf("%s at %s is commit %s; found %d skills", *repo, *ref, res.Commit, len(res.Skills))
+	if *kind == config.KindWellKnown {
+		a.p.Logf("%s lists %d skills (index %s)", res.Index, len(res.Skills), res.Commit)
+	} else {
+		a.p.Logf("%s at %s is commit %s; found %d skills", *repo, *ref, res.Commit, len(res.Skills))
+	}
 	return a.p.Result(res, func(w io.Writer) {
 		for _, s := range res.Skills {
 			if s.Error != "" {

@@ -123,6 +123,43 @@ describe("UpdateDialog", () => {
   });
 });
 
+describe("UpdateDialog for a website", () => {
+  it("previews the site's index without a ref and applies its digest", async () => {
+    const { runJob } = await import("@/api/run-job");
+    vi.mocked(runJob).mockReset();
+    const D1 = "sha256:" + "1".repeat(64);
+    const D2 = "sha256:" + "2".repeat(64);
+    const site: Source = {
+      ...source,
+      kind: "well-known",
+      repo: "https://docs.example.org/.well-known/agent-skills/index.json",
+      ref: "",
+      path: "",
+      commit: D1,
+    };
+    vi.mocked(runJob).mockImplementation(async (verb) =>
+      verb === "skills.sources.preview"
+        ? done(verb, diff({ ref: "", from: D1, commit: D2 }))
+        : done(verb, { id: "eng", commit: D2, changed: true }),
+    );
+    render(<UpdateDialog id="docs" source={site} changeRef={false} onClose={() => {}} />);
+    await screen.findByText("Triage");
+    expect(runJob).toHaveBeenCalledWith(
+      "skills.sources.preview",
+      { id: "docs" },
+      expect.any(Function),
+    );
+    fireEvent.click(await screen.findByRole("button", { name: /Update/ }));
+    await vi.waitFor(() =>
+      expect(runJob).toHaveBeenLastCalledWith(
+        "skills.sources.update",
+        { id: "docs", commit: D2 },
+        expect.any(Function),
+      ),
+    );
+  });
+});
+
 describe("RemoveSourceDialog", () => {
   it("asks for the id when skills are attached", async () => {
     const { verb } = await import("@/api/request");

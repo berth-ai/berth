@@ -25,7 +25,7 @@ import (
 const workspacesUsage = "usage: berth workspaces clone --repo URL [--ref REF] --path P | probe --path P | " +
 	"status [--ws ID=PATH]... | candidates [--exclude PATH]... | remove --path P | " +
 	"launch --id ID --path P [--window NAME] [--run PROGRAM] | kill --id ID | restart --id ID --path P | release --id ID | report --id ID | " +
-	"instructions --action read|write|merge --id ID --file F [--base-sha256 H] | sync, each with --json"
+	"instructions --action read|write|merge --id ID --file F [--base-sha256 H] | skills-lock --id ID | sync, each with --json"
 
 var windowName = regexp.MustCompile(`^([A-Za-z0-9][A-Za-z0-9._-]{0,63})?$`)
 
@@ -113,6 +113,11 @@ func runWorkspaces(ctx context.Context, a *app, args []string) error {
 		return a.workspaceResult(map[string]any{"killed": killed}, err)
 	case "sync":
 		return a.workspacesSync(ctx)
+	case "skills-lock":
+		if !config.WorkspaceIDPattern.MatchString(*id) {
+			return usageErr(errors.New(workspacesUsage))
+		}
+		return a.workspaceSkillsLock(*id)
 	case "instructions":
 		if !config.WorkspaceIDPattern.MatchString(*id) || !instructions.ValidName(*file) {
 			return usageErr(errors.New(workspacesUsage))
@@ -243,4 +248,31 @@ func (a *app) workspaceInstructions(ctx context.Context, action, id, file, base 
 		return output.Errorf(output.ExitFailure, "unknown_workspace", "id", "There is no workspace %s", id)
 	}
 	return a.workspaceResult(res, err)
+}
+
+// workspaceSkillsLock reads the skills-lock.json of workspace id: the
+// skills the npx skills CLI pinned for it, and what its .agents/skills holds.
+func (a *app) workspaceSkillsLock(id string) error {
+	home := a.cfg.Getenv("HOME")
+	if home == "" {
+		return output.Errorf(output.ExitFailure, "no_home", "workspaces", "HOME is not set")
+	}
+	store := wsstate.Store{Home: home, Published: filepath.Join(a.cfg.ConfigDir, "workspaces.json")}
+	folders, err := store.Workspaces()
+	if err != nil {
+		return output.Errorf(output.ExitFailure, "internal", "workspaces", "%v", err)
+	}
+	ws, ok := folders[id]
+	if !ok {
+		return output.Errorf(output.ExitFailure, "unknown_workspace", "id", "There is no workspace %s", id)
+	}
+	lock, err := skills.ReadLock(ws)
+	if err != nil {
+		return output.Errorf(output.ExitFailure, "bad_lock", "lock", "%v", err)
+	}
+	return a.p.Result(lock, func(w io.Writer) {
+		for _, s := range lock.Skills {
+			fmt.Fprintf(w, "%s\t%s\t%s\n", s.Name, cmp.Or(s.Repo, "-"), s.Installed)
+		}
+	})
 }

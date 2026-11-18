@@ -165,3 +165,45 @@ func TestClassifyFetch(t *testing.T) {
 		t.Errorf("message = %q", e.Message)
 	}
 }
+
+func TestScanSince(t *testing.T) {
+	f := newFixture(t, map[string]string{"skills/pdf/SKILL.md": pdfSkill, "skills/docx/SKILL.md": skill("docx"), "app/main.go": "package main"})
+	first := f.git(t, "rev-parse", "HEAD")
+	app := f.commit(t, map[string]string{"app/main.go": "package main // v2"})
+	readme := f.commit(t, map[string]string{"skills/README.md": "the skills"})
+	pdf := f.commit(t, map[string]string{"skills/pdf/ref.md": "new"})
+	added := f.commit(t, map[string]string{"skills/xlsx/SKILL.md": skill("xlsx")})
+	home := t.TempDir()
+	for name, tc := range map[string]struct {
+		ref, since string
+		paths      []string
+		want       bool
+	}{
+		"no since":                {app, "", []string{"skills"}, false},
+		"same commit":             {first, first, []string{"skills"}, true},
+		"elsewhere changed":       {app, first, []string{"skills"}, true},
+		"whole tree, no skill":    {app, first, nil, true},
+		"beside the skills":       {readme, first, []string{"skills"}, true},
+		"a skill changed":         {pdf, first, []string{"skills"}, false},
+		"another skill changed":   {pdf, readme, []string{"skills/docx"}, true},
+		"that skill changed":      {pdf, readme, []string{"skills/pdf"}, false},
+		"a skill added":           {added, pdf, []string{"skills"}, false},
+		"an unknown since":        {app, "0123456789abcdef0123456789abcdef01234567", []string{"skills"}, false},
+		"the file of a skill":     {pdf, readme, []string{"skills/pdf/SKILL.md"}, false},
+		"the file, other changed": {pdf, readme, []string{"skills/docx/SKILL.md"}, true},
+	} {
+		t.Run(name, func(t *testing.T) {
+			res, err := testGit().Scan(context.Background(), home, ScanRequest{Repo: f.url, Ref: tc.ref, Paths: tc.paths, Since: tc.since})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if res.Unchanged != tc.want {
+				t.Errorf("unchanged = %v, want %v", res.Unchanged, tc.want)
+			}
+		})
+	}
+	var se *Error
+	if _, err := testGit().Scan(context.Background(), home, ScanRequest{Repo: f.url, Ref: "main", Since: "main"}); !errors.As(err, &se) || se.Field != "since" {
+		t.Errorf("a ref as since = %v", err)
+	}
+}

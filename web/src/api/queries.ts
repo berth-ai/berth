@@ -17,6 +17,7 @@ import type {
   ToolsList,
   UsageReport,
   WorkspaceReport,
+  SkillsLock,
   WorkspaceState,
 } from "./types";
 
@@ -37,6 +38,7 @@ export const keys = {
   versions: (tool: string) => ["versions", tool],
   workspaceReport: (id: string) => ["workspace-report", id],
   instructions: (id: string, file: string) => ["instructions", id, file],
+  skillsLock: (id: string) => ["skills-lock", id],
   workspaceStatus: ["workspace-status"],
   candidates: ["workspace-candidates"],
   orcaDevices: ["orca-devices"],
@@ -202,6 +204,15 @@ export function useWorkspaceReport(id: string) {
 /** refreshWorkspaceReport reloads a workspace's report now. */
 export function refreshWorkspaceReport(id: string): Promise<void> {
   return queryClient.invalidateQueries({ queryKey: keys.workspaceReport(id) });
+}
+
+/** useSkillsLock reads workspace id's skills-lock.json, once per visit. */
+export function useSkillsLock(id: string) {
+  return useQuery({
+    queryKey: keys.skillsLock(id),
+    queryFn: () => verb<SkillsLock>("workspaces.skills_lock", { id }),
+    retry: false,
+  });
 }
 
 export function readInstructionFile(id: string, file: string) {

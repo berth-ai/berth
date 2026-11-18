@@ -24,6 +24,7 @@ func newFixture(t *testing.T, files map[string]string) *fixture {
 	f.url = "file://" + f.dir
 	f.git(t, "init", "-q", "-b", "main")
 	f.git(t, "config", "uploadpack.allowAnySHA1InWant", "true")
+	f.git(t, "config", "uploadpack.allowFilter", "true")
 	f.commit(t, files)
 	return f
 }

@@ -1,4 +1,4 @@
-import type { AgentPackage } from "@/api/types";
+import type { AgentPackage, Source } from "@/api/types";
 
 /** normalizeRepo turns owner/repo and host/owner/repo into an https URL. */
 export function normalizeRepo(input: string): string {
@@ -57,7 +57,44 @@ export function refError(r: string): string {
   return bad ? "Enter a branch, tag or commit." : "";
 }
 
-export const shortCommit = (c: string) => c.slice(0, 12);
+/** shortCommit shortens a commit, or a well-known index's sha256 digest. */
+export const shortCommit = (c: string) => c.replace(/^sha256:/, "").slice(0, 12);
+
+/** isWellKnown says whether a source is a website's skills index. */
+export const isWellKnown = (s: Pick<Source, "kind">) => s.kind === "well-known";
+
+/** sourceTitle names a source: owner/repo or host/path for a repository,
+ * the host for a website. */
+export function sourceTitle(s: Pick<Source, "kind" | "repo">): string {
+  if (!isWellKnown(s)) return repoLabel(s.repo);
+  try {
+    return new URL(s.repo).host;
+  } catch {
+    return s.repo;
+  }
+}
+
+/** siteError checks a website URL the way the broker does. */
+export function siteError(raw: string): string {
+  const s = normalizeSite(raw);
+  if (!s) return "Enter the website, such as https://example.com.";
+  if (s.length > 2048) return "Use at most 2048 characters.";
+  let u: URL;
+  try {
+    u = new URL(s);
+  } catch {
+    return "Enter a URL such as https://example.com.";
+  }
+  if (u.protocol !== "https:") return "Use an https:// URL.";
+  if (u.username || u.password) return "Leave the user name and password out of the URL.";
+  return "";
+}
+
+/** normalizeSite adds https:// to a bare host name. */
+export function normalizeSite(input: string): string {
+  const s = input.trim();
+  return s && !/^[a-z][a-z0-9+.-]*:/i.test(s) ? `https://${s}` : s;
+}
 
 /** repoLabel is owner/repo for GitHub, host/path otherwise. */
 export function repoLabel(repo: string): string {

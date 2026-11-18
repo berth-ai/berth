@@ -6,6 +6,7 @@ import { BusyButton } from "@/components/busy-button";
 import { FormField, fieldProps } from "@/components/form-field";
 import { InlineAlert } from "@/components/inline-alert";
 import { LogViewer } from "@/components/log-viewer";
+import { Segmented } from "@/components/segmented";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
@@ -20,7 +21,15 @@ import { Label } from "@/components/ui/label";
 import { count } from "@/lib/format";
 import { notify } from "@/lib/notify";
 import { cn } from "@/lib/utils";
-import { normalizeRepo, pathError, refError, repoError, shortCommit } from "./skills-logic";
+import {
+  normalizeRepo,
+  normalizeSite,
+  pathError,
+  refError,
+  repoError,
+  shortCommit,
+  siteError,
+} from "./skills-logic";
 import { addedText, newScanOf, sourceIdError, sourceResult } from "./sources-logic";
 
 type Errors = Partial<Record<"repo" | "path" | "ref" | "id" | "form", string>>;
@@ -35,9 +44,14 @@ export interface SourceStart {
 
 const mono = "font-mono text-xs";
 
-/** SourceDialog adds a skill source: Find previews the repository folder,
- * then Add source saves that commit with every skill found, optionally
- * attaching them all to every agent. */
+/** Kind is what a new source reads: a git repository, or a website's
+ * /.well-known/agent-skills index. */
+type Kind = "git" | "site";
+
+/** SourceDialog adds a skill source: Find previews the repository folder
+ * (or the website's index), then Add source saves that commit (or index
+ * digest) with every skill found, optionally attaching them all to every
+ * agent. */
 export function SourceDialog({
   start,
   onClose,
@@ -47,6 +61,7 @@ export function SourceDialog({
   onClose: () => void;
   onAdded: (id: string) => void;
 }) {
+  const [kind, setKind] = useState<Kind>("git");
   const [repo, setRepo] = useState(start?.repo ?? "");
   const [ref, setRef] = useState(start?.ref ?? "main");
   const [path, setPath] = useState(start?.path ?? "");
@@ -71,22 +86,24 @@ export function SourceDialog({
     return null;
   };
 
+  // target is what Find and Add send for the source: a website has no
+  // ref or path.
+  const target = () =>
+    kind === "site"
+      ? { kind: "well-known", repo: normalizeSite(repo), ref: "", path: "" }
+      : { repo: normalizeRepo(repo), ref: ref.trim(), path: path.trim() };
+
   const find = async () => {
-    const e: Errors = {
-      repo: repoError(repo),
-      path: pathError(path.trim()),
-      ref: refError(ref.trim()),
-    };
+    const e: Errors =
+      kind === "site"
+        ? { repo: siteError(repo) }
+        : { repo: repoError(repo), path: pathError(path.trim()), ref: refError(ref.trim()) };
     if (e.repo || e.path || e.ref) {
       setErrors(e);
       return;
     }
     setBusy(true);
-    const found = await run("skills.sources.preview", {
-      repo: normalizeRepo(repo),
-      ref: ref.trim(),
-      path: path.trim(),
-    });
+    const found = await run("skills.sources.preview", target());
     const result = found ? newScanOf(found) : null;
     if (result) {
       setScan(result);
@@ -105,9 +122,7 @@ export function SourceDialog({
     }
     setBusy(true);
     const added = await run("skills.sources.add", {
-      repo: normalizeRepo(repo),
-      ref: ref.trim(),
-      path: path.trim(),
+      ...target(),
       id: id.trim(),
       commit: scan.commit,
       attach_all: attachAll,
@@ -146,7 +161,7 @@ export function SourceDialog({
           <>
             <div role="group" aria-labelledby={ids.head} className="flex flex-col gap-2">
               <p id={ids.head} className="font-medium">
-                {count(valid, "skill", "skills")} at{" "}
+                {count(valid, "skill", "skills")} {kind === "site" ? "in index" : "at"}{" "}
                 <code className={mono}>{shortCommit(scan.commit)}</code>
               </p>
               <ul aria-label="Skills found" className="flex max-h-64 flex-col overflow-y-auto">
@@ -168,7 +183,8 @@ export function SourceDialog({
             </div>
             {scan.exists ? (
               <InlineAlert tone="warn">
-                Source {scan.exists} already tracks this repository at that ref and path.
+                Source {scan.exists} already tracks{" "}
+                {kind === "site" ? "this website" : "this repository at that ref and path"}.
               </InlineAlert>
             ) : null}
             <FormField
@@ -197,10 +213,26 @@ export function SourceDialog({
           </>
         ) : (
           <>
+            <Segmented
+              label="Source kind"
+              value={kind}
+              onChange={(k) => {
+                setKind(k);
+                setErrors({});
+              }}
+              options={[
+                { value: "git", label: "Repository" },
+                { value: "site", label: "Website" },
+              ]}
+            />
             <FormField
               id={ids.repo}
-              label="Repository"
-              hint="owner/repo for GitHub, or an https URL."
+              label={kind === "site" ? "Website" : "Repository"}
+              hint={
+                kind === "site"
+                  ? "A site that publishes its skills at /.well-known/agent-skills/index.json, such as https://example.com."
+                  : "owner/repo for GitHub, or an https URL."
+              }
               error={errors.repo}
             >
               <Input
@@ -212,37 +244,41 @@ export function SourceDialog({
                 onChange={(ev) => setRepo(ev.target.value)}
               />
             </FormField>
-            <FormField
-              id={ids.ref}
-              label="Ref"
-              hint="A branch, tag or commit. Berth pins it to a commit and moves only when you update."
-              error={errors.ref}
-            >
-              <Input
-                {...fieldProps(ids.ref, errors.ref)}
-                value={ref}
-                className={mono}
-                spellCheck={false}
-                autoComplete="off"
-                onChange={(ev) => setRef(ev.target.value)}
-              />
-            </FormField>
-            <FormField
-              id={ids.path}
-              label="Path"
-              hint="The folder holding the skills; empty searches the whole repository."
-              error={errors.path}
-            >
-              <Input
-                {...fieldProps(ids.path, errors.path)}
-                value={path}
-                placeholder="skills"
-                className={mono}
-                spellCheck={false}
-                autoComplete="off"
-                onChange={(ev) => setPath(ev.target.value)}
-              />
-            </FormField>
+            {kind === "git" ? (
+              <>
+                <FormField
+                  id={ids.ref}
+                  label="Ref"
+                  hint="A branch, tag or commit. Berth pins it to a commit and moves only when you update."
+                  error={errors.ref}
+                >
+                  <Input
+                    {...fieldProps(ids.ref, errors.ref)}
+                    value={ref}
+                    className={mono}
+                    spellCheck={false}
+                    autoComplete="off"
+                    onChange={(ev) => setRef(ev.target.value)}
+                  />
+                </FormField>
+                <FormField
+                  id={ids.path}
+                  label="Path"
+                  hint="The folder holding the skills; empty searches the whole repository."
+                  error={errors.path}
+                >
+                  <Input
+                    {...fieldProps(ids.path, errors.path)}
+                    value={path}
+                    placeholder="skills"
+                    className={mono}
+                    spellCheck={false}
+                    autoComplete="off"
+                    onChange={(ev) => setPath(ev.target.value)}
+                  />
+                </FormField>
+              </>
+            ) : null}
           </>
         )}
         {errors.form ? <InlineAlert tone="bad">{errors.form}</InlineAlert> : null}

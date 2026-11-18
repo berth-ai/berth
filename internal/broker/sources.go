@@ -8,8 +8,10 @@ import (
 	"fmt"
 	"maps"
 	"net/http"
+	"net/url"
 	"path"
 	"slices"
+	"strings"
 	"unicode/utf8"
 
 	"github.com/berth-ai/berth/internal/config"
@@ -22,7 +24,7 @@ func foundOf(rows []scanRow) map[string]config.Found {
 	out := make(map[string]config.Found, len(rows))
 	for _, r := range rows {
 		if r.Error == "" && r.Name != "" {
-			out[r.Name] = config.Found{Path: r.Path, Description: r.Description}
+			out[r.Name] = config.Found{Path: r.Path, Description: r.Description, URL: r.URL, Digest: r.Digest, Type: r.Type}
 		}
 	}
 	for _, r := range rows {
@@ -61,10 +63,13 @@ func sourceTracking(cur config.Config, repo, ref, p string) string {
 	return ""
 }
 
-// checkSourceFields checks a new source's repository, ref and path.
-func checkSourceFields(repo, ref, p string) *fieldError {
-	if field, msg := skillSourceError(repo, ref); field != "" {
+// checkSourceFields checks a new source's kind, repository, ref and path.
+func checkSourceFields(kind, repo, ref, p string) *fieldError {
+	if field, msg := skillSourceError(kind, repo, ref); field != "" {
 		return &fieldError{Code: "invalid_request", Field: field, Message: msg}
+	}
+	if kind == config.KindWellKnown && p != "" {
+		return &fieldError{Code: "invalid_request", Field: "path", Message: "A website has no path"}
 	}
 	if !config.ValidSkillPath(p) {
 		return &fieldError{Code: "invalid_request", Field: "path", Message: skillPathMsg}
@@ -89,8 +94,26 @@ func checkNewSource(cur config.Config, repo, ref, p, id string) *fieldError {
 	return nil
 }
 
-func sourceIDFor(cur config.Config, repo, ref string) string {
-	return config.SourceID(repo, ref, func(id string) bool { _, ok := cur.Skills.Sources[id]; return ok })
+// sourceIDFor derives a free id for a new source: owner-repo for a
+// repository, the host name for a website.
+func sourceIDFor(cur config.Config, kind, repo, ref string) string {
+	return newSourceID(func(id string) bool { _, ok := cur.Skills.Sources[id]; return ok }, kind, repo, ref)
+}
+
+// newSourceID is sourceIDFor with the ids in use given by taken.
+func newSourceID(taken func(string) bool, kind, repo, ref string) string {
+	if kind == config.KindWellKnown {
+		base := "site"
+		if u, err := url.Parse(repo); err == nil {
+			base = cmp.Or(config.IDFrom(strings.TrimPrefix(u.Hostname(), "www.")), base)
+		}
+		id := base
+		for n := 2; taken(id); n++ {
+			id = config.Suffixed(base, n)
+		}
+		return id
+	}
+	return config.SourceID(repo, ref, taken)
 }
 
 // diffRow is one skill a preview reports; a moved row's From is the old path.
@@ -146,6 +169,7 @@ func diffFound(src config.Source, next map[string]config.Found) (added, removed,
 func (b *Broker) skillsSourcesPreview(_ context.Context, body []byte) (int, any) {
 	var in struct {
 		ID   string `json:"id"`
+		Kind string `json:"kind"`
 		Repo string `json:"repo"`
 		Ref  string `json:"ref"`
 		Path string `json:"path"`
@@ -157,13 +181,18 @@ func (b *Broker) skillsSourcesPreview(_ context.Context, body []byte) (int, any)
 		return code, v
 	}
 	if in.ID == "" {
-		if fe := checkSourceFields(in.Repo, in.Ref, in.Path); fe != nil {
+		if fe := checkSourceFields(in.Kind, in.Repo, in.Ref, in.Path); fe != nil {
 			return rejectJob(fe)
 		}
-		return b.scanJob("skills.sources.preview", in.Repo, in.Ref, []string{in.Path}, func(s skillScan) (json.RawMessage, error) {
+		t := scanTarget{Kind: in.Kind, Repo: in.Repo, Ref: in.Ref, Paths: []string{in.Path}}
+		if in.Kind == config.KindWellKnown {
+			t.Ref, t.Paths = "", nil
+		}
+		return b.scanJob("skills.sources.preview", t, func(s skillScan) (json.RawMessage, error) {
 			now, _, _ := b.snapshot()
-			return json.Marshal(map[string]any{"commit": s.Commit, "found": foundOf(s.Skills),
-				"id": sourceIDFor(now, in.Repo, in.Ref), "exists": sourceTracking(now, in.Repo, in.Ref, in.Path)})
+			repo := cmp.Or(s.Index, in.Repo)
+			return json.Marshal(map[string]any{"commit": s.Commit, "found": foundOf(s.Skills), "index": s.Index,
+				"id": sourceIDFor(now, in.Kind, repo, in.Ref), "exists": sourceTracking(now, repo, in.Ref, in.Path)})
 		})
 	}
 	cur, _, _ := b.snapshot()
@@ -171,20 +200,28 @@ func (b *Broker) skillsSourcesPreview(_ context.Context, body []byte) (int, any)
 	switch {
 	case !ok:
 		return fail(http.StatusNotFound, "unknown_source", "No source named %s", in.ID)
-	case in.Repo != "" || in.Path != "":
+	case in.Repo != "" || in.Path != "" || in.Kind != "":
 		return badRequest(errors.New("a preview of an existing source takes only id and ref"))
 	}
 	ref := cmp.Or(in.Ref, src.Ref)
-	if !config.ValidGitRef(ref) {
+	switch {
+	case src.Kind == config.KindWellKnown && in.Ref != "":
+		return rejectJob(&fieldError{Code: "invalid_request", Field: "ref", Message: "A website has no ref"})
+	case src.Kind != config.KindWellKnown && !config.ValidGitRef(ref):
 		return rejectJob(&fieldError{Code: "invalid_request", Field: "ref", Message: "The ref must be a branch, tag or commit"})
 	}
-	return b.scanJob("skills.sources.preview", src.Repo, ref, []string{src.Path}, func(s skillScan) (json.RawMessage, error) {
+	return b.scanJob("skills.sources.preview", sourceScan(src, ref, src.Commit), func(s skillScan) (json.RawMessage, error) {
 		return json.Marshal(previewDiff(in.ID, src, ref, s))
 	})
 }
 
-// previewDiff is what moving source id to ref, scanned as s, changes.
+// previewDiff is what moving source id to ref, scanned as s, changes. A
+// new commit of the same ref whose folder holds the same files changes
+// nothing: the source stays at its commit.
 func previewDiff(id string, src config.Source, ref string, s skillScan) sourceDiff {
+	if s.Unchanged && ref == src.Ref {
+		s.Commit = src.Commit
+	}
 	d := sourceDiff{ID: id, Ref: ref, From: src.Commit, Commit: s.Commit, Changed: s.Commit != src.Commit || ref != src.Ref}
 	next := foundOf(s.Skills)
 	if s.Commit == src.Commit {
@@ -196,6 +233,7 @@ func previewDiff(id string, src config.Source, ref string, s skillScan) sourceDi
 
 func (b *Broker) skillsSourcesAdd(_ context.Context, body []byte) (int, any) {
 	var in struct {
+		Kind      string `json:"kind"`
 		Repo      string `json:"repo"`
 		Ref       string `json:"ref"`
 		Path      string `json:"path"`
@@ -206,10 +244,10 @@ func (b *Broker) skillsSourcesAdd(_ context.Context, body []byte) (int, any) {
 	if err := decode(body, &in); err != nil {
 		return badRequest(err)
 	}
-	if fe := checkSourceFields(in.Repo, in.Ref, in.Path); fe != nil {
+	if fe := checkSourceFields(in.Kind, in.Repo, in.Ref, in.Path); fe != nil {
 		return rejectJob(fe)
 	}
-	if in.Commit != "" && !config.ValidCommit(in.Commit) {
+	if in.Commit != "" && !config.ValidPin(in.Kind, in.Commit) {
 		return rejectJob(&fieldError{Code: "invalid_request", Field: "commit", Message: "Find the skills again; the scanned commit is missing"})
 	}
 	if code, v, ok := b.normalMode(); !ok {
@@ -219,14 +257,24 @@ func (b *Broker) skillsSourcesAdd(_ context.Context, body []byte) (int, any) {
 	if fe := checkNewSource(cur, in.Repo, in.Ref, in.Path, in.ID); fe != nil {
 		return rejectJob(fe)
 	}
-	return b.scanJob("skills.sources.add", in.Repo, cmp.Or(in.Commit, in.Ref), []string{in.Path}, func(s skillScan) (json.RawMessage, error) {
+	t := scanTarget{Repo: in.Repo, Ref: cmp.Or(in.Commit, in.Ref), Paths: []string{in.Path}}
+	if in.Kind == config.KindWellKnown {
+		t = scanTarget{Kind: in.Kind, Repo: in.Repo}
+	}
+	return b.scanJob("skills.sources.add", t, func(s skillScan) (json.RawMessage, error) {
+		if in.Commit != "" {
+			if err := pinnedScan(in.Kind, in.Commit, s); err != nil {
+				return nil, err
+			}
+		}
 		found := foundOf(s.Skills)
+		repo := cmp.Or(s.Index, in.Repo) // a website's source keeps the index it read
 		id, attached, skipped := in.ID, []string{}, []string{}
 		next, _, err := b.applyPatch(func(cur config.Config) (map[string]any, error) {
-			if fe := checkNewSource(cur, in.Repo, in.Ref, in.Path, in.ID); fe != nil {
+			if fe := checkNewSource(cur, repo, in.Ref, in.Path, in.ID); fe != nil {
 				return nil, fe
 			}
-			id = cmp.Or(in.ID, sourceIDFor(cur, in.Repo, in.Ref))
+			id = cmp.Or(in.ID, sourceIDFor(cur, in.Kind, repo, in.Ref))
 			att := map[string]any{}
 			for _, name := range slices.Sorted(maps.Keys(found)) {
 				switch other, _ := config.ProviderOf(cur.Skills.Sources, name, nil, ""); {
@@ -238,8 +286,11 @@ func (b *Broker) skillsSourcesAdd(_ context.Context, body []byte) (int, any) {
 					attached = append(attached, name)
 				}
 			}
-			return map[string]any{"skills": map[string]any{"sources": map[string]any{id: map[string]any{
-				"repo": in.Repo, "ref": in.Ref, "path": in.Path, "commit": s.Commit, "found": found, "attached": att}}}}, nil
+			src := map[string]any{"repo": repo, "ref": in.Ref, "path": in.Path, "commit": s.Commit, "found": found, "attached": att}
+			if in.Kind != config.KindGit {
+				src["kind"] = in.Kind
+			}
+			return map[string]any{"skills": map[string]any{"sources": map[string]any{id: src}}}, nil
 		})
 		if err != nil {
 			return nil, err
@@ -292,14 +343,20 @@ func (b *Broker) skillsSourcesUpdate(_ context.Context, body []byte) (int, any) 
 	if !ok {
 		return fail(http.StatusNotFound, "unknown_source", "No source named %s", in.ID)
 	}
-	if !config.ValidCommit(in.Commit) {
+	if !config.ValidPin(src.Kind, in.Commit) {
 		return rejectJob(&fieldError{Code: "invalid_request", Field: "commit", Message: "Preview the update again; the commit is missing"})
 	}
 	ref := cmp.Or(in.Ref, src.Ref)
-	if !config.ValidGitRef(ref) {
+	switch {
+	case src.Kind == config.KindWellKnown && in.Ref != "":
+		return rejectJob(&fieldError{Code: "invalid_request", Field: "ref", Message: "A website has no ref"})
+	case src.Kind != config.KindWellKnown && !config.ValidGitRef(ref):
 		return rejectJob(&fieldError{Code: "invalid_request", Field: "ref", Message: "The ref must be a branch, tag or commit"})
 	}
-	return b.scanJob("skills.sources.update", src.Repo, in.Commit, []string{src.Path}, func(s skillScan) (json.RawMessage, error) {
+	return b.scanJob("skills.sources.update", sourceScan(src, in.Commit, ""), func(s skillScan) (json.RawMessage, error) {
+		if err := pinnedScan(src.Kind, in.Commit, s); err != nil {
+			return nil, err
+		}
 		missing := []string{}
 		next, changed, err := b.applyPatch(func(cur config.Config) (map[string]any, error) {
 			patch, m, err := sourceUpdate(cur, in.ID, src, ref, s)
@@ -349,7 +406,8 @@ func replaceFound(old, next map[string]config.Found) map[string]any {
 		out[name] = nil
 	}
 	for name, f := range next {
-		out[name] = map[string]any{"path": f.Path, "description": f.Description, "error": f.Error}
+		out[name] = map[string]any{"path": f.Path, "description": f.Description, "error": f.Error,
+			"url": f.URL, "digest": f.Digest, "type": f.Type}
 	}
 	return out
 }

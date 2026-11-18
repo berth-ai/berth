@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
+	"maps"
 	"net/url"
 	"path"
 	"slices"
@@ -20,20 +22,30 @@ type ScanRequest struct {
 	Repo  string
 	Ref   string
 	Paths []string // folders, or SKILL.md files, to look in; none, or "", is the whole tree
+	Since string   // a commit to compare Paths with; empty compares nothing
 }
 
-// ScanRow is one SKILL.md a scan found; a row with Error has no name.
+// ScanRow is one SKILL.md a scan found; a row with Error has no name. A
+// well-known scan's rows also name the artifact to download.
 type ScanRow struct {
 	Path        string `json:"path"`
 	Name        string `json:"name,omitempty"`
 	Description string `json:"description,omitempty"`
 	Error       string `json:"error,omitempty"`
+	URL         string `json:"url,omitempty"`
+	Digest      string `json:"digest,omitempty"`
+	Type        string `json:"type,omitempty"`
 }
 
 // Scan is a ref pinned to a commit and the skills found there, by path.
+// Unchanged is true when Since holds the same skill folders below Paths,
+// each with the same files; other files may differ.
+// Index is the URL a well-known scan read its index from.
 type Scan struct {
-	Commit string    `json:"commit"`
-	Skills []ScanRow `json:"skills"`
+	Commit    string    `json:"commit"`
+	Index     string    `json:"index,omitempty"`
+	Unchanged bool      `json:"unchanged,omitempty"`
+	Skills    []ScanRow `json:"skills"`
 }
 
 // Error is a scan failure the panel shows next to one field.
@@ -47,28 +59,42 @@ func (e *Error) Error() string { return e.Message }
 
 // Scan fetches r.Ref, pins it to a commit and reads every SKILL.md at or
 // below r.Paths. A bad SKILL.md becomes a row with an error; every failure
-// of the scan itself is an *Error.
+// of the scan itself is an *Error. It fetches the trees of the commit and
+// the SKILL.md files, never the other files.
 func (g Git) Scan(ctx context.Context, home string, r ScanRequest) (Scan, error) {
 	if err := g.check(r); err != nil {
 		return Scan{}, err
 	}
 	dir := CacheDir(home, r.Repo)
-	commit, err := g.Fetch(ctx, dir, r.Repo, r.Ref)
+	unlock, err := lock(dir, true)
+	if err != nil {
+		return Scan{}, &Error{Code: "fetch_failed", Field: "repo", Message: "Could not lock the cache: " + err.Error()}
+	}
+	defer unlock()
+	if err := g.open(ctx, dir, r.Repo); err != nil {
+		return Scan{}, &Error{Code: "fetch_failed", Field: "repo", Message: "Could not prepare the cache: " + err.Error()}
+	}
+	commit, err := g.fetch(ctx, dir, r.Ref)
 	if err != nil {
 		return Scan{}, fetchError(r.Repo, r.Ref, err)
 	}
-	files, err := g.ListFiles(ctx, dir, commit, r.Paths)
+	listErr := func(err error) error {
+		return &Error{Code: "fetch_failed", Field: "repo", Message: "Could not list the repository: " + err.Error()}
+	}
+	if err := g.run(ctx, dir, io.Discard, "update-ref", latestRef, commit); err != nil {
+		return Scan{}, listErr(err)
+	}
+	// A since that cannot be fetched only means the scan compares nothing.
+	sinceOK := r.Since != "" && g.ensure(ctx, dir, r.Since) == nil
+	// Drop what older scans fetched; the commit this one compares with stays.
+	if err := g.compact(ctx, dir, r.Since); err != nil {
+		return Scan{}, listErr(err)
+	}
+	skillFiles, err := g.skillFiles(ctx, dir, commit, r.Paths)
 	if err != nil {
-		return Scan{}, &Error{Code: "fetch_failed", Field: "repo", Message: "Could not list the repository: " + err.Error()}
+		return Scan{}, listErr(err)
 	}
-	var found []string
-	for _, f := range files {
-		if path.Base(f) == "SKILL.md" && within(f, r.Paths) {
-			found = append(found, strings.TrimSuffix(strings.TrimSuffix(f, "SKILL.md"), "/"))
-		}
-	}
-	slices.Sort(found)
-	found = slices.Compact(found)
+	found := slices.Sorted(maps.Keys(skillFiles))
 	switch {
 	case len(found) == 0:
 		return Scan{}, &Error{Code: "no_skill", Field: "path",
@@ -77,11 +103,14 @@ func (g Git) Scan(ctx context.Context, home string, r ScanRequest) (Scan, error)
 		return Scan{}, &Error{Code: "too_many", Field: "path",
 			Message: fmt.Sprintf("Narrow the path; this folder holds more than %d skills", MaxScan)}
 	}
+	if err := g.fetchSkillFiles(ctx, dir, commit, slices.Collect(maps.Values(skillFiles))); err != nil {
+		return Scan{}, fetchError(r.Repo, r.Ref, err)
+	}
 	seen := map[string]bool{}
 	rows := make([]ScanRow, 0, len(found))
 	for _, p := range found {
 		row := ScanRow{Path: p}
-		m, err := g.meta(ctx, dir, commit, p)
+		m, err := g.meta(ctx, dir, skillFiles[p])
 		switch {
 		case err != nil:
 			row.Error = err.Error()
@@ -93,11 +122,64 @@ func (g Git) Scan(ctx context.Context, home string, r ScanRequest) (Scan, error)
 		}
 		rows = append(rows, row)
 	}
-	return Scan{Commit: commit, Skills: rows}, nil
+	unchanged := sinceOK && g.sameSkills(ctx, dir, r.Since, commit, found, r.Paths)
+	return Scan{Commit: commit, Unchanged: unchanged, Skills: rows}, nil
 }
 
-func (g Git) meta(ctx context.Context, dir, commit, folder string) (Meta, error) {
-	data, err := g.Show(ctx, dir, commit, path.Join(folder, "SKILL.md"))
+// skillFiles maps each folder at or below paths at commit that holds a
+// SKILL.md to that file's object.
+func (g Git) skillFiles(ctx context.Context, dir, commit string, paths []string) (map[string]string, error) {
+	files, err := g.files(ctx, dir, commit, paths)
+	if err != nil {
+		return nil, err
+	}
+	out := map[string]string{}
+	for _, f := range files {
+		if path.Base(f.path) == "SKILL.md" && within(f.path, paths) {
+			out[strings.TrimSuffix(strings.TrimSuffix(f.path, "SKILL.md"), "/")] = f.oid
+		}
+	}
+	return out, nil
+}
+
+// sameSkills reports whether since holds exactly the skill folders found
+// at commit below paths, each with the same tree. A file outside every
+// skill folder, such as a README beside them, does not count.
+func (g Git) sameSkills(ctx context.Context, dir, since, commit string, found, paths []string) bool {
+	if since == commit {
+		return true
+	}
+	before, err := g.skillFiles(ctx, dir, since, paths)
+	if err != nil || !slices.Equal(slices.Sorted(maps.Keys(before)), found) {
+		return false
+	}
+	for _, folder := range found {
+		a, aerr := g.probe(ctx, dir, "rev-parse", "--verify", "-q", treeish(since, folder))
+		b, berr := g.probe(ctx, dir, "rev-parse", "--verify", "-q", treeish(commit, folder))
+		if aerr != nil || berr != nil || a != b {
+			return false
+		}
+	}
+	return true
+}
+
+// fetchSkillFiles fetches the SKILL.md objects oids that the cache lacks.
+func (g Git) fetchSkillFiles(ctx context.Context, dir, commit string, oids []string) error {
+	lacks, err := g.missing(ctx, dir, treeish(commit, ""))
+	if err != nil {
+		return err
+	}
+	var want []string
+	for _, oid := range oids {
+		if lacks[oid] {
+			want = append(want, oid)
+		}
+	}
+	return g.fetchBlobs(ctx, dir, want)
+}
+
+func (g Git) meta(ctx context.Context, dir, oid string) (Meta, error) {
+	data, err := g.show(ctx, dir, oid)
 	if err != nil {
 		return Meta{}, errors.New("SKILL.md could not be read")
 	}
@@ -144,6 +226,9 @@ func (g Git) check(r ScanRequest) error {
 	}
 	if !config.ValidGitRef(r.Ref) {
 		return &Error{Code: "invalid_request", Field: "ref", Message: "The ref must be a branch, tag or commit"}
+	}
+	if r.Since != "" && !config.ValidCommit(r.Since) {
+		return &Error{Code: "invalid_request", Field: "since", Message: "Since must be a full commit hash"}
 	}
 	return nil
 }

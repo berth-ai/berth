@@ -111,6 +111,10 @@ export interface Found {
   path: string;
   description?: string;
   error?: string;
+  /** A well-known source's skill: the artifact Berth downloads, its digest and type. */
+  url?: string;
+  digest?: string;
+  type?: "skill-md" | "archive";
 }
 
 /** SkillMode is how a workspace gets a skill: linked and hidden from git, or copied in. */
@@ -125,8 +129,11 @@ export interface Attachment {
   workspaces?: Record<string, SkillMode> | null;
 }
 
-/** Source is a repository folder at a ref, pinned to a commit. */
+/** Source is a repository folder at a ref, pinned to a commit; or, with
+ * kind "well-known", a website's skills index (repo is the index URL, ref
+ * and path are empty, commit is the index digest). */
 export interface Source {
+  kind?: "well-known";
   repo: string;
   ref: string;
   path: string;
@@ -177,9 +184,45 @@ export interface BulkUpdateResult {
 /** NewSourceScan is skills.sources.preview's answer for a repository not added yet. */
 export interface NewSourceScan {
   commit: string;
+  /** Where a website's index was found. */
+  index?: string;
   found: Record<string, Found>;
   id: string;
   exists: string;
+}
+
+/** LockSkill is one skill of a workspace's skills-lock.json (written by the
+ * npx skills CLI): the source Berth would add for it (repo empty, with a
+ * reason, when it cannot), what .agents/skills holds, and the Berth source
+ * that already gives it to the workspace. */
+export interface LockSkill {
+  name: string;
+  source: string;
+  source_type: string;
+  kind?: "well-known";
+  repo?: string;
+  ref?: string;
+  commit?: string;
+  folder: string;
+  installed: "absent" | "match" | "differs" | "unverified";
+  reason?: string;
+  provider?: string;
+}
+
+/** SkillsLock is workspaces.skills_lock's answer; found is false without a lock file. */
+export interface SkillsLock {
+  found: boolean;
+  version?: number;
+  skills: LockSkill[];
+}
+
+/** LockAddResult is what workspaces.skills_lock.add answers. */
+export interface LockAddResult {
+  added?: { name: string; source: string }[];
+  sources?: string[];
+  skipped?: { name: string; reason: string }[];
+  changed?: boolean;
+  error?: JobError;
 }
 
 /** SourceResult is what skills.sources.add and skills.sources.update answer. */

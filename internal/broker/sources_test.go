@@ -424,6 +424,33 @@ func TestSourcesCheck(t *testing.T) {
 	}
 }
 
+// A new commit that leaves the source's folder as it was is no update.
+func TestSourcesCheckIgnoresCommitsOutsideTheFolder(t *testing.T) {
+	tb := newTestBroker(t)
+	withSkills(t, tb)
+	fakeScan(t, tb)
+	patch := `{"skills":{"sources":{"quiet":{"repo":"https://github.com/acme/skills","ref":"quiet","path":"skills","commit":"` + skillCommit +
+		`","found":{"pdf":{"path":"skills/pdf","description":"PDF tools"}},"attached":{}}}}}`
+	if code, out := applyNow(t, tb, patch); code != 200 {
+		t.Fatalf("add quiet = %d %v", code, out)
+	}
+	j := skillJob(t, tb, "skills.sources.check", `{}`)
+	if j.State != StateSucceeded {
+		t.Fatalf("check = %s", j.Result)
+	}
+	if !strings.Contains(lastScan(t, tb), "--since "+skillCommit) {
+		t.Errorf("the check did not compare with the pinned commit: %s", lastScan(t, tb))
+	}
+	r := result(t, j)["sources"].([]any)[0].(map[string]any)
+	if r["changed"] != false || r["commit"] != skillCommit || r["from"] != skillCommit || diffNames(r["described"]) != "[]" {
+		t.Errorf("quiet = %v", r)
+	}
+	j = skillJob(t, tb, "skills.sources.preview", `{"id":"quiet"}`)
+	if r := result(t, j); j.State != StateSucceeded || r["changed"] != false || r["commit"] != skillCommit {
+		t.Errorf("preview = %s %v", j.State, r)
+	}
+}
+
 func TestSourcesUpdateAll(t *testing.T) {
 	tb := newTestBroker(t)
 	withSkills(t, tb)
@@ -504,5 +531,149 @@ func TestSourcesUpdateAllRefusals(t *testing.T) {
 				t.Errorf("= %d %v", code, out)
 			}
 		})
+	}
+}
+
+func TestWellKnownSources(t *testing.T) {
+	tb := newTestBroker(t)
+	withSkills(t, tb)
+	fakeScan(t, tb)
+	index := "https://docs.example.org/.well-known/agent-skills/index.json"
+	j := skillJob(t, tb, "skills.sources.preview", `{"kind":"well-known","repo":"https://www.docs.example.org","ref":"","path":""}`)
+	if r := result(t, j); j.State != StateSucceeded || r["commit"] != siteDigest || r["id"] != "docs-example-org" || r["index"] != index {
+		t.Fatalf("preview = %s %v", j.State, r)
+	}
+	if !strings.Contains(lastScan(t, tb), "--kind well-known --repo https://www.docs.example.org") || strings.Contains(lastScan(t, tb), "--ref") {
+		t.Errorf("scan = %s", lastScan(t, tb))
+	}
+	if code, out := tb.verb(t, "skills.sources.add", `{"kind":"well-known","repo":"https://docs.example.org","ref":"main"}`); code != 422 && code != 400 {
+		t.Errorf("a ref = %d %v", code, out)
+	}
+	j = skillJob(t, tb, "skills.sources.add", `{"kind":"well-known","repo":"https://www.docs.example.org","commit":"`+siteDigest+`","attach_all":true}`)
+	if j.State != StateSucceeded {
+		t.Fatalf("add = %s", j.Result)
+	}
+	srcs, _ := sourcesNow(t, tb)
+	src := srcs["docs-example-org"]
+	if src.Kind != config.KindWellKnown || src.Repo != index || src.Commit != siteDigest || src.Ref != "" || src.Path != "" {
+		t.Errorf("source = %+v", src)
+	}
+	if f := src.Found["docx"]; f.Type != "archive" || f.URL != "https://docs.example.org/docx" || f.Path != "docx" || !config.ValidDigest(f.Digest) {
+		t.Errorf("docx = %+v", f)
+	}
+	if len(src.Attached) != 2 {
+		t.Errorf("attached = %v", src.Attached)
+	}
+	// Adding the same site again is refused by its index URL.
+	if j := skillJob(t, tb, "skills.sources.add", `{"kind":"well-known","repo":"https://docs.example.org/guide"}`); j.State != StateFailed || !strings.Contains(string(j.Result), "source_exists") {
+		t.Errorf("a second add = %s %s", j.State, j.Result)
+	}
+	// The check compares with the pinned digest and reports no update.
+	j = skillJob(t, tb, "skills.sources.check", `{}`)
+	if !strings.Contains(lastScan(t, tb), "--since "+siteDigest) {
+		t.Errorf("check scan = %s", lastScan(t, tb))
+	}
+	if r := result(t, j)["sources"].([]any)[0].(map[string]any); r["changed"] != false || r["commit"] != siteDigest {
+		t.Errorf("check = %v", r)
+	}
+	// An update to a digest the site no longer serves is refused.
+	j = skillJob(t, tb, "skills.sources.update", `{"id":"docs-example-org","commit":"`+siteDigest2+`"}`)
+	if j.State != StateFailed || !strings.Contains(string(j.Result), "source_changed") {
+		t.Errorf("stale update = %s %s", j.State, j.Result)
+	}
+	if code, _ := tb.verb(t, "skills.sources.update", `{"id":"docs-example-org","commit":"`+skillCommit+`"}`); code == 202 {
+		t.Error("a git commit pinned a well-known source")
+	}
+}
+
+// lockJSON is a workspace's skills-lock.json as berth workspaces
+// skills-lock reports it: pdf and docx from acme/skills at skillCommit (in
+// folders whose common one is the root, as the fake scan answers),
+// present already in .agents/skills, local from a source Berth cannot add,
+// and guide from a website that does not list it.
+const lockJSON = `{"schema":1,"found":true,"version":2,"skills":[` +
+	`{"name":"docx","source":"acme/skills","source_type":"github","repo":"https://github.com/acme/skills","ref":"main","commit":"` + skillCommit + `","folder":"docx","installed":"absent"},` +
+	`{"name":"guide","source":"docs.example.org","source_type":"well-known","kind":"well-known","repo":"https://docs.example.org","folder":"","installed":"absent"},` +
+	`{"name":"local","source":"./x","source_type":"local","folder":"","installed":"absent","reason":"Berth cannot add skills from a local source"},` +
+	`{"name":"pdf","source":"acme/skills","source_type":"github","repo":"https://github.com/acme/skills","ref":"main","commit":"` + skillCommit + `","folder":"skills/pdf","installed":"absent"},` +
+	`{"name":"present","source":"acme/skills","source_type":"github","repo":"https://github.com/acme/skills","ref":"main","folder":"skills/present","installed":"match"}]}`
+
+func TestWorkspaceSkillsLock(t *testing.T) {
+	tb := newTestBroker(t)
+	withSkills(t, tb)
+	withWorkspaces(t, tb)
+	fakeScan(t, tb)
+	addWorkspace(t, tb, "api", "acme/api")
+	addWorkspace(t, tb, "web", "acme/web")
+	code, out := tb.verb(t, "workspaces.skills_lock", `{"id":"api"}`)
+	if code != 200 || out["found"] != true || len(out["skills"].([]any)) != 5 {
+		t.Fatalf("read = %d %v", code, out)
+	}
+	if code, _ := tb.verb(t, "workspaces.skills_lock", `{"id":"nope"}`); code != 404 {
+		t.Errorf("unknown workspace = %d", code)
+	}
+	j := skillJob(t, tb, "workspaces.skills_lock.add", `{"id":"api","names":["pdf","docx","present","local","guide"]}`)
+	if j.State != StateSucceeded {
+		t.Fatalf("add = %s", j.Result)
+	}
+	r := result(t, j)
+	if fmt.Sprint(r["added"]) != "[map[name:docx source:acme-skills] map[name:pdf source:acme-skills]]" || fmt.Sprint(r["sources"]) != "[acme-skills]" {
+		t.Errorf("added = %v, sources %v", r["added"], r["sources"])
+	}
+	reasons := map[string]string{}
+	for _, s := range r["skipped"].([]any) {
+		m := s.(map[string]any)
+		reasons[m["name"].(string)] = m["reason"].(string)
+	}
+	for name, want := range map[string]string{"present": "already has it", "local": "cannot add", "guide": "no valid skill"} {
+		if !strings.Contains(reasons[name], want) {
+			t.Errorf("%s skipped for %q, want %q", name, reasons[name], want)
+		}
+	}
+	srcs, _ := sourcesNow(t, tb)
+	src := srcs["acme-skills"]
+	if src.Repo != "https://github.com/acme/skills" || src.Ref != "main" || src.Path != "" || src.Commit != skillCommit {
+		t.Errorf("source = %+v", src)
+	}
+	if a := src.Attached["pdf"]; !a.Enabled || a.Agents == nil || len(a.Agents) != 0 || a.Workspaces["api"] != config.ModeLink {
+		t.Errorf("pdf attachment = %+v", a)
+	}
+	// The workspace now gets pdf; asking again changes nothing.
+	_, out = tb.verb(t, "workspaces.skills_lock", `{"id":"api"}`)
+	for _, s := range out["skills"].([]any) {
+		if m := s.(map[string]any); m["name"] == "pdf" && m["provider"] != "acme-skills" {
+			t.Errorf("pdf provider = %v", m["provider"])
+		}
+	}
+	j = skillJob(t, tb, "workspaces.skills_lock.add", `{"id":"api","names":["pdf"]}`)
+	if r := result(t, j); len(r["added"].([]any)) != 0 || !strings.Contains(fmt.Sprint(r["skipped"]), "already gets it from acme-skills") {
+		t.Errorf("again = %v", r)
+	}
+	// Another workspace reuses the source and keeps the first one's link.
+	j = skillJob(t, tb, "workspaces.skills_lock.add", `{"id":"web","names":["pdf"]}`)
+	if r := result(t, j); fmt.Sprint(r["sources"]) != "[]" || len(r["added"].([]any)) != 1 {
+		t.Errorf("web = %v", r)
+	}
+	srcs, _ = sourcesNow(t, tb)
+	if ws := srcs["acme-skills"].Attached["pdf"].Workspaces; ws["api"] != config.ModeLink || ws["web"] != config.ModeLink {
+		t.Errorf("pdf workspaces = %v", ws)
+	}
+}
+
+func TestCommonFolder(t *testing.T) {
+	for _, tc := range []struct {
+		in   []string
+		want string
+	}{
+		{[]string{"skills/pdf", "skills/docx"}, "skills"},
+		{[]string{"skills/pdf"}, "skills/pdf"},
+		{[]string{"skills/pdf", "docx"}, ""},
+		{[]string{"a/b/c", "a/b/d/e"}, "a/b"},
+		{[]string{"skills/pdf", "skills-extra/x"}, ""},
+		{[]string{"", "skills/pdf"}, ""},
+	} {
+		if got := commonFolder(tc.in); got != tc.want {
+			t.Errorf("commonFolder(%q) = %q, want %q", tc.in, got, tc.want)
+		}
 	}
 }

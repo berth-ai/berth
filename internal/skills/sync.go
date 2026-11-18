@@ -1,6 +1,7 @@
 package skills
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -34,6 +35,7 @@ type Syncer struct {
 	Settings   string       // skills.json; empty means no sources
 	Workspaces string       // workspaces.json; empty means no workspaces
 	Git        Git
+	Web        WellKnown // downloads the skills of well-known sources
 	Log        io.Writer
 }
 
@@ -146,7 +148,7 @@ func (s Syncer) Run(ctx context.Context) error {
 	st.Links = slices.Sorted(maps.Keys(keep))
 	s.pruneExports(&st, used)
 	s.clearLegacy(&st, func(string) bool { return true })
-	s.pruneCaches(sources)
+	s.pruneCaches(ctx, sources)
 	if err := saveState(statePath, st); err != nil {
 		return fmt.Errorf("save %s: %w", statePath, err)
 	}
@@ -216,13 +218,17 @@ func (s Syncer) ensureExport(ctx context.Context, a attachment, st *state) error
 	f, src := a.src.Found[a.name], a.src
 	final := s.exportDir(a.key())
 	want := export{Commit: src.Commit, Path: f.Path}
+	if src.Kind == config.KindWellKnown {
+		// A skill of a well-known index changes only with its own digest.
+		want = export{Commit: f.Digest, Path: f.Path}
+	}
 	if fi, err := os.Stat(final); err == nil && fi.IsDir() && st.Exports[a.key()] == want {
 		return nil
 	}
 	switch {
 	case !config.WorkspaceIDPattern.MatchString(a.source) || !config.SkillIDPattern.MatchString(a.name):
 		return errors.New("the published source or skill name is malformed")
-	case !config.ValidCommit(src.Commit):
+	case !config.ValidPin(src.Kind, src.Commit):
 		return fmt.Errorf("%q is not a commit", src.Commit)
 	case !config.ValidSkillPath(f.Path):
 		return fmt.Errorf("%q is not a folder", f.Path)
@@ -230,16 +236,6 @@ func (s Syncer) ensureExport(ctx context.Context, a attachment, st *state) error
 	if !s.Git.AllowFile || !strings.HasPrefix(src.Repo, "file://") {
 		if msg := config.CheckSkillRepo(src.Repo); msg != "" {
 			return fmt.Errorf("repository %s", msg)
-		}
-	}
-	cache := CacheDir(s.Home, src.Repo)
-	if !s.Git.HasCommit(ctx, cache, src.Commit) {
-		got, err := s.Git.Fetch(ctx, cache, src.Repo, src.Commit)
-		if err != nil {
-			return fmt.Errorf("fetch %s at %s: %w", src.Repo, short(src.Commit), err)
-		}
-		if got != src.Commit {
-			return fmt.Errorf("fetching %s gave %s", short(src.Commit), short(got))
 		}
 	}
 	dir := filepath.Dir(final)
@@ -251,9 +247,15 @@ func (s Syncer) ensureExport(ctx context.Context, a attachment, st *state) error
 		return err
 	}
 	defer os.RemoveAll(tmp)
-	if err := s.Git.Archive(ctx, cache, src.Commit, f.Path, func(r io.Reader) error {
+	unpack := func(r io.Reader) error {
 		return extract(r, tmp, func(format string, args ...any) { s.logf(a.label()+": "+format, args...) })
-	}); err != nil {
+	}
+	if src.Kind == config.KindWellKnown {
+		err = s.Web.Export(ctx, s.Home, a.name, f, unpack)
+	} else {
+		err = s.Git.Export(ctx, CacheDir(s.Home, src.Repo), src.Repo, src.Commit, f.Path, unpack)
+	}
+	if err != nil {
 		return err
 	}
 	if _, err := os.Stat(filepath.Join(tmp, "SKILL.md")); err != nil {
@@ -266,7 +268,7 @@ func (s Syncer) ensureExport(ctx context.Context, a attachment, st *state) error
 		return err
 	}
 	st.Exports[a.key()] = want
-	s.logf("installed %s at %s", a.label(), short(src.Commit))
+	s.logf("installed %s at %s", a.label(), short(cmp.Or(f.Digest, src.Commit)))
 	return nil
 }
 
@@ -378,20 +380,49 @@ func (s Syncer) pointsTo(path, key string) bool {
 	return err == nil && cur == s.exportDir(key)
 }
 
-// pruneCaches deletes cache repositories no source uses. A cache locked by
-// a running resolve is left for the next sync.
-func (s Syncer) pruneCaches(sources map[string]config.Source) {
-	want := map[string]bool{}
-	for _, src := range sources {
-		want[CacheDir(s.Home, src.Repo)] = true
+// pruneArtifacts deletes the downloads of well-known skills no source names.
+func (s Syncer) pruneArtifacts(keep map[string]bool) {
+	entries, err := os.ReadDir(ArtifactDir(s.Home))
+	if err != nil {
+		return
 	}
+	for _, e := range entries {
+		if !keep[e.Name()] {
+			os.Remove(filepath.Join(ArtifactDir(s.Home), e.Name()))
+		}
+	}
+}
+
+// pruneCaches deletes cache repositories no source uses, and drops from
+// the others every commit no source pins. A cache locked by a running
+// scan is left for the next sync.
+func (s Syncer) pruneCaches(ctx context.Context, sources map[string]config.Source) {
+	want := map[string][]string{}
+	artifacts := map[string]bool{}
+	for _, src := range sources {
+		if src.Kind == config.KindWellKnown {
+			for _, f := range src.Found {
+				artifacts[strings.TrimPrefix(f.Digest, "sha256:")] = true
+			}
+			continue
+		}
+		dir := CacheDir(s.Home, src.Repo)
+		want[dir] = append(want[dir], src.Commit)
+	}
+	s.pruneArtifacts(artifacts)
 	entries, err := os.ReadDir(CacheRoot(s.Home))
 	if err != nil {
 		return
 	}
 	for _, e := range entries {
 		dir := filepath.Join(CacheRoot(s.Home), e.Name())
-		if !strings.HasSuffix(e.Name(), ".git") || want[dir] {
+		if !strings.HasSuffix(e.Name(), ".git") {
+			continue
+		}
+		if commits, ok := want[dir]; ok {
+			if err := s.Git.Keep(ctx, dir, commits); err != nil {
+				s.logf("cannot compact the cache %s: %v", e.Name(), err)
+			}
 			continue
 		}
 		unlock, err := lock(dir, false)

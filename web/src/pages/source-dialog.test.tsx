@@ -136,4 +136,55 @@ describe("SourceDialog", () => {
     expect(await screen.findByText(/1 skill at/)).toBeTruthy();
     expect(runJob).toHaveBeenCalledTimes(1);
   });
+
+  it("adds a website's skills index without a ref or path", async () => {
+    const { runJob } = await import("@/api/run-job");
+    const digest = "sha256:" + "ab".repeat(32);
+    vi.mocked(runJob).mockImplementation(async (verb) =>
+      verb === "skills.sources.preview"
+        ? done(verb, {
+            commit: digest,
+            index: "https://docs.example.org/.well-known/agent-skills/index.json",
+            id: "docs-example-org",
+            exists: "",
+            found: {
+              guide: {
+                path: "guide",
+                description: "Guide",
+                url: "https://x",
+                digest,
+                type: "skill-md",
+              },
+            },
+          })
+        : done(verb, { id: "docs-example-org", attached: [], skipped: [] }),
+    );
+    const onAdded = vi.fn();
+    render(<SourceDialog onClose={() => {}} onAdded={onAdded} />);
+    fireEvent.click(screen.getByRole("button", { name: "Website" }));
+    expect(screen.queryByLabelText("Ref")).toBeNull();
+    type("Website", "http://docs.example.org");
+    fireEvent.click(button("Find skills"));
+    expect(await screen.findByText("Use an https:// URL.")).toBeTruthy();
+    type("Website", "docs.example.org");
+    fireEvent.click(button("Find skills"));
+    expect(await screen.findByText(/1 skill in index/)).toBeTruthy();
+    expect(screen.getByText("abababababab")).toBeTruthy();
+    expect(runJob).toHaveBeenCalledWith(
+      "skills.sources.preview",
+      { kind: "well-known", repo: "https://docs.example.org", ref: "", path: "" },
+      expect.any(Function),
+    );
+    fireEvent.click(button("Add source"));
+    await vi.waitFor(() => expect(onAdded).toHaveBeenCalledWith("docs-example-org"));
+    expect(runJob).toHaveBeenLastCalledWith(
+      "skills.sources.add",
+      expect.objectContaining({
+        kind: "well-known",
+        repo: "https://docs.example.org",
+        commit: digest,
+      }),
+      expect.any(Function),
+    );
+  });
 });

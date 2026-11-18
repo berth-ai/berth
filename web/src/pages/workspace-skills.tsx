@@ -49,6 +49,7 @@ import {
   workspaceSkills,
   wsPatch,
 } from "./attachments-logic";
+import { SkillsLockCard } from "./skills-lock";
 import type { Sources } from "./sources-logic";
 
 const mono = "font-mono text-xs";
@@ -264,6 +265,7 @@ export function WorkspaceSkills({ id }: { id: string }) {
           <EmptyState text="No skills in this workspace yet. Attach one from any source." />
         )}
       </PanelCard>
+      <SkillsLockCard id={id} readOnly={readOnly} />
       {attaching ? (
         <AttachSkillDialog id={id} sources={sources} onClose={() => setAttaching(false)} />
       ) : null}

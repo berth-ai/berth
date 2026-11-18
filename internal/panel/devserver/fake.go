@@ -488,6 +488,12 @@ func (f *fake) verb(name string, in map[string]any) (int, any) {
 		killed := len(f.sessions[id]) > 0
 		f.sessions[id] = []string{"zsh"}
 		return http.StatusOK, map[string]any{"session": "ws-" + id, "killed": killed}
+	case "workspaces.skills_lock":
+		id := str(in["id"])
+		if f.workspacePath(id) == "" {
+			return http.StatusNotFound, apiError("unknown_workspace", "No workspace named "+id)
+		}
+		return http.StatusOK, map[string]any{"found": false, "skills": []any{}}
 	case "workspaces.report":
 		id := str(in["id"])
 		if f.workspacePath(id) == "" {

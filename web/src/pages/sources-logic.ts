@@ -13,7 +13,7 @@ import type {
 } from "@/api/types";
 import { count } from "@/lib/format";
 import type { Tone } from "@/lib/notify";
-import { reachLabel, repoLabel, shortCommit } from "./skills-logic";
+import { reachLabel, shortCommit, sourceTitle } from "./skills-logic";
 
 /** SUGGESTED is the source the Skills page offers until it is added. */
 export const SUGGESTED = {
@@ -41,9 +41,9 @@ export const sourceList = (sources: Sources): SourceEntry[] =>
 export const hasSuggested = (sources: Sources) =>
   sourceList(sources).some((e) => e.source.repo === SUGGESTED.repo);
 
-/** sourceLabel is owner/repo, then the folder when there is one. */
-export const sourceLabel = (s: Pick<Source, "repo" | "path">) =>
-  s.path ? `${repoLabel(s.repo)} · ${s.path}` : repoLabel(s.repo);
+/** sourceLabel is owner/repo (a website's host), then the folder when there is one. */
+export const sourceLabel = (s: Pick<Source, "kind" | "repo" | "path">) =>
+  s.path ? `${sourceTitle(s)} · ${s.path}` : sourceTitle(s);
 
 /** agentsOf is who an attachment reaches: null is every agent, and so is
  * a missing key (the devserver drops nulls). */

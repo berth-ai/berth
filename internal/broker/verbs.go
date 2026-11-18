@@ -53,6 +53,8 @@ func (b *Broker) verbs() map[string]verbFunc {
 		"workspaces.instructions.read":  b.instructionsRead,
 		"workspaces.instructions.write": b.instructionsWrite,
 		"workspaces.instructions.merge": b.instructionsMerge,
+		"workspaces.skills_lock":        b.workspacesSkillsLock,
+		"workspaces.skills_lock.add":    b.workspacesSkillsLockAdd,
 		"skills.sources.preview":        b.skillsSourcesPreview,
 		"skills.sources.add":            b.skillsSourcesAdd,
 		"skills.sources.update":         b.skillsSourcesUpdate,

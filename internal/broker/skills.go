@@ -2,6 +2,7 @@ package broker
 
 import (
 	"bytes"
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -89,13 +90,26 @@ func (b *Broker) normalMode() (int, any, bool) {
 	return 0, nil, true
 }
 
-// skillSourceError checks a repository and ref; field is "" when both are fine.
-func skillSourceError(repo, ref string) (field, msg string) {
-	if msg := config.CheckSkillRepo(repo); msg != "" {
-		return "repo", "The repository URL " + msg
-	}
-	if !config.ValidGitRef(ref) {
-		return "ref", "The ref must be a branch, tag or commit"
+// skillSourceError checks a source's repository (a well-known source's
+// website) and ref; field is "" when both are fine.
+func skillSourceError(kind, repo, ref string) (field, msg string) {
+	switch kind {
+	case config.KindGit:
+		if msg := config.CheckSkillRepo(repo); msg != "" {
+			return "repo", "The repository URL " + msg
+		}
+		if !config.ValidGitRef(ref) {
+			return "ref", "The ref must be a branch, tag or commit"
+		}
+	case config.KindWellKnown:
+		if msg := config.CheckSkillRepo(repo); msg != "" {
+			return "repo", "The website URL " + strings.Replace(msg, "a repository URL such as https://github.com/owner/repo", "a URL such as https://example.com", 1)
+		}
+		if ref != "" {
+			return "ref", "A website has no ref"
+		}
+	default:
+		return "kind", fmt.Sprintf("The kind must be empty (a git repository) or %s", config.KindWellKnown)
 	}
 	return "", ""
 }
@@ -106,17 +120,41 @@ type scanRow struct {
 	Name        string `json:"name,omitempty"`
 	Description string `json:"description,omitempty"`
 	Error       string `json:"error,omitempty"`
+	URL         string `json:"url,omitempty"`
+	Digest      string `json:"digest,omitempty"`
+	Type        string `json:"type,omitempty"`
 }
 
+// Unchanged is true when the scanned skills are the ones the commit the
+// scan was asked to compare with holds. Index is where a well-known scan
+// found the site's index.
 type skillScan struct {
-	Commit string    `json:"commit"`
-	Skills []scanRow `json:"skills"`
+	Commit    string    `json:"commit"`
+	Index     string    `json:"index"`
+	Unchanged bool      `json:"unchanged"`
+	Skills    []scanRow `json:"skills"`
 }
 
-// scanJob runs berth skills scan as agent over paths (the whole tree when
-// one is the root), then save with its answer.
-func (b *Broker) scanJob(verb, repo, ref string, paths []string, save func(skillScan) (json.RawMessage, error)) (int, any) {
-	return b.cliJob(verb, skillsGroup, scanArgs(repo, ref, paths), skillScanTimeout, func(_ context.Context, _ io.Writer, stdout []byte) (json.RawMessage, error) {
+// scanTarget is what one berth skills scan reads: a repository at Ref
+// over Paths (the whole tree when one is the root), or a website's index
+// (Kind well-known, no Ref or Paths), compared with Since when it is set.
+type scanTarget struct {
+	Kind, Repo, Ref, Since string
+	Paths                  []string
+}
+
+// sourceScan is source src at ref (its own when empty), compared with
+// commit since.
+func sourceScan(src config.Source, ref, since string) scanTarget {
+	if src.Kind == config.KindWellKnown {
+		return scanTarget{Kind: src.Kind, Repo: src.Repo, Since: since}
+	}
+	return scanTarget{Repo: src.Repo, Ref: cmp.Or(ref, src.Ref), Since: since, Paths: []string{src.Path}}
+}
+
+// scanJob runs berth skills scan as agent over t, then save with its answer.
+func (b *Broker) scanJob(verb string, t scanTarget, save func(skillScan) (json.RawMessage, error)) (int, any) {
+	return b.cliJob(verb, skillsGroup, scanArgs(t), skillScanTimeout, func(_ context.Context, _ io.Writer, stdout []byte) (json.RawMessage, error) {
 		res, err := parseScan(stdout)
 		if err != nil {
 			return nil, err
@@ -125,12 +163,21 @@ func (b *Broker) scanJob(verb, repo, ref string, paths []string, save func(skill
 	})
 }
 
-// scanArgs is berth skills scan over paths (the whole tree when one is
-// the root).
-func scanArgs(repo, ref string, paths []string) []string {
-	args := []string{"skills", "scan", "--json", "--repo", repo, "--ref", ref}
-	if !slices.Contains(paths, "") {
-		for _, p := range paths {
+// scanArgs is berth skills scan over t.
+func scanArgs(t scanTarget) []string {
+	args := []string{"skills", "scan", "--json"}
+	if t.Kind != config.KindGit {
+		args = append(args, "--kind", t.Kind)
+	}
+	args = append(args, "--repo", t.Repo)
+	if t.Kind == config.KindGit {
+		args = append(args, "--ref", t.Ref)
+	}
+	if t.Since != "" {
+		args = append(args, "--since", t.Since)
+	}
+	if !slices.Contains(t.Paths, "") {
+		for _, p := range t.Paths {
 			args = append(args, "--path", p)
 		}
 	}
@@ -146,8 +193,8 @@ func parseScan(stdout []byte) (skillScan, error) {
 }
 
 // scanNow runs berth skills scan as agent inside a job, its stderr in log.
-func (b *Broker) scanNow(ctx context.Context, log io.Writer, repo, ref, path string) (skillScan, error) {
-	args := scanArgs(repo, ref, []string{path})
+func (b *Broker) scanNow(ctx context.Context, log io.Writer, t scanTarget) (skillScan, error) {
+	args := scanArgs(t)
 	stdout, code, err := b.runCLI(ctx, log, args, skillScanTimeout)
 	switch {
 	case err != nil:
@@ -156,6 +203,17 @@ func (b *Broker) scanNow(ctx context.Context, log io.Writer, repo, ref, path str
 		return skillScan{}, cliError(stdout, args)
 	}
 	return parseScan(stdout)
+}
+
+// pinnedScan checks that scan s of source kind is at commit want: a
+// repository scanned at a commit always is, but a website may have moved
+// on since the user looked.
+func pinnedScan(kind, want string, s skillScan) error {
+	if kind == config.KindWellKnown && s.Commit != want {
+		return &fieldError{Code: "source_changed", Field: "commit",
+			Message: "The site's skills changed since you looked; look again"}
+	}
+	return nil
 }
 
 // cliJob runs berth args as agent as job verb in group, then save with its

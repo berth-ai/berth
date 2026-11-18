@@ -23,6 +23,7 @@ type world struct {
 	commit                    string
 	addedRoot                 string
 	added                     []agentset.Added
+	web                       WellKnown
 }
 
 func newWorld(t *testing.T) *world {
@@ -95,7 +96,7 @@ func (w *world) run() (string, error) {
 		return "", err
 	}
 	s := Syncer{Set: set, Layer: w.layer, Home: w.home, ConfigHome: filepath.Join(w.home, ".config"),
-		Settings: w.set, Workspaces: w.wsFile, Git: testGit(), Log: &log}
+		Settings: w.set, Workspaces: w.wsFile, Git: testGit(), Web: w.web, Log: &log}
 	err = s.Run(context.Background())
 	return log.String(), err
 }
@@ -336,5 +337,53 @@ func TestSyncLinksAddedAgent(t *testing.T) {
 	w.mustRun()
 	if got := w.link(".copilot/skills", "pdf"); got != w.export("fx", "pdf") {
 		t.Errorf("copilot link = %q", got)
+	}
+}
+
+func TestSyncInstallsWellKnownSkills(t *testing.T) {
+	w := newWorld(t)
+	s := newSite(t)
+	w.web = s.web()
+	v1, v2 := []byte(pdfSkill), []byte(skill("pdf"))
+	s.set("/v1/SKILL.md", v1)
+	s.set("/v2/SKILL.md", v2)
+	src := func(url string, body []byte) config.Source {
+		return config.Source{Kind: config.KindWellKnown, Repo: s.srv.URL + "/.well-known/agent-skills/index.json",
+			Commit:   digestOf([]byte(url)),
+			Found:    map[string]config.Found{"pdf": {Path: "pdf", Description: "PDF tools", URL: s.srv.URL + url, Digest: digestOf(body), Type: "skill-md"}},
+			Attached: map[string]config.Attachment{"pdf": to("c")}}
+	}
+	w.write(map[string]config.Source{"site": src("/v1/SKILL.md", v1)})
+	w.mustRun()
+	if got := w.link(".c/skills", "pdf"); got != w.export("site", "pdf") {
+		t.Fatalf("link = %q", got)
+	}
+	read := func() string {
+		b, _ := os.ReadFile(filepath.Join(w.export("site", "pdf"), "SKILL.md"))
+		return string(b)
+	}
+	if read() != pdfSkill {
+		t.Errorf("SKILL.md = %q", read())
+	}
+	// Another index digest with the same skill digest reinstalls nothing.
+	same := src("/v1/SKILL.md", v1)
+	same.Commit = digestOf([]byte("other index"))
+	w.write(map[string]config.Source{"site": same})
+	if log := w.mustRun(); strings.Contains(log, "installed") {
+		t.Errorf("reinstalled an unchanged skill:\n%s", log)
+	}
+	w.write(map[string]config.Source{"site": src("/v2/SKILL.md", v2)})
+	w.mustRun()
+	if read() != skill("pdf") {
+		t.Errorf("after the update SKILL.md = %q", read())
+	}
+	entries, _ := os.ReadDir(ArtifactDir(w.home))
+	if len(entries) != 1 || "sha256:"+entries[0].Name() != digestOf(v2) {
+		t.Errorf("the artifact cache holds %v", entries)
+	}
+	w.write(map[string]config.Source{})
+	w.mustRun()
+	if entries, _ := os.ReadDir(ArtifactDir(w.home)); len(entries) != 0 {
+		t.Errorf("removing the source left %v", entries)
 	}
 }

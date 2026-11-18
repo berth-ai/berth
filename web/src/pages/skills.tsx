@@ -31,7 +31,7 @@ import { AttachedSwitch } from "./attached-switch";
 import { targetsText } from "./attachments-logic";
 import { UpdateDialog } from "./source";
 import { SourceDialog, type SourceStart } from "./source-dialog";
-import { repoLabel, shortCommit, skillAgents, type SkillView } from "./skills-logic";
+import { isWellKnown, shortCommit, skillAgents, sourceTitle, type SkillView } from "./skills-logic";
 import {
   type AttachedRow,
   attachedRows,
@@ -247,7 +247,7 @@ function UpdateAllList({ list }: { list: SourceCheck[] }) {
           >
             <span className={cn(mono, "font-semibold text-fg")}>{c.id}</span>
             <span className={cn(mono, "text-fg-muted")}>
-              {c.ref}: {shortCommit(c.from)} → {shortCommit(c.commit)}
+              {c.ref || "index"}: {shortCommit(c.from)} → {shortCommit(c.commit)}
             </span>
             <span className="text-xs text-fg-secondary">
               {changeCounts(c) || "No skill changed"}
@@ -382,17 +382,19 @@ function SourceRow({
               "w-fit font-semibold break-all text-accent-text hover:text-accent-hover",
             )}
           >
-            {repoLabel(source.repo)}
+            {sourceTitle(source)}
           </Link>
           <span className={cn(mono, "text-fg-muted")}>
-            {id} · {source.path || "/"}
+            {id} · {isWellKnown(source) ? "website" : source.path || "/"}
           </span>
         </div>
       </TableCell>
       <TableCell data-label="Ref">
         <div className="flex flex-col gap-1">
           <span className="flex flex-wrap gap-x-1.5 font-mono text-xs" title={source.commit}>
-            <span className="break-all text-fg-secondary">{source.ref}</span>
+            <span className="break-all text-fg-secondary">
+              {isWellKnown(source) ? "index" : source.ref}
+            </span>
             <span className="text-fg-muted">{shortCommit(source.commit)}</span>
           </span>
           <CheckNote source={source} check={check} />
