@@ -747,16 +747,27 @@ x main berth config set runtime.tz=Europe/Rome --json | jq -e '.changes.restarte
 xa main tmux has-session -t keep || fail "tmux session lost across a ttyd restart"
 
 step "orca pairs without its link reaching any log"
-if ! x main test -x /usr/bin/orca-ide; then
+if ! x main test -s /usr/share/berth/orca.json; then
   echo "smoke: this image has no Orca ($(x main uname -m)); skipping the Orca steps"
 else
+  # Orca is not in the image: switching it on installs the pinned release
+  # into the agents volume, and its service waits for that.
+  x main test ! -e /opt/agents/orca/current || fail "Orca was installed while switched off"
   x main berth config set frontends.orca.enabled=true frontends.orca.pairing_address=100.64.0.10 --json |
     jq -e '.changes.started == ["orca"]' >/dev/null || fail "enabling Orca"
-  for ((i = 0; i < 120; i++)); do
+  started=$SECONDS
+  for ((i = 0; i < 600; i++)); do
     listens_on_any main 6768 && break
     sleep 1
   done
   listens_on_any main 6768 || fail "Orca does not listen on every address on 6768"
+  echo "smoke: Orca installed and listening $((SECONDS - started))s after it was switched on"
+  orca_pin=$(x main jq -r .version /usr/share/berth/orca.json)
+  x main berth status --json | jq -e --arg v "$orca_pin" '.orca.current.packages.orca == $v and
+    any(.pins[]; .track == "orca" and .image == $v and .current == $v)' >/dev/null ||
+    fail "berth status does not report Orca $orca_pin installed"
+  [[ $(x main stat -c '%U %a' "$(x main readlink -f /opt/agents/orca/current)/Orca/resources/bin/orca-ide") == "root 755" ]] ||
+    fail "Orca's files are not root's and read-only"
   wait_ok main 120
   [[ $(ps_user 'orca-ide|orcad') == agent ]] || fail "Orca does not run as agent"
   orca_pid=$(service_pid main orca)
@@ -814,7 +825,7 @@ for pid in $(x main sh -c 'curl -fsS --unix-socket /run/berth/broker.sock http:/
 done
 
 step "orca survives a recreate with the same home"
-if x main test -x /usr/bin/orca-ide; then
+if x main test -s /usr/share/berth/orca.json; then
   halt main
   boot main "$boot_timeout" --hostname berth
   started=$SECONDS
@@ -828,6 +839,7 @@ if x main test -x /usr/bin/orca-ide; then
     fail "Orca did not come back after a recreate"
   }
   echo "smoke: Orca served again $((SECONDS - started))s after the recreate"
+  x main berth ensure --json | jq -e '.orca.action == "none"' >/dev/null || fail "a recreate reinstalled Orca"
   wait_ok main 120
 fi
 

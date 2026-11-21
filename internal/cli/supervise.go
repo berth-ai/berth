@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"net/http"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -103,7 +102,12 @@ func runSupervise(ctx context.Context, a *app, args []string) error {
 	b.Home = broker.DefaultHome(a.cfg.BerthPath)
 	b.BaseTools = "/usr/share/berth/mise.toml"
 	b.PresetsDir = "/usr/share/berth/presets"
-	b.OrcaInstalled = func() bool { _, err := exec.LookPath("orca-ide"); return err == nil }
+	b.OrcaSupported = a.orcaOn
+	b.OrcaReady = func() bool { cur, err := a.orcaStore().Current(); return err == nil && cur != nil }
+	b.OrcaInstall = []string{"orca", "install", "--json"}
+	b.OrcaVersions = func(ctx context.Context) ([]string, error) {
+		return a.orcaInstaller(nil).Versions(ctx, a.cfg.OrcaAPI)
+	}
 	b.OrcaRunDir = cmp.Or(a.cfg.Getenv("BERTH_ORCA_RUN_DIR"), "/run/berth/orca")
 	cfg := b.Load()
 

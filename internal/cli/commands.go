@@ -69,6 +69,12 @@ func (a *app) gcQuietly() {
 			a.p.Logf("warning: tools gc failed: %v", err)
 		}
 	}
+	// An Orca version is some 600 MB: keep only current and previous.
+	if a.orcaOn() {
+		if _, err := a.orcaStore().GC(0, inUse); err != nil {
+			a.p.Logf("warning: orca gc failed: %v", err)
+		}
+	}
 }
 
 func runGC(_ context.Context, a *app, args []string) error {

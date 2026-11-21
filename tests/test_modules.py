@@ -2,9 +2,13 @@ import json
 import os
 import shutil
 import stat
+import subprocess
+import time
 import unittest
 
-from shellharness import MODULE_RUN, Harness, needs_bash, needs_jq
+from shellharness import MODULE_RUN, REPO, Harness, needs_bash, needs_jq
+
+ORCA_IDE = REPO / "rootfs/usr/local/bin/orca-ide"
 
 ORCA_FAKE = r"""
 echo "$*" >> "$FAKE_LOG/orca-ide.calls"
@@ -66,14 +70,22 @@ class ModuleRunTest(unittest.TestCase):
                 self.assertEqual((r.returncode, r.stdout), (0, port + "\n"), r.stderr)
         self.assertEqual(self.h.read_log("gosu"), "", "health probes must not drop privileges")
 
+    def orca_store(self, installed=True):
+        store = self.h.tmp / "orca-store"
+        (store / "versions" / "0123456789ab").mkdir(parents=True, exist_ok=True)
+        if installed and not (store / "current").exists():
+            (store / "current").symlink_to("versions/0123456789ab")
+        return store
+
     def orca(self, request=None, reclaim_status=4):
         self.h.fake("orca-ide", ORCA_FAKE)
+        store = self.orca_store()
         run_dir = self.h.tmp / "orca-run"
         shutil.rmtree(run_dir, ignore_errors=True)
         run_dir.mkdir(mode=0o700)
         if request is not None:
             (run_dir / "pair-request.json").write_text(json.dumps(request))
-        r = self.h.run(MODULE_RUN, "orca", env={"BERTH_ORCA_RUN_DIR": str(run_dir),
+        r = self.h.run(MODULE_RUN, "orca", env={"BERTH_ORCA_RUN_DIR": str(run_dir), "BERTH_ORCA_STORE": str(store),
                                                   "FAKE_RECLAIM_STATUS": str(reclaim_status)})
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertNotIn("orca://", r.stdout + r.stderr)
@@ -87,6 +99,22 @@ class ModuleRunTest(unittest.TestCase):
         self.assertIn("ORCA_TELEMETRY_DISABLED=1", self.h.read_log("orca-ide.env").splitlines())
         self.assertIn("Orca server ready", r.stdout)
         self.assertFalse((run_dir / "readiness.json").exists())
+
+    def test_orca_waits_to_be_installed(self):
+        self.h.fake("orca-ide", ORCA_FAKE)
+        store = self.orca_store(installed=False)
+        run_dir = self.h.tmp / "orca-run"
+        run_dir.mkdir(mode=0o700, exist_ok=True)
+        proc = self.h.start(MODULE_RUN, "orca", env={"BERTH_ORCA_RUN_DIR": str(run_dir), "BERTH_ORCA_STORE": str(store)})
+        time.sleep(0.5)
+        self.assertIsNone(proc.poll(), "Orca must wait, not fail, while nothing is installed")
+        self.assertFalse(self.h.log_path("orca-ide.calls").exists())
+        (store / "current").symlink_to("versions/0123456789ab")
+        _, err = proc.communicate(timeout=10)
+        self.assertEqual(proc.returncode, 0, err)
+        self.assertIn("waiting for Orca to be installed", err)
+        calls = [c.split() for c in self.h.read_log("orca-ide.calls").splitlines()]
+        self.assertEqual(calls[-1], ["serve", "--port", "6768", "--no-pairing"])
 
     def test_orca_reclaims_a_stale_lock_first(self):
         for status in (0, 1, 4):
@@ -165,3 +193,29 @@ class ModuleRunTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class OrcaWrapperTest(unittest.TestCase):
+    def setUp(self):
+        self.h = Harness(self)
+        self.store = self.h.tmp / "orca-store"
+
+    def wrapper(self, *args):
+        return subprocess.run(["sh", str(ORCA_IDE), *args], env={"PATH": os.environ["PATH"], "BERTH_ORCA_STORE": str(self.store)},
+                              capture_output=True, text=True, timeout=10, check=False)
+
+    def test_not_installed(self):
+        r = self.wrapper("status")
+        self.assertEqual(r.returncode, 69)
+        self.assertIn("Orca is not installed", r.stderr)
+
+    def test_runs_the_current_version_by_its_real_path(self):
+        cli = self.store / "versions" / "0123456789ab" / "Orca" / "resources" / "bin" / "orca-ide"
+        cli.parent.mkdir(parents=True)
+        cli.write_text('#!/bin/sh\necho "$0 $*"\n')
+        cli.chmod(0o755)
+        (self.store / "current").symlink_to("versions/0123456789ab")
+        r = self.wrapper("serve", "--port", "6768")
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertEqual(r.stdout, f"{cli.resolve()} serve --port 6768\n",
+                         "Orca must not run through the current link an update replaces")

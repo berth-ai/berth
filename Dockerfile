@@ -94,10 +94,14 @@ ARG TMUX_CONTINUUM_SHA256=311dddeebbf7b803cd19c339ab887784b715fd8ef206ec430028ca
 ARG TEA_VERSION=0.16.0
 ARG TEA_SHA256_AMD64=9c142c8a0b31485eea2387031c1c404f12b7141075eb4ffbd7ced49441590636
 ARG TEA_SHA256_ARM64=0e14a036322eeb1fc55e266acafeb8490e523ed99f9232034ae74861e2339879
-# Orca publishes no checksums; hash the release asset with sha256sum.
+# Orca is not in the image: these become /usr/share/berth/orca.json, and
+# berth installs that release into /opt/agents/orca once Orca is switched on,
+# so berth update can move Orca without a new image. The checksums are the
+# sha256 of orca-ide_<version>_<arch>.deb.
 # renovate: datasource=github-releases depName=stablyai/orca extractVersion=^v(?<version>.*)$
 ARG ORCA_VERSION=1.4.255
 ARG ORCA_SHA256_AMD64=6df53f4f6c919fd1f10dfe3511940934acc940a7754eb1b0e896d2c62e4add5a
+ARG ORCA_SHA256_ARM64=c04f3c3b5c8cf8442703be18ffee09f835be860dc87dd9061c1a6cc8aaac60f0
 
 SHELL ["/bin/bash", "-euo", "pipefail", "-c"]
 ENV DEBIAN_FRONTEND=noninteractive TZ=UTC
@@ -120,15 +124,15 @@ RUN apt-get update \
       libxkbcommon0 libxrandr2 fonts-liberation fonts-noto-color-emoji \
  && rm -rf /var/lib/apt/lists/*
 
-# Orca's headless server, amd64 only: the published image is amd64, and
-# skipping keeps local arm64 builds working. The .deb pulls Electron's
-# libraries, so it gets its own layer.
-RUN --mount=type=bind,source=build/fetch-artifact.sh,target=/usr/local/bin/fetch-artifact \
-    if [[ ${TARGETARCH} != amd64 ]]; then echo "skipping Orca on ${TARGETARCH}"; exit 0; fi \
- && fetch-artifact "https://github.com/stablyai/orca/releases/download/v${ORCA_VERSION}/orca-ide_${ORCA_VERSION}_amd64.deb" "${ORCA_SHA256_AMD64}" /tmp/orca.deb \
- && apt-get update \
- && apt-get install -y --no-install-recommends /tmp/orca.deb \
- && rm -rf /tmp/orca.deb /var/lib/apt/lists/*
+# Orca's system libraries: the Depends of its .deb, which berth unpacks
+# into /opt/agents/orca without apt. They change far less often than Orca;
+# when a release adds one, add it here.
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends \
+      libgtk-3-0t64 libnotify4 libnss3 libxss1 libxtst6 xdg-utils libatspi2.0-0t64 libuuid1 \
+      libsecret-1-0 libasound2t64 libgbm1 python3 python3-gi gir1.2-atspi-2.0 at-spi2-core \
+      xdotool xclip xvfb \
+ && rm -rf /var/lib/apt/lists/*
 
 ENV LANG=en_US.UTF-8 LC_ALL=en_US.UTF-8
 
@@ -166,6 +170,8 @@ COPY agents/package.json agents/package-lock.json /usr/share/berth/agents/
 COPY agents/registry/ /usr/share/berth/registry/
 COPY tools/mise.toml /usr/share/berth/mise.toml
 COPY tools/presets/ /usr/share/berth/presets/
+RUN jq -n --arg version "${ORCA_VERSION}" --arg amd64 "${ORCA_SHA256_AMD64}" --arg arm64 "${ORCA_SHA256_ARM64}" \
+      '{version: $version, sha256: {amd64: $amd64, arm64: $arm64}}' >/usr/share/berth/orca.json
 
 # The agent user replaces Ubuntu's default uid-1000 user. berth-panel runs the
 # web panel and alone shares the broker socket's group. /workspaces is created
@@ -186,10 +192,9 @@ ARG BERTH_VERSION=dev
 ARG BERTH_COMMIT=unknown
 ARG BERTH_REPO=berth-ai/berth
 RUN --mount=type=bind,source=build/write-build-info.sh,target=/usr/local/bin/write-build-info \
-    orca_version=none; if [[ ${TARGETARCH} == amd64 ]]; then orca_version=${ORCA_VERSION}; fi \
- && write-build-info /usr/share/berth/build-info.json "${BERTH_VERSION}" "${BERTH_COMMIT}" \
+    write-build-info /usr/share/berth/build-info.json "${BERTH_VERSION}" "${BERTH_COMMIT}" \
       "${TARGETARCH}" "${UBUNTU_IMAGE#*@}" "${TTYD_VERSION}" "${CODE_SERVER_VERSION}" \
-      /usr/share/berth/agents/package-lock.json "${orca_version}"
+      /usr/share/berth/agents/package-lock.json "${ORCA_VERSION}"
 
 ENV BERTH_REPO=${BERTH_REPO} \
     DISABLE_AUTOUPDATER=1 \

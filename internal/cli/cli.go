@@ -14,6 +14,7 @@ import (
 	"github.com/berth-ai/berth/internal/agentstore"
 	"github.com/berth-ai/berth/internal/config"
 	"github.com/berth-ai/berth/internal/locksource"
+	"github.com/berth-ai/berth/internal/orcastore"
 	"github.com/berth-ai/berth/internal/output"
 	"github.com/berth-ai/berth/internal/registry"
 	"github.com/berth-ai/berth/internal/runner"
@@ -36,6 +37,12 @@ type Config struct {
 	WorkspacesSync []string      // argv of the instructions converger; empty skips it
 	OrcaSync       []string      // argv of the Orca projects converger; empty skips it
 	OrcaIDE        string        // Orca's CLI, orca-ide
+	OrcaDir        string        // the Orca store; empty leaves Orca alone
+	OrcaPin        string        // the image's Orca pin; missing means no Orca
+	OrcaReleases   string        // where Orca's releases download from; empty means GitHub
+	OrcaAPI        string        // where Orca's releases are listed; empty means GitHub
+	DpkgDeb        string        // dpkg-deb, which unpacks Orca; empty means on PATH
+	Arch           string        // the architecture Orca installs for; empty means this one
 	OrcaWait       time.Duration // how long orca sync waits for Orca; 0 means 90s
 	Stdin          io.Reader     // what hidden commands read input from; nil reads nothing
 	RegistryDir    string        // the image's registry of addable agents
@@ -101,7 +108,9 @@ func defaultConfig(getenv func(string) string, b Build, isRoot bool, lookup func
 		SkillsSync:     []string{"/usr/local/bin/berth", "skills", "sync"},
 		WorkspacesSync: []string{"/usr/local/bin/berth", "workspaces", "sync"},
 		OrcaSync:       []string{"/usr/local/bin/berth", "orca", "sync", "--json"},
-		OrcaIDE:        "/usr/bin/orca-ide",
+		OrcaIDE:        "/usr/local/bin/orca-ide",
+		OrcaDir:        orcastore.Root,
+		OrcaPin:        orcastore.PinFile,
 		Stdin:          os.Stdin,
 		RegistryDir:    registry.DefaultRoot,
 		AgentsCmd:      []string{"/usr/local/bin/berth", "agents"},
@@ -170,15 +179,15 @@ type command struct {
 
 var commands = map[string]command{
 	"status":     {"status [--check] [--json]            show the agent sets and pinned versions, and with --check the newest ones", runStatus},
-	"update":     {"update [NAME[@VERSION]...] [--major | --image] [--json]  move agent CLIs, MCP servers and base tools to newer (or the image's) versions", runUpdate},
-	"rollback":   {"rollback [HASH] [--tools] [--json]   return to the previous (or named) agent or tool set", runRollback},
+	"update":     {"update [NAME[@VERSION]...] [--major | --image] [--json]  move agent CLIs, MCP servers, base tools and Orca to newer (or the image's) versions", runUpdate},
+	"rollback":   {"rollback [HASH] [--tools | --orca] [--json]  return to the previous (or named) agent set, tool set or Orca", runRollback},
 	"ensure":     {"ensure [--json]                      boot-time install of the image seed and kept overrides", runEnsure},
 	"gc":         {"gc [--json]                          remove unused agent sets", runGC},
 	"config":     {"config get|set K=V...|revert|reset|export|import FILE|reset-login [--json]  read or change settings", runConfig},
 	"login":      {"login status|logout AGENT METHOD [--json]  the agents' own sign-ins", runLogin},
 	"usage":      {"usage [--json]                       token usage per agent, last 7 days", runAgentUsage},
 	"health":     {"health [--json]                      report whether every enabled service runs", runHealth},
-	"orca":       {"orca pair [--mobile]|devices|sync|status [--json]  pair an Orca app, list paired ones, add workspaces to Orca, or show which it has", runOrca},
+	"orca":       {"orca pair [--mobile]|devices|sync|status|install [--json]  pair an Orca app, list paired ones, add workspaces to Orca, show which it has, or install Orca now", runOrca},
 	"version":    {"version                              print the berth version", runVersion},
 	"supervise":  {"supervise                            run the container's services (the entrypoint starts it)", runSupervise},
 	"mcp":        {"mcp sync                             register MCP servers with the agents (internal)", runMCP},

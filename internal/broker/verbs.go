@@ -164,13 +164,19 @@ func (b *Broker) rollback(_ context.Context, body []byte) (int, any) {
 	var in struct {
 		Hash  string `json:"hash"`
 		Tools bool   `json:"tools"`
+		Orca  bool   `json:"orca"`
 	}
 	if err := decode(body, &in); err != nil {
 		return badRequest(err)
 	}
 	args := []string{"rollback", "--json"}
-	if in.Tools {
+	switch {
+	case in.Tools && in.Orca:
+		return badRequest(errors.New("tools and orca are exclusive"))
+	case in.Tools:
 		args = append(args, "--tools")
+	case in.Orca:
+		args = append(args, "--orca")
 	}
 	if in.Hash != "" {
 		if !hashPattern.MatchString(in.Hash) {
@@ -214,8 +220,19 @@ func (b *Broker) updateVersions(ctx context.Context, body []byte) (int, any) {
 				versions = append(versions, v)
 			}
 		}
+	case status.TrackOrca:
+		if b.OrcaVersions == nil {
+			return badRequest(errors.New("this image has no Orca"))
+		}
+		ctx, cancel := context.WithTimeout(ctx, b.syncTimeout())
+		defer cancel()
+		vs, err := b.OrcaVersions(ctx)
+		if err != nil {
+			return fail(http.StatusBadGateway, "lookup_failed", "%v", err)
+		}
+		versions = vs
 	default:
-		return badRequest(fmt.Errorf("track must be %s or %s", status.TrackAgents, status.TrackTools))
+		return badRequest(fmt.Errorf("track must be %s, %s or %s", status.TrackAgents, status.TrackTools, status.TrackOrca))
 	}
 	if len(versions) > maxVersions {
 		versions = versions[len(versions)-maxVersions:]

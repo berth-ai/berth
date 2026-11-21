@@ -17,6 +17,8 @@ import (
 
 	"github.com/berth-ai/berth/internal/agentstore"
 	"github.com/berth-ai/berth/internal/locksource"
+	"github.com/berth-ai/berth/internal/orcastore"
+	"github.com/berth-ai/berth/internal/pins"
 )
 
 // VersionView is the JSON shape of an installed agent set.
@@ -46,14 +48,19 @@ type Seed struct {
 	Hash string `json:"hash"`
 }
 
-// Tracks: the agent set and the base tools.
+// Tracks: the agent set, the base tools and Orca.
 const (
 	TrackAgents = "agents"
 	TrackTools  = "tools"
+	TrackOrca   = "orca"
 )
 
-// KindTool is the kind of a base tool; agent packages use the lock's kinds.
-const KindTool = "tool"
+// KindTool is the kind of a base tool and KindFrontend Orca's; agent
+// packages use the lock's kinds.
+const (
+	KindTool     = "tool"
+	KindFrontend = "frontend"
+)
 
 // Pin is one entity the image pins: its version in the image, the version
 // that runs, and, after a check, the newest version upstream.
@@ -85,6 +92,7 @@ type Report struct {
 	Seed        *Seed           `json:"seed"`
 	Pins        []Pin           `json:"pins"`
 	Tools       ToolsReport     `json:"tools"`
+	Orca        *ToolsReport    `json:"orca,omitempty"` // absent in an image without Orca
 	CheckedAt   *time.Time      `json:"checked_at,omitempty"`
 	UserTools   []Tool          `json:"user_tools"`
 	Build       json.RawMessage `json:"build"`
@@ -92,10 +100,13 @@ type Report struct {
 }
 
 // Inputs are the paths Collect reads. A zero ToolStore or an empty
-// BaseTools leaves the base tools out.
+// BaseTools leaves the base tools out; a zero OrcaStore or an empty
+// OrcaImage leaves Orca out.
 type Inputs struct {
 	Store      agentstore.Store
 	ToolStore  agentstore.Store
+	OrcaStore  agentstore.Store
+	OrcaImage  string // the image's Orca release
 	SeedDir    string
 	BaseTools  string
 	BuildInfo  string
@@ -135,6 +146,11 @@ func Collect(in Inputs) (Report, error) {
 	if in.ToolStore.Root != "" && in.BaseTools != "" {
 		if err := collectTools(&rep, in); err != nil {
 			rep.Warnings = append(rep.Warnings, "base tools: "+err.Error())
+		}
+	}
+	if in.OrcaStore.Root != "" && in.OrcaImage != "" {
+		if err := collectOrca(&rep, in); err != nil {
+			rep.Warnings = append(rep.Warnings, "orca: "+err.Error())
 		}
 	}
 	if raw, err := os.ReadFile(in.BuildInfo); err == nil && json.Valid(raw) {
@@ -180,6 +196,40 @@ func ToolPins(base []Tool, cur *agentstore.Version) []Pin {
 		out = append(out, p)
 	}
 	return out
+}
+
+// OrcaPin describes Orca: the image's release against the current Orca
+// version cur. With none installed, Current is the release Orca would
+// install: the override in ov, or the image's.
+func OrcaPin(image string, cur *agentstore.Version, ov pins.Overrides) Pin {
+	p := Pin{Name: orcastore.Name, Track: TrackOrca, Kind: KindFrontend, Title: orcastore.Title, Image: image, Current: image}
+	if o, ok := ov[orcastore.Name]; ok {
+		p.Current = o.Version
+	}
+	if cur != nil {
+		if v, ok := cur.Manifest.Packages[orcastore.Name]; ok {
+			p.Current = v
+		}
+	}
+	return p
+}
+
+func collectOrca(rep *Report, in Inputs) error {
+	cur, err := in.OrcaStore.Current()
+	if err != nil {
+		return err
+	}
+	prev, err := in.OrcaStore.Previous()
+	if err != nil {
+		return err
+	}
+	st, err := in.OrcaStore.ReadState()
+	if err != nil {
+		return err
+	}
+	rep.Orca = &ToolsReport{Current: View(cur), Previous: View(prev)}
+	rep.Pins = append(rep.Pins, OrcaPin(in.OrcaImage, cur, st.Overrides))
+	return nil
 }
 
 func collectTools(rep *Report, in Inputs) error {

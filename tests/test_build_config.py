@@ -162,16 +162,18 @@ class DockerfileTest(unittest.TestCase):
             self.assertRegex(text, rf"ARG {name}_SHA256=[0-9a-f]{{64}}\n")
         self.assertNotRegex(text, r"\bcurl\s+-", "download only through fetch-artifact")
 
-    def test_orca_pinned_amd64_only(self):
+    def test_orca_pinned_not_installed(self):
+        # berth installs Orca into the agents volume; the image carries only
+        # the pin and Orca's system libraries.
         text = read("Dockerfile")
         self.assertRegex(text, r"# renovate: datasource=github-releases depName=stablyai/orca "
                                r"extractVersion=\^v\(\?<version>\.\*\)\$\nARG ORCA_VERSION=\d+\.\d+\.\d+\n")
-        self.assertRegex(text, r"ARG ORCA_SHA256_AMD64=[0-9a-f]{64}\n")
-        self.assertNotIn("ORCA_SHA256_ARM64", text)
-        self.assertIn('fetch-artifact "https://github.com/stablyai/orca/releases/download/v${ORCA_VERSION}/'
-                      'orca-ide_${ORCA_VERSION}_amd64.deb" "${ORCA_SHA256_AMD64}"', text)
-        self.assertIn("apt-get install -y --no-install-recommends /tmp/orca.deb", text)
-        self.assertIn('echo "skipping Orca on ${TARGETARCH}"', text)
+        for arch in ("AMD64", "ARM64"):
+            self.assertRegex(text, rf"ARG ORCA_SHA256_{arch}=[0-9a-f]{{64}}\n")
+        self.assertNotIn("stablyai/orca/releases/download", text)
+        self.assertNotIn("/tmp/orca.deb", text)
+        self.assertIn(">/usr/share/berth/orca.json", text)
+        self.assertIn("libgtk-3-0t64", text)
 
     def test_every_copy_source_is_in_the_build_context(self):
         # .dockerignore is an allowlist: a COPY source it does not re-include

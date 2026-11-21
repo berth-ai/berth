@@ -193,6 +193,7 @@ func TestRollbackAndGCArgs(t *testing.T) {
 		{"rollback", `{}`, []string{"rollback", "--json"}},
 		{"rollback", `{"hash":"0123456789ab"}`, []string{"rollback", "--json", "0123456789ab"}},
 		{"rollback", `{"tools":true}`, []string{"rollback", "--json", "--tools"}},
+		{"rollback", `{"orca":true}`, []string{"rollback", "--json", "--orca"}},
 		{"gc", `{}`, []string{"gc", "--json"}},
 	} {
 		if code, out := tb.verb(t, c.verb, c.body); code != http.StatusAccepted {
@@ -226,6 +227,7 @@ func TestVerbRejects(t *testing.T) {
 		{"update", `[]`, 400, "invalid_request"},
 		{"rollback", `{"hash":"0123"}`, 400, "invalid_request"},
 		{"rollback", `{"hash":"../../etc/xx"}`, 400, "invalid_request"},
+		{"rollback", `{"tools":true,"orca":true}`, 400, "invalid_request"},
 		{"gc", `{"keep":1}`, 400, "invalid_request"},
 		{"config.get", `{"x":1}`, 400, "invalid_request"},
 		{"update", `{"names":["` + strings.Repeat("a", maxBodyBytes) + `"]}`, 413, "too_large"},

@@ -2,6 +2,7 @@ package broker
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -73,25 +74,60 @@ func TestHostOrcaPort(t *testing.T) {
 	}
 }
 
-func TestConfigApplyRefusesOrcaWhenNotInstalled(t *testing.T) {
+func TestConfigApplyRefusesOrcaWhenUnsupported(t *testing.T) {
 	tb := newTestBroker(t)
 	tb.b.Load()
-	tb.b.OrcaInstalled = func() bool { return false }
+	tb.b.OrcaSupported = func() bool { return false }
 	code, out := tb.verb(t, "config.apply", `{"base_revision":0,"patch":{"frontends":{"orca":{"enabled":true}}}}`)
 	if code != http.StatusBadRequest || errCode(out) != "invalid_config" ||
-		!strings.Contains(out["error"].(map[string]any)["message"].(string), "frontends.orca.enabled: Orca is not installed in this image") {
+		!strings.Contains(out["error"].(map[string]any)["message"].(string), "frontends.orca.enabled: this image has no Orca for its architecture") {
 		t.Fatalf("%d %v", code, out)
 	}
 	// Other changes still apply while it stays off.
 	if code, out := tb.verb(t, "config.apply", `{"base_revision":0,"patch":{"frontends":{"ide":{"enabled":true}}}}`); code != http.StatusOK {
 		t.Fatalf("ide: %d %v", code, out)
 	}
-	tb.b.OrcaInstalled = nil
+	tb.b.OrcaSupported = nil
 	if code, out := tb.verb(t, "config.apply", `{"base_revision":1,"patch":{"frontends":{"orca":{"enabled":true}}}}`); code != http.StatusOK {
 		t.Fatalf("installed: %d %v", code, out)
 	}
 	if names := tb.svc.lastNames(); !slices.Contains(names, "orca") {
 		t.Errorf("services = %v", names)
+	}
+}
+
+func TestSwitchingOrcaOnInstallsItFirst(t *testing.T) {
+	for _, ready := range []bool{false, true} {
+		tb := newTestBroker(t)
+		tb.b.Load()
+		tb.b.OrcaReady = func() bool { return ready }
+		tb.b.OrcaInstall = []string{"orca", "install", "--json"}
+		tb.svc.started = []string{"orca"}
+		if code, out := tb.verb(t, "config.apply", `{"base_revision":0,"patch":{"frontends":{"orca":{"enabled":true}}}}`); code != http.StatusOK {
+			t.Fatalf("%d %v", code, out)
+		}
+		installs := slices.DeleteFunc(tb.b.Jobs.List(), func(j Job) bool { return j.Verb != "orca.install" })
+		switch {
+		case ready && len(installs) != 0:
+			t.Errorf("an installed Orca was installed again: %v", installs)
+		case !ready && (len(installs) != 1 || !slices.Equal(installs[0].Args, []string{"orca", "install", "--json"})):
+			t.Errorf("installs = %v", installs)
+		}
+		if !ready {
+			tb.waitIdle(t)
+		}
+	}
+}
+
+func TestUpdateVersionsForOrca(t *testing.T) {
+	tb := newTestBroker(t)
+	if code, out := tb.verb(t, "update.versions", `{"name":"orca","track":"orca"}`); code != http.StatusBadRequest {
+		t.Fatalf("without Orca: %d %v", code, out)
+	}
+	tb.b.OrcaVersions = func(context.Context) ([]string, error) { return []string{"1.0.0", "2.0.0"}, nil }
+	code, out := tb.verb(t, "update.versions", `{"name":"orca","track":"orca"}`)
+	if code != http.StatusOK || !slices.Equal(toStrings(out["versions"]), []string{"1.0.0", "2.0.0"}) {
+		t.Fatalf("%d %v", code, out)
 	}
 }
 

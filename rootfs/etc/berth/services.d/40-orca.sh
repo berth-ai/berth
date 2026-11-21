@@ -4,12 +4,18 @@
 # needs a pairing link. Runs when frontends.orca.enabled is set. A link is a
 # secret, so a normal start offers none; berth orca pair leaves a request in
 # the run directory, and the next start sends Orca's output, link included,
-# to a readiness file only agent can read instead of to the log.
+# to a readiness file only agent can read instead of to the log. Orca lives
+# in the agents volume; switched on with no version there, it waits while
+# berth installs one.
 
 orca_start() {
-  local dir=${BERTH_ORCA_RUN_DIR:-/run/berth/orca} scope address
+  local dir=${BERTH_ORCA_RUN_DIR:-/run/berth/orca} store=${BERTH_ORCA_STORE:-/opt/agents/orca} scope address
   local -a args=(serve --port 6768)
   export ORCA_TELEMETRY_DISABLED=1
+  if [[ ! -e $store/current ]]; then
+    echo "berth: waiting for Orca to be installed; if that failed, run berth orca install as root" >&2
+    until [[ -e $store/current ]]; do sleep 2; done
+  fi
   # Orca's profile lock lives in the home volume and outlives the container;
   # one Berth container is the only Orca using this home, so a stale lock is
   # safe to clear. Without a lock this exits 4 and does nothing.

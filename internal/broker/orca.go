@@ -119,20 +119,36 @@ func (b *Broker) orcaDesired() bool {
 }
 
 // afterReconcile syncs Orca's projects when Orca starts or restarts with
-// new settings: changes made while it was off land then.
+// new settings: changes made while it was off land then. Orca started with
+// nothing installed gets installed; its service waits for that.
 func (b *Broker) afterReconcile(ch supervisor.Changes) {
+	if slices.Contains(ch.Started, "orca") && b.OrcaReady != nil && !b.OrcaReady() {
+		b.startOrcaInstall()
+	}
 	if slices.Contains(ch.Started, "orca") || slices.Contains(ch.Restarted, "orca") {
 		b.startOrcaSync()
 	}
 }
 
-// checkOrca refuses switching Orca on in an image that does not ship it.
+// startOrcaInstall installs Orca as a job in the agents group. Another job
+// there, such as an update, leaves it to that job or to berth orca install.
+func (b *Broker) startOrcaInstall() {
+	if len(b.OrcaInstall) == 0 {
+		return
+	}
+	args := slices.Clone(b.OrcaInstall)
+	if _, err := b.Jobs.Start("orca.install", agentsGroup, args, berthWork(b.Exec, args)); err != nil {
+		b.logf("WARNING: Orca not installed: %v; it starts once berth orca install succeeds", err)
+	}
+}
+
+// checkOrca refuses switching Orca on in an image that cannot install it.
 // A config that already has it on stays, so the switch can be turned off.
 func (b *Broker) checkOrca(cur, next config.Config) error {
-	if !next.Frontends.Orca.Enabled || cur.Frontends.Orca.Enabled || b.OrcaInstalled == nil || b.OrcaInstalled() {
+	if !next.Frontends.Orca.Enabled || cur.Frontends.Orca.Enabled || b.OrcaSupported == nil || b.OrcaSupported() {
 		return nil
 	}
-	return &config.ValidationError{Fields: []config.FieldError{{Field: "frontends.orca.enabled", Message: "Orca is not installed in this image"}}}
+	return &config.ValidationError{Fields: []config.FieldError{{Field: "frontends.orca.enabled", Message: "this image has no Orca for its architecture"}}}
 }
 
 // orcaPair restarts Orca once with a pairing request and returns the link

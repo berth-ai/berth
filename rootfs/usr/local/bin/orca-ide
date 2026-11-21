@@ -1,0 +1,12 @@
+#!/bin/sh
+# orca-ide: Orca's command line, from the Orca store in the agents volume.
+# The current link resolves once, here, so a running Orca keeps its files
+# when berth update or berth rollback switches to another version.
+set -eu
+store=${BERTH_ORCA_STORE:-/opt/agents/orca}
+dir=$(readlink -f "$store/current" 2>/dev/null) || dir=
+if [ -z "$dir" ] || [ ! -x "$dir/Orca/resources/bin/orca-ide" ]; then
+  echo "orca-ide: Orca is not installed; turn it on in Settings, or run berth orca install as root" >&2
+  exit 69
+fi
+exec "$dir/Orca/resources/bin/orca-ide" "$@"

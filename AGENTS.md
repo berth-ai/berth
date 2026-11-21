@@ -5,7 +5,7 @@ of what is done; do not keep status checklists in the repo.
 
 ## Layout
 
-- `cmd/berth`, `internal/`: the `berth` CLI (Go). `internal/cli` wires commands; `internal/agentstore` owns `/opt/agents`.
+- `cmd/berth`, `internal/`: the `berth` CLI (Go). `internal/cli` wires commands; `internal/agentstore` owns `/opt/agents`. Orca is not in the image: `internal/orcastore` installs the release the `Dockerfile` pins into `/opt/agents/orca`.
 - `rootfs/`: copied to `/` in the image; paths mirror the container.
 - `build/`: build-time helpers, bind-mounted during `docker build`, never shipped.
 - `agents/`: the agent lockfile. `tools/mise.toml`: the base toolchain.

@@ -29,11 +29,11 @@ export interface AgentVersion {
   installed_at: string;
 }
 
-export type Track = "agents" | "tools";
+export type Track = "agents" | "tools" | "orca";
 export type Bump = "major" | "minor" | "patch";
 
-/** Pin is one entity the image pins: an agent CLI, an MCP server or a base
- * tool, with its version in the image, what runs, and after a check the
+/** Pin is one entity the image pins: an agent CLI, an MCP server, a base
+ * tool or Orca, with its version in the image, what runs, and after a check the
  * newest version upstream. */
 export interface Pin {
   name: string;
@@ -66,6 +66,8 @@ export interface AgentsReport {
   // An older broker omits these.
   pins?: Pin[] | null;
   tools?: { current: AgentVersion | null; previous: AgentVersion | null } | null;
+  /** Orca's installed versions; absent in an image without Orca. */
+  orca?: { current: AgentVersion | null; previous: AgentVersion | null } | null;
   build: { version?: string; commit?: string; arch?: string } | null;
   warnings: string[] | null;
 }

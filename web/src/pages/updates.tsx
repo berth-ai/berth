@@ -1,10 +1,10 @@
 import { useQuery } from "@tanstack/react-query";
 import { ChevronRight, Ellipsis } from "lucide-react";
-import { useEffect, useId, useRef, useState } from "react";
+import { type ReactNode, useEffect, useId, useRef, useState } from "react";
 import { refreshStatus, useStatus } from "@/api/queries";
 import { verb } from "@/api/request";
 import { runJob } from "@/api/run-job";
-import type { AgentVersion, Job, Pin, Status, UpdateCheck } from "@/api/types";
+import type { AgentVersion, Job, Pin, Status, Track, UpdateCheck } from "@/api/types";
 import { BusyButton } from "@/components/busy-button";
 import { useConfirm } from "@/components/confirm";
 import { EmptyState } from "@/components/empty-state";
@@ -77,7 +77,7 @@ function start(name: string, body: unknown, okText: string) {
 }
 
 // Updates: every entity the image pins (agent CLIs, MCP servers, base
-// tools) with the image's version, what runs, and the newest upstream; the
+// tools, Orca) with the image's version, what runs, and the newest upstream; the
 // installed sets and their history.
 export function UpdatesPage() {
   useTitle("Updates");
@@ -89,8 +89,9 @@ export function UpdatesPage() {
   const [dialog, confirm] = useConfirm();
   const agents = pinRows(st?.agents, st?.check, "agents");
   const tools = pinRows(st?.agents, st?.check, "tools");
-  const all = updatable([...agents, ...tools]);
-  const anyPicked = [...agents, ...tools].some(picked);
+  const orca = pinRows(st?.agents, st?.check, "orca");
+  const all = updatable([...agents, ...tools, ...orca]);
+  const anyPicked = [...agents, ...tools, ...orca].some(picked);
 
   const check = async (force: boolean) => {
     setChecking(true);
@@ -145,7 +146,7 @@ export function UpdatesPage() {
     <Page>
       <PageHeader
         title="Updates"
-        description="Agent CLIs, MCP servers and base tools start at the versions the image pins. Pick newer ones here; a newer image takes over once it ships them."
+        description="Agent CLIs, MCP servers, base tools and Orca start at the versions the image pins. Pick newer ones here; a newer image takes over once it ships them."
         actions={
           <>
             <BusyButton
@@ -203,6 +204,18 @@ export function UpdatesPage() {
         onPick={setPick}
         onImage={toImage}
       />
+      {orca.length ? (
+        <PinTable
+          title="Orca"
+          label="Orca"
+          rows={orca}
+          loading={!st}
+          checking={checking && !st?.check}
+          onUpdate={updateOne}
+          onPick={setPick}
+          onImage={toImage}
+        />
+      ) : null}
       <SetsCard status={st} anyPicked={anyPicked} confirm={confirm} />
       <History status={st} />
       {pick ? (
@@ -370,14 +383,18 @@ function SetsCard({
   const cur = status?.agents?.current;
   const prev = status?.agents?.previous;
   const tools = status?.agents?.tools;
-  const rollback = (tools: boolean) =>
+  const orca = status?.agents?.orca;
+  const rollback = (track: Track) =>
     confirm({
-      title: tools ? "Roll back the base tools?" : "Roll back the agents?",
-      body: "Berth switches back to the previous set at once, offline. Restarts keep it.",
+      title: rollbackTitles[track],
+      body:
+        track === "orca"
+          ? "Berth switches back to the previous Orca at once, offline, and restarts Orca. Restarts keep it."
+          : "Berth switches back to the previous set at once, offline. Restarts keep it.",
       confirm: "Roll back",
       danger: true,
       action: async () => {
-        start("rollback", tools ? { tools: true } : {}, "Rolled back.");
+        start("rollback", track === "agents" ? {} : { [track]: true }, "Rolled back.");
         return true;
       },
     });
@@ -386,19 +403,24 @@ function SetsCard({
       title="Installed sets"
       footer={
         <>
-          <Button variant="outline" disabled={!prev} onClick={() => rollback(false)}>
+          <Button variant="outline" disabled={!prev} onClick={() => rollback("agents")}>
             Roll back agents
           </Button>
-          <Button variant="outline" disabled={!tools?.previous} onClick={() => rollback(true)}>
+          <Button variant="outline" disabled={!tools?.previous} onClick={() => rollback("tools")}>
             Roll back base tools
           </Button>
+          {orca ? (
+            <Button variant="outline" disabled={!orca.previous} onClick={() => rollback("orca")}>
+              Roll back Orca
+            </Button>
+          ) : null}
           <Button
             variant="outline"
             disabled={!anyPicked}
             onClick={() =>
               confirm({
                 title: "Return everything to the image?",
-                body: "Every agent, MCP server and base tool goes back to the version the image pins and follows the image again.",
+                body: "Every agent, MCP server, base tool and Orca goes back to the version the image pins and follows the image again.",
                 confirm: "Use the image's versions",
                 action: async () => {
                   start("update", { image: true }, "Everything follows the image.");
@@ -450,12 +472,41 @@ function SetsCard({
               "Previous ",
               tools?.previous ? <Mono key="tprev">{toolList(tools.previous)}</Mono> : "None",
             ],
+            ...(orca
+              ? ([
+                  [
+                    "Orca",
+                    orca.current ? (
+                      <span key="orca">
+                        <Mono>{orca.current.packages?.orca}</Mono> · installed{" "}
+                        {when(orca.current.installed_at)}
+                      </span>
+                    ) : (
+                      "Not installed; Berth installs it when Orca is switched on"
+                    ),
+                  ],
+                  [
+                    "Previous  ",
+                    orca.previous ? (
+                      <Mono key="oprev">{orca.previous.packages?.orca}</Mono>
+                    ) : (
+                      "None"
+                    ),
+                  ],
+                ] satisfies [string, ReactNode][])
+              : []),
           ]}
         />
       )}
     </PanelCard>
   );
 }
+
+const rollbackTitles: Record<Track, string> = {
+  agents: "Roll back the agents?",
+  tools: "Roll back the base tools?",
+  orca: "Roll back Orca?",
+};
 
 /** pinTitles names packages by their pinned title. */
 const pinTitles = (status: Status | undefined) =>

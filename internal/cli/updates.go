@@ -16,6 +16,7 @@ import (
 
 	"github.com/berth-ai/berth/internal/agentstore"
 	"github.com/berth-ai/berth/internal/locksource"
+	"github.com/berth-ai/berth/internal/orcastore"
 	"github.com/berth-ai/berth/internal/output"
 	"github.com/berth-ai/berth/internal/pins"
 	"github.com/berth-ai/berth/internal/status"
@@ -57,7 +58,7 @@ func runStatus(ctx context.Context, a *app, args []string) error {
 func (a *app) statusInputs(miseConfig string) status.Inputs {
 	return status.Inputs{
 		Store: a.store, ToolStore: a.toolStore(), SeedDir: a.cfg.SeedDir, BaseTools: a.cfg.BaseTools,
-		BuildInfo: a.cfg.BuildInfo, MiseConfig: miseConfig,
+		OrcaStore: a.orcaStore(), OrcaImage: a.orcaImage(), BuildInfo: a.cfg.BuildInfo, MiseConfig: miseConfig,
 	}
 }
 
@@ -98,8 +99,11 @@ func (a *app) check(ctx context.Context, in []status.Pin) []status.Pin {
 }
 
 func (a *app) latest(ctx context.Context, p status.Pin) (string, error) {
-	if p.Track == status.TrackTools {
+	switch p.Track {
+	case status.TrackTools:
 		return a.mise().Latest(ctx, p.Name)
+	case status.TrackOrca:
+		return a.orcaInstaller(nil).Latest(ctx)
 	}
 	return a.cfg.NPM.Latest(ctx, p.Name)
 }
@@ -130,6 +134,7 @@ type updateResult struct {
 	Current     *status.VersionView `json:"current"`
 	Previous    *status.VersionView `json:"previous"`
 	Tools       *trackResult        `json:"tools,omitempty"`
+	Orca        *trackResult        `json:"orca,omitempty"`
 	Picked      []pick              `json:"picked"`
 	Held        []pick              `json:"held"`
 }
@@ -142,10 +147,13 @@ func (r updateResult) human(w io.Writer) {
 		fmt.Fprintf(w, "held %s %s -> %s (a major; run berth update %s)\n", p.Name, p.From, p.To, p.Name)
 	}
 	switch {
-	case !r.Changed && (r.Tools == nil || !r.Tools.Changed):
+	case !r.Changed && (r.Tools == nil || !r.Tools.Changed) && (r.Orca == nil || !r.Orca.Changed):
 		fmt.Fprintln(w, "nothing to update")
 	default:
 		fmt.Fprintf(w, "agents at %s, base tools %s\n", hashOrNone(r.Current), toolsState(r.Tools))
+		if r.Orca != nil && r.Orca.Changed {
+			fmt.Fprintf(w, "Orca at %s\n", orcaVersion(r.Orca.Current))
+		}
 	}
 }
 
@@ -254,14 +262,26 @@ func (a *app) update(ctx context.Context, seed *locksource.Lock, targets []targe
 		}
 		all = append(all, toolPins...)
 	}
+	var orcaImage string
+	var orcaOv pins.Overrides
+	if a.orcaOn() {
+		var orcaPin status.Pin
+		if orcaImage, orcaPin, orcaOv, err = a.orcaNow(); err != nil {
+			return nil, output.Errorf(output.ExitFailure, "internal", "update", "orca: %v", err)
+		}
+		all = append(all, orcaPin)
+	}
 	picked, held, err := a.picks(ctx, all, targets, image, major)
 	if err != nil {
 		return nil, err
 	}
 	for _, p := range picked {
 		ov, pin := agentOv, seed.Deps[p.Name]
-		if p.Track == status.TrackTools {
+		switch p.Track {
+		case status.TrackTools:
 			ov, pin = toolOv, base[p.Name]
+		case status.TrackOrca:
+			ov, pin = orcaOv, orcaImage
 		}
 		if p.To == pin {
 			delete(ov, p.Name)
@@ -275,6 +295,11 @@ func (a *app) update(ctx context.Context, seed *locksource.Lock, targets []targe
 	}
 	if a.toolsOn() {
 		if res.Tools, err = a.convergeTools(ctx, toolOv); err != nil {
+			return nil, err
+		}
+	}
+	if a.orcaOn() {
+		if res.Orca, err = a.convergeOrca(ctx, orcaOv, false, true); err != nil {
 			return nil, err
 		}
 	}
@@ -492,6 +517,7 @@ type rollbackResult struct {
 func runRollback(ctx context.Context, a *app, args []string) error {
 	fs := newFlagSet("rollback")
 	tools := fs.Bool("tools", false, "roll back the base tools instead of the agents")
+	orca := fs.Bool("orca", false, "roll back Orca instead of the agents")
 	jsonOut := fs.Bool("json", false, "print JSON")
 	pos, err := parseArgs(fs, args)
 	if err != nil {
@@ -501,8 +527,20 @@ func runRollback(ctx context.Context, a *app, args []string) error {
 	if len(pos) > 1 {
 		return usageErr(fmt.Errorf("rollback takes at most one HASH"))
 	}
-	if *tools && !a.toolsOn() {
+	switch {
+	case *tools && *orca:
+		return usageErr(errors.New("--tools and --orca are mutually exclusive"))
+	case *tools && !a.toolsOn():
 		return usageErr(errors.New("this image has no base tools to roll back"))
+	case *orca && !a.orcaOn():
+		return usageErr(errors.New("this image has no Orca to roll back"))
+	}
+	track := status.TrackAgents
+	switch {
+	case *tools:
+		track = status.TrackTools
+	case *orca:
+		track = status.TrackOrca
 	}
 	target := ""
 	if len(pos) == 1 {
@@ -510,8 +548,11 @@ func runRollback(ctx context.Context, a *app, args []string) error {
 	}
 	return a.locked("rollback", func() error {
 		store, label := a.store, "agent set"
-		if *tools {
+		switch track {
+		case status.TrackTools:
 			store, label = a.toolStore(), "tool set"
+		case status.TrackOrca:
+			store, label = a.orcaStore(), "Orca version"
 		}
 		cur, err := store.Rollback(target)
 		switch {
@@ -522,7 +563,7 @@ func runRollback(ctx context.Context, a *app, args []string) error {
 		case err != nil:
 			return output.Errorf(output.ExitFailure, "flip_failed", "flip", "%v", err)
 		}
-		image, err := a.imagePins(*tools)
+		image, err := a.imagePins(track)
 		if err != nil {
 			return err
 		}
@@ -530,10 +571,13 @@ func runRollback(ctx context.Context, a *app, args []string) error {
 		if err := store.WriteState(agentstore.State{FollowImage: len(ov) == 0, Overrides: ov}); err != nil {
 			return output.Errorf(output.ExitFailure, "flip_failed", "flip", "%v", err)
 		}
-		if !*tools {
+		switch track {
+		case status.TrackAgents:
 			a.rebuildLayer()
 			a.setupMCP(ctx, a.cfg.MCPTimeout)
 			a.setupSkills(ctx)
+		case status.TrackOrca:
+			a.restartOrca(ctx)
 		}
 		c, err := store.Current()
 		if err != nil {
@@ -550,9 +594,12 @@ func runRollback(ctx context.Context, a *app, args []string) error {
 	})
 }
 
-// imagePins are the image's versions of the agent packages or base tools.
-func (a *app) imagePins(tools bool) (map[string]string, error) {
-	if !tools {
+// imagePins are the image's versions of the agent packages, base tools or Orca.
+func (a *app) imagePins(track string) (map[string]string, error) {
+	if track == status.TrackOrca {
+		return map[string]string{orcastore.Name: a.orcaImage()}, nil
+	}
+	if track == status.TrackAgents {
 		seed, err := a.seed()
 		if err != nil {
 			return nil, sourceErr(err)
@@ -580,6 +627,7 @@ type ensureResult struct {
 	Current  *status.VersionView `json:"current"`
 	Dropped  []string            `json:"dropped"`
 	Tools    *ensureTrack        `json:"tools,omitempty"`
+	Orca     *ensureTrack        `json:"orca,omitempty"`
 }
 
 func runEnsure(ctx context.Context, a *app, args []string) error {
@@ -605,6 +653,9 @@ func runEnsure(ctx context.Context, a *app, args []string) error {
 		if a.toolsOn() {
 			res.Tools = a.ensureTools(ctx)
 		}
+		if a.orcaOn() {
+			res.Orca = a.ensureOrca(ctx)
+		}
 		// Added agents follow the image too; their converger runs as agent.
 		a.syncAdded(ctx)
 		a.rebuildLayer()
@@ -616,7 +667,10 @@ func runEnsure(ctx context.Context, a *app, args []string) error {
 			if res.Tools != nil {
 				fmt.Fprintf(w, "base tools (%s, %s)\n", res.Tools.Action, res.Tools.Reason)
 			}
-			for _, name := range append(res.Dropped, toolsDropped(res.Tools)...) {
+			if res.Orca != nil {
+				fmt.Fprintf(w, "orca (%s, %s)\n", res.Orca.Action, res.Orca.Reason)
+			}
+			for _, name := range slices.Concat(res.Dropped, toolsDropped(res.Tools), toolsDropped(res.Orca)) {
 				fmt.Fprintf(w, "the image caught up with %s; it follows the image again\n", name)
 			}
 		})

@@ -124,8 +124,17 @@ type Broker struct {
 	SyncTimeout time.Duration
 	// LoginTimeout bounds forge.login; 0 means 15 minutes.
 	LoginTimeout time.Duration
-	// OrcaInstalled reports whether the image ships Orca; nil means it does.
-	OrcaInstalled func() bool
+	// OrcaSupported reports whether the image can install Orca on this
+	// architecture; nil means it can.
+	OrcaSupported func() bool
+	// OrcaReady reports whether an Orca version is installed; nil means one
+	// is. Switching Orca on without one starts OrcaInstall as a job.
+	OrcaReady func() bool
+	// OrcaInstall is the berth argv that installs Orca; empty skips it.
+	OrcaInstall []string
+	// OrcaVersions lists Orca's releases, oldest first, for update.versions;
+	// nil offers none.
+	OrcaVersions func(ctx context.Context) ([]string, error)
 	// OrcaRunDir holds the pairing request and readiness files,
 	// /run/berth/orca; empty means that.
 	OrcaRunDir string

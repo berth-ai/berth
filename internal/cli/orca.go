@@ -48,7 +48,8 @@ type orcaDevice struct {
 // this Berth, restarting Orca once while its terminal sessions survive;
 // devices lists the apps already paired; sync, run as agent, adds the
 // workspaces to Orca and removes the ones Berth added that are gone;
-// status, run as agent, says which workspaces Orca has.
+// status, run as agent, says which workspaces Orca has; install, as root,
+// installs the release Orca should run.
 func runOrca(ctx context.Context, a *app, args []string) error {
 	fs := newFlagSet("orca")
 	jsonOut := fs.Bool("json", false, "print JSON")
@@ -60,16 +61,19 @@ func runOrca(ctx context.Context, a *app, args []string) error {
 	a.p.JSON = *jsonOut
 	switch {
 	case len(pos) == 0:
-		return usageErr(errors.New("orca needs a subcommand: pair, devices, sync or status"))
-	case !slices.Contains([]string{"pair", "devices", "sync", "status"}, pos[0]):
-		return usageErr(fmt.Errorf("unknown orca subcommand %q; use pair, devices, sync or status", pos[0]))
+		return usageErr(errors.New("orca needs a subcommand: pair, devices, sync, status or install"))
+	case !slices.Contains([]string{"pair", "devices", "sync", "status", "install"}, pos[0]):
+		return usageErr(fmt.Errorf("unknown orca subcommand %q; use pair, devices, sync, status or install", pos[0]))
 	case len(pos) > 1:
 		return usageErr(fmt.Errorf("orca %s takes no arguments", pos[0]))
 	case pos[0] != "pair" && *mobile:
 		return usageErr(errors.New("--mobile is for orca pair"))
 	}
-	if pos[0] == "sync" || pos[0] == "status" {
+	switch pos[0] {
+	case "sync", "status":
 		return orcaSync(ctx, a, pos[0])
+	case "install":
+		return runOrcaInstall(ctx, a)
 	}
 	if !a.cfg.IsRoot {
 		return output.Errorf(output.ExitNotRoot, "not_root", "",
